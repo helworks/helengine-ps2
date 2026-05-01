@@ -5,3 +5,6 @@ render-validation-output/
 **/render-validation-output/
 .codex-build
 .worktrees/
+build/
+*.elf
+*.map
