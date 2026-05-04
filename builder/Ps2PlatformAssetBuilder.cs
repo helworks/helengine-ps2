@@ -10,6 +10,8 @@ using helengine.baseplatform.Definitions;
 namespace helengine.ps2.builder;
 
 public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
+    const string RepositoryRootEnvironmentVariableName = "HELENGINE_PS2_REPOSITORY_ROOT";
+
     readonly IPs2NativeBuildExecutor NativeBuildExecutor;
 
     public Ps2PlatformAssetBuilder() {
@@ -198,11 +200,14 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     }
 
     static string ResolveRepositoryRootPath() {
+        string configuredRepositoryRootPath = Environment.GetEnvironmentVariable(RepositoryRootEnvironmentVariableName) ?? string.Empty;
+        if (IsRepositoryRootPath(configuredRepositoryRootPath)) {
+            return Path.GetFullPath(configuredRepositoryRootPath);
+        }
+
         string currentPath = AppContext.BaseDirectory;
         while (!string.IsNullOrWhiteSpace(currentPath)) {
-            string makefilePath = Path.Combine(currentPath, "Makefile");
-            string bootHostPath = Path.Combine(currentPath, "src", "platform", "ps2", "Ps2BootHost.cpp");
-            if (File.Exists(makefilePath) && File.Exists(bootHostPath)) {
+            if (IsRepositoryRootPath(currentPath)) {
                 return currentPath;
             }
 
@@ -215,6 +220,16 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         }
 
         throw new InvalidOperationException("Could not resolve the helengine-ps2 repository root from the builder assembly location.");
+    }
+
+    static bool IsRepositoryRootPath(string path) {
+        if (string.IsNullOrWhiteSpace(path)) {
+            return false;
+        }
+
+        string makefilePath = Path.Combine(path, "Makefile");
+        string bootHostPath = Path.Combine(path, "src", "platform", "ps2", "Ps2BootHost.cpp");
+        return File.Exists(makefilePath) && File.Exists(bootHostPath);
     }
 
     static Ps2BuildWorkspace CreateWorkspace(PlatformBuildRequest request) {
