@@ -19,9 +19,12 @@ GENERATED_CORE_STAGE_ROOT := $(BUILD_DIR)/generated-core
 GENERATED_CORE_STAGE_STAMP := $(GENERATED_CORE_STAGE_ROOT)/.prepared
 PS2_SOURCES := \
 	$(SOURCE_DIR)/main.cpp \
+	$(SOURCE_DIR)/platform/ps2/Ps2InputBackend.cpp \
 	$(SOURCE_DIR)/platform/ps2/Ps2BootHost.cpp
 OBJECTS := \
 	$(patsubst $(SOURCE_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(PS2_SOURCES)) \
+	$(BUILD_DIR)/generated/runtime/runtime_startup_manifest.o \
+	$(BUILD_DIR)/generated/runtime/runtime_code_module_manifest.o \
 	$(BUILD_DIR)/generated/helengine_core_unity.o
 
 CXX := mips64r5900el-ps2-elf-g++
@@ -49,6 +52,7 @@ LDFLAGS := \
 	-Wl,-zmax-page-size=128
 
 LDLIBS := \
+	-latomic \
 	-lstdc++ \
 	-lkernel \
 	-lpad \
@@ -80,8 +84,17 @@ $(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.cpp
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/platform/ps2/Ps2BootHost.o: $(GENERATED_CORE_STAGE_STAMP)
+$(BUILD_DIR)/platform/ps2/Ps2InputBackend.o: $(GENERATED_CORE_STAGE_STAMP)
 
 $(BUILD_DIR)/generated/helengine_core_unity.o: $(GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp $(GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/generated/runtime/runtime_startup_manifest.o: $(GENERATED_CORE_STAGE_ROOT)/runtime/runtime_startup_manifest.cpp $(GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/generated/runtime/runtime_code_module_manifest.o: $(GENERATED_CORE_STAGE_ROOT)/runtime/runtime_code_module_manifest.cpp $(GENERATED_CORE_STAGE_STAMP)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
