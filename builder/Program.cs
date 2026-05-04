@@ -29,40 +29,40 @@ public static class Program {
     static void RunSmokeTest() {
         string workingRoot = Path.Combine(Path.GetTempPath(), "helengine-ps2-builder-smoke-" + Guid.NewGuid().ToString("N"));
         string outputRoot = Path.Combine(workingRoot, "out");
-        string sourceRoot = Path.Combine(workingRoot, "project");
-        string sceneSourcePath = Path.Combine(sourceRoot, "scenes", "startup.helen");
-        string fontSourcePath = Path.Combine(sourceRoot, "assets", "fonts", "ui.font.asset");
+        string sourceRoot = Path.Combine(workingRoot, "staging");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+        string sceneSourcePath = Path.Combine(sourceRoot, "cooked", "scenes", "main.hasset");
 
         Directory.CreateDirectory(Path.GetDirectoryName(sceneSourcePath)!);
-        Directory.CreateDirectory(Path.GetDirectoryName(fontSourcePath)!);
+        Directory.CreateDirectory(generatedCoreRoot);
         File.WriteAllText(sceneSourcePath, "scene payload");
-        File.WriteAllText(fontSourcePath, "font payload");
+        File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_unity.cpp"), "// generated");
 
         string previousDirectory = Directory.GetCurrentDirectory();
         try {
             Directory.SetCurrentDirectory(sourceRoot);
 
             PlatformBuildManifest manifest = new(
-                1,
+                3,
                 "project",
                 "1.0.0",
                 "1.0.0",
+                "startup",
                 [
                     new PlatformBuildScene(
                         "startup",
                         "Startup",
-                        "scenes/startup.helen",
+                        "cooked/scenes/main.hasset",
                         [],
                         [])
                 ],
+                Array.Empty<PlatformBuildAsset>(),
                 [
-                    new PlatformBuildAsset(
-                        "ui-font",
-                        "UI Font",
-                        "assets/fonts/ui.font.asset",
-                        new PlatformBuildPayloadReference("ui-font-payload", "assets/fonts/ui.font.asset"),
-                        [])
-                ]);
+                    new PlatformBuildArtifact("cooked/scenes/main.hasset", "scene:main", "sha256:scene", "scene", "shared")
+                ],
+                Array.Empty<PlatformBuildCodeModule>(),
+                Array.Empty<PlatformArtifactPlacement>(),
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -77,9 +77,18 @@ public static class Program {
                         "ps2-scene-v1",
                         PlatformSerializationEndianness.LittleEndian))],
                 outputRoot,
-                Path.Combine(workingRoot, "tmp"));
+                Path.Combine(workingRoot, "tmp"),
+                selectedBuildProfileId: "ps2-default",
+                selectedGraphicsProfileId: "gs-kit",
+                selectedCodegenProfileId: "default",
+                selectedBuildOptionValues: new Dictionary<string, string>(),
+                selectedGraphicsOptionValues: new Dictionary<string, string>(),
+                selectedCodegenOptionValues: new Dictionary<string, string>(),
+                generatedCoreCppRootPath: generatedCoreRoot,
+                selectedMediaProfileId: "ps2-install-tree",
+                selectedStorageProfileId: "disc-layout");
 
-            Ps2PlatformAssetBuilder builder = new();
+            Ps2PlatformAssetBuilder builder = new(new SmokeTestNativeBuildExecutor());
             var report = builder.BuildAsync(
                 request,
                 new NullProgressReporter(),
@@ -90,16 +99,12 @@ public static class Program {
                 throw new InvalidOperationException("Smoke test build failed.");
             }
 
-            if (!File.Exists(Path.Combine(outputRoot, "scenes", "startup.helen"))) {
+            if (!File.Exists(Path.Combine(outputRoot, "cooked", "scenes", "main.hasset"))) {
                 throw new InvalidOperationException("Smoke test scene output is missing.");
             }
 
-            if (!File.Exists(Path.Combine(outputRoot, "assets", "fonts", "ui.font.asset"))) {
-                throw new InvalidOperationException("Smoke test asset output is missing.");
-            }
-
-            if (!File.Exists(Path.Combine(workingRoot, "tmp", "ps2-build-manifest.json"))) {
-                throw new InvalidOperationException("Smoke test build manifest is missing.");
+            if (!File.Exists(Path.Combine(outputRoot, "helengine_ps2.elf"))) {
+                throw new InvalidOperationException("Smoke test PS2 ELF is missing.");
             }
 
             Console.WriteLine("Smoke test passed.");
@@ -125,6 +130,14 @@ public static class Program {
 
     sealed class NullDiagnosticReporter : helengine.baseplatform.Builders.IPlatformBuildDiagnosticReporter {
         public void Report(helengine.baseplatform.Reporting.PlatformBuildDiagnostic diagnostic) {
+        }
+    }
+
+    sealed class SmokeTestNativeBuildExecutor : IPs2NativeBuildExecutor {
+        public void Build(Ps2BuildWorkspace workspace, CancellationToken cancellationToken) {
+            string executableDirectoryPath = Path.GetDirectoryName(workspace.NativeExecutablePath)!;
+            Directory.CreateDirectory(executableDirectoryPath);
+            File.WriteAllText(workspace.NativeExecutablePath, "elf");
         }
     }
 }

@@ -1,0 +1,68 @@
+namespace helengine.ps2.builder;
+
+/// <summary>
+/// Describes the prepared filesystem layout consumed by the native PS2 Docker build.
+/// </summary>
+public sealed class Ps2BuildWorkspace {
+    /// <summary>
+    /// Initializes one PS2 build workspace.
+    /// </summary>
+    /// <param name="repositoryRootPath">PS2 native repository root that contains the Dockerfile and Makefile.</param>
+    /// <param name="stagingRootPath">Prepared staged package root used as the source of cooked runtime files.</param>
+    /// <param name="generatedCoreRootPath">Generated native core root compiled into the PS2 ELF.</param>
+    /// <param name="outputRootPath">Final export root that receives the ELF and cooked runtime files.</param>
+    /// <param name="nativeExecutablePath">Absolute path to the built ELF produced by the Docker build.</param>
+    public Ps2BuildWorkspace(
+        string repositoryRootPath,
+        string stagingRootPath,
+        string generatedCoreRootPath,
+        string outputRootPath,
+        string nativeExecutablePath) {
+        if (string.IsNullOrWhiteSpace(repositoryRootPath)) {
+            throw new ArgumentException("Repository root path must be provided.", nameof(repositoryRootPath));
+        }
+        if (string.IsNullOrWhiteSpace(stagingRootPath)) {
+            throw new ArgumentException("Staging root path must be provided.", nameof(stagingRootPath));
+        }
+        if (string.IsNullOrWhiteSpace(generatedCoreRootPath)) {
+            throw new ArgumentException("Generated core root path must be provided.", nameof(generatedCoreRootPath));
+        }
+        if (string.IsNullOrWhiteSpace(outputRootPath)) {
+            throw new ArgumentException("Output root path must be provided.", nameof(outputRootPath));
+        }
+        if (string.IsNullOrWhiteSpace(nativeExecutablePath)) {
+            throw new ArgumentException("Native executable path must be provided.", nameof(nativeExecutablePath));
+        }
+
+        RepositoryRootPath = Path.GetFullPath(repositoryRootPath);
+        StagingRootPath = Path.GetFullPath(stagingRootPath);
+        GeneratedCoreRootPath = Path.GetFullPath(generatedCoreRootPath);
+        OutputRootPath = Path.GetFullPath(outputRootPath);
+        NativeExecutablePath = Path.GetFullPath(nativeExecutablePath);
+    }
+
+    /// <summary>
+    /// Gets the PS2 native repository root that contains the Dockerfile and Makefile.
+    /// </summary>
+    public string RepositoryRootPath { get; }
+
+    /// <summary>
+    /// Gets the prepared staged package root used as the source of cooked runtime files.
+    /// </summary>
+    public string StagingRootPath { get; }
+
+    /// <summary>
+    /// Gets the generated native core root compiled into the PS2 ELF.
+    /// </summary>
+    public string GeneratedCoreRootPath { get; }
+
+    /// <summary>
+    /// Gets the final export root that receives the ELF and cooked runtime files.
+    /// </summary>
+    public string OutputRootPath { get; }
+
+    /// <summary>
+    /// Gets the absolute path to the built ELF produced by the Docker build.
+    /// </summary>
+    public string NativeExecutablePath { get; }
+}

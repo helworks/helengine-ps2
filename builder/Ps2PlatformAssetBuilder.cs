@@ -1,4 +1,3 @@
-using System.Text.Json;
 using helengine.baseplatform.Builders;
 using helengine.baseplatform.Descriptors;
 using helengine.baseplatform.Manifest;
@@ -11,17 +10,29 @@ using helengine.baseplatform.Definitions;
 namespace helengine.ps2.builder;
 
 public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
-    static readonly JsonSerializerOptions JsonOptions = new() {
-        WriteIndented = true
-    };
+    readonly IPs2NativeBuildExecutor NativeBuildExecutor;
 
     public Ps2PlatformAssetBuilder() {
+        NativeBuildExecutor = new Ps2NativeBuildExecutor();
         Descriptor = new PlatformBuilderDescriptor(
             "helengine.ps2.builder",
             "1.0.0",
             "ps2",
             new EngineCompatibilityRange("1.0.0", "999.0.0"),
-            new ManifestCompatibilityRange(1, 1),
+            new ManifestCompatibilityRange(1, 3),
+            ["ps2"],
+            ["ps2"]);
+        Definition = Ps2PlatformDefinitionFactory.Create();
+    }
+
+    public Ps2PlatformAssetBuilder(IPs2NativeBuildExecutor nativeBuildExecutor) {
+        NativeBuildExecutor = nativeBuildExecutor ?? throw new ArgumentNullException(nameof(nativeBuildExecutor));
+        Descriptor = new PlatformBuilderDescriptor(
+            "helengine.ps2.builder",
+            "1.0.0",
+            "ps2",
+            new EngineCompatibilityRange("1.0.0", "999.0.0"),
+            new ManifestCompatibilityRange(1, 3),
             ["ps2"],
             ["ps2"]);
         Definition = Ps2PlatformDefinitionFactory.Create();
@@ -36,6 +47,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         IPlatformBuildProgressReporter progressReporter,
         IPlatformBuildDiagnosticReporter diagnosticReporter,
         CancellationToken cancellationToken) {
+        ValidateRequest(request);
         if (request == null) {
             throw new ArgumentNullException(nameof(request));
         }
@@ -50,83 +62,17 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         Directory.CreateDirectory(request.WorkingRoot);
 
         List<PlatformBuildDiagnostic> diagnostics = [];
-        List<PlatformBuildItemOutcome> sceneOutcomes = [];
-        List<PlatformBuildItemOutcome> looseAssetOutcomes = [];
-        List<Ps2BuildManifestEntry> sceneEntries = [];
-        List<Ps2BuildManifestEntry> looseAssetEntries = [];
+        List<PlatformBuildItemOutcome> sceneOutcomes = BuildSceneOutcomes(request.Manifest.Scenes);
+        List<PlatformBuildItemOutcome> looseAssetOutcomes = BuildLooseAssetOutcomes(request.Manifest.LooseAssets);
+        StageCookedArtifacts(request, diagnostics, diagnosticReporter, progressReporter, cancellationToken);
 
-        int totalItems = request.Manifest.Scenes.Length + request.Manifest.LooseAssets.Length;
-        int completedItems = 0;
-
-        for (int sceneIndex = 0; sceneIndex < request.Manifest.Scenes.Length; sceneIndex++) {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            PlatformBuildScene scene = request.Manifest.Scenes[sceneIndex];
-            CopyPayload(
-                scene.SceneId,
-                scene.SourceIdentity,
-                request.OutputRoot,
-                diagnostics,
-                diagnosticReporter,
-                out bool copied,
-                out string outputPath);
-
-            if (copied) {
-                sceneOutcomes.Add(new PlatformBuildItemOutcome(scene.SceneId, PlatformBuildItemOutcomeKind.Succeeded));
-            } else {
-                sceneOutcomes.Add(new PlatformBuildItemOutcome(scene.SceneId, PlatformBuildItemOutcomeKind.Failed));
-            }
-
-            completedItems++;
-            progressReporter.Report(new PlatformBuildProgressUpdate(
-                "Stage Payloads",
-                scene.SceneId,
-                completedItems,
-                totalItems,
-                copied ? $"Staged scene '{scene.SceneName}'." : $"Failed to stage scene '{scene.SceneName}'."));
-
-            if (copied) {
-                sceneEntries.Add(new Ps2BuildManifestEntry(scene.SceneId, scene.SourceIdentity, outputPath));
-            }
+        if (diagnostics.Count == 0) {
+            Ps2BuildWorkspace workspace = CreateWorkspace(request);
+            NativeBuildExecutor.Build(workspace, cancellationToken);
+            CopyNativeExecutable(workspace);
         }
 
-        for (int assetIndex = 0; assetIndex < request.Manifest.LooseAssets.Length; assetIndex++) {
-            cancellationToken.ThrowIfCancellationRequested();
-
-            PlatformBuildAsset asset = request.Manifest.LooseAssets[assetIndex];
-            CopyPayload(
-                asset.AssetId,
-                asset.SourceIdentity,
-                request.OutputRoot,
-                diagnostics,
-                diagnosticReporter,
-                out bool copied,
-                out string outputPath);
-
-            if (copied) {
-                looseAssetOutcomes.Add(new PlatformBuildItemOutcome(asset.AssetId, PlatformBuildItemOutcomeKind.Succeeded));
-            } else {
-                looseAssetOutcomes.Add(new PlatformBuildItemOutcome(asset.AssetId, PlatformBuildItemOutcomeKind.Failed));
-            }
-
-            completedItems++;
-            progressReporter.Report(new PlatformBuildProgressUpdate(
-                "Stage Payloads",
-                asset.AssetId,
-                completedItems,
-                totalItems,
-                copied ? $"Staged asset '{asset.AssetName}'." : $"Failed to stage asset '{asset.AssetName}'."));
-
-            if (copied) {
-                looseAssetEntries.Add(new Ps2BuildManifestEntry(asset.AssetId, asset.SourceIdentity, outputPath));
-            }
-        }
-
-        WriteBuildManifest(request, sceneEntries, looseAssetEntries);
-
-        bool succeeded = diagnostics.Count == 0
-            && sceneOutcomes.TrueForAll(outcome => outcome.OutcomeKind == PlatformBuildItemOutcomeKind.Succeeded)
-            && looseAssetOutcomes.TrueForAll(outcome => outcome.OutcomeKind == PlatformBuildItemOutcomeKind.Succeeded);
+        bool succeeded = diagnostics.Count == 0;
 
         return Task.FromResult(new PlatformBuildReport(
             succeeded,
@@ -135,52 +81,84 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             [.. looseAssetOutcomes]));
     }
 
-    void CopyPayload(
-        string itemId,
-        string sourceIdentity,
-        string outputRoot,
+    void StageCookedArtifacts(
+        PlatformBuildRequest request,
         List<PlatformBuildDiagnostic> diagnostics,
         IPlatformBuildDiagnosticReporter diagnosticReporter,
-        out bool copied,
-        out string outputPath) {
-        copied = false;
-        outputPath = string.Empty;
+        IPlatformBuildProgressReporter progressReporter,
+        CancellationToken cancellationToken) {
+        PlatformBuildArtifact[] cookedArtifacts = request.Manifest.CookedArtifacts ?? [];
+        for (int artifactIndex = 0; artifactIndex < cookedArtifacts.Length; artifactIndex++) {
+            cancellationToken.ThrowIfCancellationRequested();
 
-        if (string.IsNullOrWhiteSpace(sourceIdentity)) {
-            AddDiagnostic(
-                diagnostics,
-                diagnosticReporter,
-                PlatformBuildDiagnosticSeverity.Error,
-                "PS2BUILD001",
-                $"Item '{itemId}' is missing a source identity.",
-                string.Empty,
-                itemId,
-                string.Empty);
-            return;
+            PlatformBuildArtifact artifact = cookedArtifacts[artifactIndex];
+            if (string.IsNullOrWhiteSpace(artifact.RelativePath)) {
+                AddDiagnostic(
+                    diagnostics,
+                    diagnosticReporter,
+                    PlatformBuildDiagnosticSeverity.Error,
+                    "PS2BUILD001",
+                    "Cooked artifact relative path is required.",
+                    string.Empty,
+                    string.Empty,
+                    string.Empty);
+                continue;
+            }
+
+            string sourcePath = ResolveStagedArtifactSourcePath(artifact.RelativePath);
+            if (!File.Exists(sourcePath)) {
+                AddDiagnostic(
+                    diagnostics,
+                    diagnosticReporter,
+                    PlatformBuildDiagnosticSeverity.Error,
+                    "PS2BUILD002",
+                    $"Cooked artifact '{artifact.RelativePath}' was not found in the staged package root.",
+                    string.Empty,
+                    artifact.LogicalArtifactId,
+                    artifact.RelativePath);
+                continue;
+            }
+
+            string destinationPath = Path.Combine(request.OutputRoot, NormalizeRelativePath(artifact.RelativePath));
+            string destinationDirectory = Path.GetDirectoryName(destinationPath);
+            if (!string.IsNullOrWhiteSpace(destinationDirectory)) {
+                Directory.CreateDirectory(destinationDirectory);
+            }
+
+            File.Copy(sourcePath, destinationPath, true);
+            progressReporter.Report(new PlatformBuildProgressUpdate(
+                "Stage Cooked Artifacts",
+                artifact.LogicalArtifactId,
+                artifactIndex + 1,
+                cookedArtifacts.Length,
+                $"Staged cooked artifact '{artifact.RelativePath}'."));
+        }
+    }
+
+    static List<PlatformBuildItemOutcome> BuildSceneOutcomes(PlatformBuildScene[] scenes) {
+        List<PlatformBuildItemOutcome> outcomes = [];
+        if (scenes == null) {
+            return outcomes;
         }
 
-        string sourcePath = ResolveSourcePath(sourceIdentity);
-        if (!File.Exists(sourcePath)) {
-            AddDiagnostic(
-                diagnostics,
-                diagnosticReporter,
-                PlatformBuildDiagnosticSeverity.Error,
-                "PS2BUILD002",
-                $"Payload source '{sourceIdentity}' was not found.",
-                string.Empty,
-                itemId,
-                sourceIdentity);
-            return;
+        for (int index = 0; index < scenes.Length; index++) {
+            outcomes.Add(new PlatformBuildItemOutcome(scenes[index].SceneId, PlatformBuildItemOutcomeKind.Succeeded));
         }
 
-        outputPath = ResolveOutputPath(outputRoot, sourceIdentity);
-        string destinationDirectory = Path.GetDirectoryName(outputPath);
-        if (!string.IsNullOrWhiteSpace(destinationDirectory)) {
-            Directory.CreateDirectory(destinationDirectory);
+        return outcomes;
+    }
+
+    static List<PlatformBuildItemOutcome> BuildLooseAssetOutcomes(PlatformBuildAsset[] looseAssets) {
+        List<PlatformBuildItemOutcome> outcomes = [];
+        if (looseAssets == null) {
+            return outcomes;
         }
 
-        File.Copy(sourcePath, outputPath, true);
-        copied = true;
+        for (int index = 0; index < looseAssets.Length; index++) {
+            outcomes.Add(new PlatformBuildItemOutcome(looseAssets[index].AssetId, PlatformBuildItemOutcomeKind.Succeeded));
+        }
+
+        return outcomes;
     }
 
     static void AddDiagnostic(
@@ -197,54 +175,72 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         diagnosticReporter.Report(diagnostic);
     }
 
-    void WriteBuildManifest(
-        PlatformBuildRequest request,
-        IReadOnlyList<Ps2BuildManifestEntry> sceneEntries,
-        IReadOnlyList<Ps2BuildManifestEntry> looseAssetEntries) {
-        string manifestPath = Path.Combine(request.WorkingRoot, "ps2-build-manifest.json");
-        Ps2BuildManifestDocument manifest = new(
-            request.Manifest.ProjectId,
-            request.Manifest.ProjectVersion,
-            request.Manifest.RequiredEngineVersion,
-            request.OutputRoot,
-            sceneEntries,
-            looseAssetEntries);
-
-        File.WriteAllText(manifestPath, JsonSerializer.Serialize(manifest, JsonOptions));
+    static string ResolveStagedArtifactSourcePath(string relativePath) {
+        string normalizedRelativePath = NormalizeRelativePath(relativePath);
+        return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), normalizedRelativePath));
     }
 
-    static string ResolveOutputPath(string outputRoot, string sourceIdentity) {
-        string normalizedSourceIdentity = NormalizeRelativePath(sourceIdentity);
-        if (Path.IsPathRooted(normalizedSourceIdentity)) {
-            normalizedSourceIdentity = Path.GetFileName(normalizedSourceIdentity);
+    static void CopyNativeExecutable(Ps2BuildWorkspace workspace) {
+        if (workspace == null) {
+            throw new ArgumentNullException(nameof(workspace));
         }
 
-        return Path.GetFullPath(Path.Combine(outputRoot, normalizedSourceIdentity));
-    }
-
-    static string ResolveSourcePath(string sourceIdentity) {
-        string normalizedSourceIdentity = NormalizeRelativePath(sourceIdentity);
-        if (Path.IsPathRooted(normalizedSourceIdentity)) {
-            return Path.GetFullPath(normalizedSourceIdentity);
+        if (!File.Exists(workspace.NativeExecutablePath)) {
+            throw new FileNotFoundException($"PS2 native executable '{workspace.NativeExecutablePath}' was not produced by the Docker build.", workspace.NativeExecutablePath);
         }
 
-        return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), normalizedSourceIdentity));
+        string outputExecutablePath = Path.Combine(workspace.OutputRootPath, "helengine_ps2.elf");
+        File.Copy(workspace.NativeExecutablePath, outputExecutablePath, true);
     }
 
     static string NormalizeRelativePath(string path) {
         return path.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar);
     }
 
-    sealed record Ps2BuildManifestDocument(
-        string ProjectId,
-        string ProjectVersion,
-        string RequiredEngineVersion,
-        string OutputRoot,
-        IReadOnlyList<Ps2BuildManifestEntry> Scenes,
-        IReadOnlyList<Ps2BuildManifestEntry> LooseAssets);
+    static string ResolveRepositoryRootPath() {
+        string currentPath = AppContext.BaseDirectory;
+        while (!string.IsNullOrWhiteSpace(currentPath)) {
+            string makefilePath = Path.Combine(currentPath, "Makefile");
+            string bootHostPath = Path.Combine(currentPath, "src", "platform", "ps2", "Ps2BootHost.cpp");
+            if (File.Exists(makefilePath) && File.Exists(bootHostPath)) {
+                return currentPath;
+            }
 
-    sealed record Ps2BuildManifestEntry(
-        string ItemId,
-        string SourceIdentity,
-        string OutputPath);
+            DirectoryInfo parentDirectory = Directory.GetParent(currentPath);
+            if (parentDirectory == null) {
+                break;
+            }
+
+            currentPath = parentDirectory.FullName;
+        }
+
+        throw new InvalidOperationException("Could not resolve the helengine-ps2 repository root from the builder assembly location.");
+    }
+
+    static Ps2BuildWorkspace CreateWorkspace(PlatformBuildRequest request) {
+        if (request == null) {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        string repositoryRootPath = ResolveRepositoryRootPath();
+        string nativeExecutablePath = Path.Combine(repositoryRootPath, "build", "helengine_ps2.elf");
+        return new Ps2BuildWorkspace(
+            repositoryRootPath,
+            Directory.GetCurrentDirectory(),
+            request.GeneratedCoreCppRootPath,
+            request.OutputRoot,
+            nativeExecutablePath);
+    }
+
+    static void ValidateRequest(PlatformBuildRequest request) {
+        if (request == null) {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (string.IsNullOrWhiteSpace(request.GeneratedCoreCppRootPath)) {
+            throw new ArgumentException("Generated core root path must be provided for PS2 builds.", nameof(request));
+        }
+        if (!Directory.Exists(request.GeneratedCoreCppRootPath)) {
+            throw new DirectoryNotFoundException($"Generated core root '{request.GeneratedCoreCppRootPath}' was not found.");
+        }
+    }
 }
