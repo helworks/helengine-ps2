@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <IsPackable>false</IsPackable>
+    <HelengineRoot Condition="'$(HelengineRoot)' == '' and '$(HELENGINE_ROOT)' != ''">$(HELENGINE_ROOT)</HelengineRoot>
+    <HelengineRoot Condition="'$(HelengineRoot)' == ''">$(MSBuildThisFileDirectory)..\..\helengine</HelengineRoot>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,7 +22,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\builder\helengine.ps2.builder.csproj" />
-    <ProjectReference Include="..\..\helengine\engine\helengine.baseplatform\helengine.baseplatform.csproj" />
+    <ProjectReference Include="$(HelengineRoot)\engine\helengine.baseplatform\helengine.baseplatform.csproj" />
   </ItemGroup>
+
+  <Target Name="ValidateHelengineRoot" BeforeTargets="CollectPackageReferences">
+    <Error Condition="!Exists('$(HelengineRoot)\engine\helengine.baseplatform\helengine.baseplatform.csproj')" Text="helengine checkout not found. Set the HelengineRoot MSBuild property or HELENGINE_ROOT environment variable to a valid helengine checkout." />
+  </Target>
 
 </Project>

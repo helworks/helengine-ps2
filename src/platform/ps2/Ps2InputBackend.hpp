@@ -5,8 +5,6 @@
 #include "IInputBackend.hpp"
 #include "InputFrameState.hpp"
 #include "InputGamepadState.hpp"
-#include "KeyboardState.hpp"
-#include "MouseState.hpp"
 #include "platform/ps2/Ps2PadInputMapper.hpp"
 
 namespace helengine::ps2 {
@@ -24,10 +22,6 @@ namespace helengine::ps2 {
         static Ps2PadButtons DecodeButtons(const padButtonStatus& buttons);
 
         InputGamepadState CaptureGamepadState() const;
-
-        KeyboardState CaptureKeyboardState() const;
-
-        MouseState CaptureMouseState() const;
 
         void Refresh();
 

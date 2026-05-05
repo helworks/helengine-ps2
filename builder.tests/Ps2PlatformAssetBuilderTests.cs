@@ -1,9 +1,12 @@
+using helengine;
 using helengine.baseplatform.Manifest;
 using helengine.baseplatform.Definitions;
 using helengine.baseplatform.Profiles;
 using helengine.baseplatform.Reporting;
 using helengine.baseplatform.Requests;
+using helengine.baseplatform.Results;
 using helengine.baseplatform.Targets;
+using helengine.files;
 using helengine.ps2.builder;
 using Xunit;
 
@@ -19,7 +22,6 @@ public class Ps2PlatformAssetBuilderTests {
         Assert.Contains("ps2", builder.Descriptor.SupportedRuntimeBackendIds);
         Assert.Equal("ps2", builder.Definition.PlatformId);
         Assert.Contains(builder.Definition.BuildProfiles, profile => profile.ProfileId == "ps2-default");
-        Assert.Contains(builder.Definition.GraphicsProfiles, profile => profile.ProfileId == "gs-kit");
         Assert.Contains(builder.Definition.StorageProfiles, profile =>
             profile.ProfileId == "disc-layout" &&
             profile.RuntimeSpecializationId == "ps2-disc-layout");
@@ -29,6 +31,97 @@ public class Ps2PlatformAssetBuilderTests {
         Assert.Contains(builder.Definition.ComponentCompatibilities, compatibility =>
             compatibility.ComponentTypeId == "helengine.meshcomponent" &&
             compatibility.CompatibilityKind == PlatformComponentCompatibilityKind.Transform);
+        Assert.Contains(builder.Definition.GraphicsProfiles, profile => profile.ProfileId == "ps2-standard-forward");
+        Assert.Contains(builder.Definition.GraphicsProfiles, profile => profile.ProfileId == "ps2-showcase-forward");
+        Assert.Contains(builder.Definition.MaterialSchemas, schema => schema.SchemaId == "ps2-unlit-textured");
+        Assert.Contains(builder.Definition.MaterialSchemas, schema => schema.SchemaId == "ps2-simple-lit-textured");
+        Assert.Contains(builder.Definition.MaterialSchemas, schema => schema.SchemaId == "ps2-showcase-lit-textured");
+    }
+
+    [Fact]
+    public void CookMaterial_when_using_ps2_simple_lit_schema_returns_ps2_material_asset() {
+        Ps2PlatformAssetBuilder builder = new();
+
+        PlatformMaterialCookResult result = builder.CookMaterial(new PlatformMaterialCookRequest(
+            "Materials/Test.helmat",
+            "Materials/Test.helmat",
+            "ps2",
+            "ps2-default",
+            "ps2-standard-forward",
+            "ps2-simple-lit-textured",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
+                ["texture-relative-path"] = "cooked/textures/test.hasset",
+                ["alpha-mode"] = "opaque",
+                ["double-sided"] = "false",
+                ["vertex-color-mode"] = "multiply"
+            }));
+
+        Ps2MaterialAsset materialAsset = Assert.IsType<Ps2MaterialAsset>(AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
+        Assert.Equal("ps2-standard-forward", materialAsset.RendererFamilyId);
+        Assert.Equal(Ps2MaterialLightingMode.SimpleLit, materialAsset.LightingMode);
+        Assert.Equal(Ps2MaterialAlphaMode.Opaque, materialAsset.AlphaMode);
+        Assert.Equal(Ps2RenderClass.Opaque, materialAsset.RenderClass);
+        Assert.Equal("cooked/textures/test.hasset", materialAsset.TextureRelativePath);
+        Assert.False(materialAsset.DoubleSided);
+        Assert.True(materialAsset.UseVertexColor);
+        Assert.False(materialAsset.ExpensiveModeAllowed);
+        Assert.Empty(result.ReferencedShaderAssetIds);
+    }
+
+    /// <summary>
+    /// Verifies that the PS2 cooker preserves the double-sided material flag and maps translucent materials into the transparent render class.
+    /// </summary>
+    [Fact]
+    public void CookMaterial_when_using_ps2_showcase_schema_preserves_double_sided_flag() {
+        Ps2PlatformAssetBuilder builder = new();
+
+        PlatformMaterialCookResult result = builder.CookMaterial(new PlatformMaterialCookRequest(
+            "Materials/Test.helmat",
+            "Materials/Test.helmat",
+            "ps2",
+            "ps2-default",
+            "ps2-standard-forward",
+            "ps2-showcase-lit-textured",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
+                ["texture-relative-path"] = "cooked/textures/test.hasset",
+                ["alpha-mode"] = "alpha-blend",
+                ["double-sided"] = "true",
+                ["vertex-color-mode"] = "multiply",
+                ["expensive-mode-allowed"] = "true"
+            }));
+
+        Ps2MaterialAsset materialAsset = Assert.IsType<Ps2MaterialAsset>(AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
+        Assert.Equal(Ps2MaterialAlphaMode.AlphaBlend, materialAsset.AlphaMode);
+        Assert.Equal(Ps2RenderClass.Transparent, materialAsset.RenderClass);
+        Assert.True(materialAsset.DoubleSided);
+        Assert.True(materialAsset.ExpensiveModeAllowed);
+    }
+
+    /// <summary>
+    /// Verifies that alpha-test materials remain classified as a dedicated PS2 render class during cooking.
+    /// </summary>
+    [Fact]
+    public void CookMaterial_when_using_ps2_simple_lit_schema_with_alpha_test_maps_to_alpha_test_render_class() {
+        Ps2PlatformAssetBuilder builder = new();
+
+        PlatformMaterialCookResult result = builder.CookMaterial(new PlatformMaterialCookRequest(
+            "Materials/Test.helmat",
+            "Materials/Test.helmat",
+            "ps2",
+            "ps2-default",
+            "ps2-standard-forward",
+            "ps2-simple-lit-textured",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
+                ["texture-relative-path"] = "cooked/textures/test.hasset",
+                ["alpha-mode"] = "alpha-test",
+                ["double-sided"] = "false",
+                ["vertex-color-mode"] = "multiply"
+            }));
+
+        Ps2MaterialAsset materialAsset = Assert.IsType<Ps2MaterialAsset>(AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
+        Assert.Equal(Ps2MaterialAlphaMode.AlphaTest, materialAsset.AlphaMode);
+        Assert.Equal(Ps2RenderClass.AlphaTest, materialAsset.RenderClass);
+        Assert.False(materialAsset.DoubleSided);
     }
 
     [Fact]
@@ -89,7 +182,7 @@ public class Ps2PlatformAssetBuilderTests {
                 outputRoot,
                 Path.Combine(workingRoot, "tmp"),
                 selectedBuildProfileId: "ps2-default",
-                selectedGraphicsProfileId: "gs-kit",
+                selectedGraphicsProfileId: "ps2-standard-forward",
                 selectedCodegenProfileId: "default",
                 selectedBuildOptionValues: new Dictionary<string, string>(),
                 selectedGraphicsOptionValues: new Dictionary<string, string>(),

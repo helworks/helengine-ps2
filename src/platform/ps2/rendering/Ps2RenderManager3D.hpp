@@ -8,6 +8,7 @@
 #include "platform/ps2/rendering/Ps2RenderProxy.hpp"
 
 typedef struct gsGlobal GSGLOBAL;
+typedef struct gsTexture GSTEXTURE;
 
 class Asset;
 class CameraComponent;
@@ -33,20 +34,46 @@ namespace helengine::ps2 {
         void SetGsGlobal(GSGLOBAL* gsGlobal);
 
     private:
-        void DrawOpaqueProxy(const Ps2RenderProxy& proxy, const ::float4x4& viewProjection, const ::float4& viewport);
-        void DrawAlphaProxy(const Ps2RenderProxy& proxy, const ::float4x4& viewProjection, const ::float4& viewport);
+        void DrawOpaqueProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
+        void DrawAlphaProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
+        void DrawSoftwareDepthPass(
+            const Ps2FramePlan& plan,
+            const ::float4x4& view,
+            const ::float4x4& projection,
+            const ::float4& viewport,
+            float nearPlaneDistance,
+            const ::float3& cameraPosition,
+            const ::float3& cameraForward);
         void ApplyDepthState(bool enabled);
-        void ApplyAlphaBlendState(bool enabled);
+        void ApplyMaterialAlphaState(const Ps2RuntimeMaterial& material);
         ::CameraComponent* GetActiveCamera() const;
+        bool ShouldDrawAlphaTestTriangle(
+            const Ps2RuntimeMaterial& material,
+            GSTEXTURE* texture,
+            const ::float2& texCoordA,
+            const ::float2& texCoordB,
+            const ::float2& texCoordC,
+            std::uint8_t alphaA,
+            std::uint8_t alphaB,
+            std::uint8_t alphaC) const;
         void SortAlphaProxies(std::vector<const Ps2RenderProxy*>& proxies, const ::float3& cameraPosition, const ::float3& cameraForward);
         void RebuildProxies();
         bool ProjectWorldPosition(
             const ::float3& worldPosition,
-            const ::float4x4& viewProjection,
+            const ::float4x4& projection,
             const ::float4& viewport,
             float& screenX,
             float& screenY,
             float& screenZ) const;
+        bool IsFrontFacingTriangle(
+            float screenAX,
+            float screenAY,
+            float screenBX,
+            float screenBY,
+            float screenCX,
+            float screenCY) const;
+        std::uint8_t SampleTextureAlpha(GSTEXTURE* texture, const ::float2& texCoord) const;
+        ::float3 TransformPosition(const ::float3& position, const ::float4x4& matrix) const;
         double ComputeProxyDepth(const Ps2RenderProxy& proxy, const ::float3& cameraPosition, const ::float3& cameraForward) const;
         std::uint64_t ResolveVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal);
 

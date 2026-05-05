@@ -43,10 +43,85 @@ namespace helengine::ps2 {
         constexpr double LightingBias = 64.0;
         constexpr float CameraFieldOfViewRadians = 0.785398185f;
         constexpr float MinimumClipW = 0.0001f;
+        constexpr float MinimumNearPlaneEpsilon = 0.00001f;
+        constexpr std::uint8_t AlphaTestCutoff = 0x80;
         const ::float3 DefaultForward(0.0f, 0.0f, -1.0f);
         const ::float3 DefaultUp(0.0f, 1.0f, 0.0f);
 
+        struct Ps2ClipVertex {
+            ::float3 ViewPosition;
+            ::float2 TexCoord;
+            std::uint8_t Red;
+            std::uint8_t Green;
+            std::uint8_t Blue;
+            std::uint8_t Alpha;
+        };
+
         std::unordered_map<std::string, GSTEXTURE*> TextureRecords;
+
+        std::uint8_t ResolveColorComponent(std::uint64_t color, int shift) {
+            return static_cast<std::uint8_t>((color >> shift) & 0xFFu);
+        }
+
+        std::uint64_t PackColor(std::uint8_t red, std::uint8_t green, std::uint8_t blue, std::uint8_t alpha) {
+            return GS_SETREG_RGBAQ(red, green, blue, alpha, 0x00);
+        }
+
+        Ps2ClipVertex CreateClipVertex(const ::float3& viewPosition, const ::float2& texCoord, std::uint64_t color) {
+            Ps2ClipVertex vertex;
+            vertex.ViewPosition = viewPosition;
+            vertex.TexCoord = texCoord;
+            vertex.Red = ResolveColorComponent(color, 0);
+            vertex.Green = ResolveColorComponent(color, 8);
+            vertex.Blue = ResolveColorComponent(color, 16);
+            vertex.Alpha = ResolveColorComponent(color, 24);
+            return vertex;
+        }
+
+        std::uint8_t InterpolateComponent(std::uint8_t start, std::uint8_t end, float amount) {
+            const double blended = static_cast<double>(start) + ((static_cast<double>(end) - static_cast<double>(start)) * static_cast<double>(amount));
+            return static_cast<std::uint8_t>(std::clamp(std::lround(blended), 0l, 255l));
+        }
+
+        Ps2ClipVertex InterpolateClipVertex(const Ps2ClipVertex& start, const Ps2ClipVertex& end, float amount) {
+            Ps2ClipVertex vertex;
+            vertex.ViewPosition.X = start.ViewPosition.X + ((end.ViewPosition.X - start.ViewPosition.X) * amount);
+            vertex.ViewPosition.Y = start.ViewPosition.Y + ((end.ViewPosition.Y - start.ViewPosition.Y) * amount);
+            vertex.ViewPosition.Z = start.ViewPosition.Z + ((end.ViewPosition.Z - start.ViewPosition.Z) * amount);
+            vertex.TexCoord.X = start.TexCoord.X + ((end.TexCoord.X - start.TexCoord.X) * amount);
+            vertex.TexCoord.Y = start.TexCoord.Y + ((end.TexCoord.Y - start.TexCoord.Y) * amount);
+            vertex.Red = InterpolateComponent(start.Red, end.Red, amount);
+            vertex.Green = InterpolateComponent(start.Green, end.Green, amount);
+            vertex.Blue = InterpolateComponent(start.Blue, end.Blue, amount);
+            vertex.Alpha = InterpolateComponent(start.Alpha, end.Alpha, amount);
+            return vertex;
+        }
+
+        void ClipTriangleAgainstNearPlane(const Ps2ClipVertex& first, const Ps2ClipVertex& second, const Ps2ClipVertex& third, float nearPlaneDistance, std::vector<Ps2ClipVertex>& clippedVertices) {
+            clippedVertices.clear();
+
+            Ps2ClipVertex previous = third;
+            bool previousInside = previous.ViewPosition.Z >= nearPlaneDistance;
+            const Ps2ClipVertex vertices[3] = { first, second, third };
+
+            for (const Ps2ClipVertex& current : vertices) {
+                bool currentInside = current.ViewPosition.Z >= nearPlaneDistance;
+                if (currentInside != previousInside) {
+                    const float denominator = current.ViewPosition.Z - previous.ViewPosition.Z;
+                    if (std::abs(denominator) > MinimumNearPlaneEpsilon) {
+                        const float amount = (nearPlaneDistance - previous.ViewPosition.Z) / denominator;
+                        clippedVertices.push_back(InterpolateClipVertex(previous, current, amount));
+                    }
+                }
+
+                if (currentInside) {
+                    clippedVertices.push_back(current);
+                }
+
+                previous = current;
+                previousInside = currentInside;
+            }
+        }
 
         GSTEXTURE* BuildTextureFromAsset(GSGLOBAL* gsGlobal, ::TextureAsset* data) {
             if (gsGlobal == nullptr || data == nullptr || data->Colors == nullptr || data->Colors->Length <= 0 || data->Width <= 0 || data->Height <= 0) {
@@ -173,48 +248,55 @@ namespace helengine::ps2 {
             camera->get_FarPlaneDistance(),
             projection);
 
-        ::float4x4 viewProjection;
-        ::float4x4::Multiply(view, projection, viewProjection);
-
         ApplyDepthState(GsGlobal->ZBuffering == GS_SETTING_ON);
         RebuildProxies();
         Ps2FramePlan plan = FramePlanner.Build(Proxies);
 
-        SortAlphaProxies(plan.AlphaWorld, cameraPosition, cameraForward);
-        SortAlphaProxies(plan.AlphaDynamic, cameraPosition, cameraForward);
+        if (GsGlobal->ZBuffering == GS_SETTING_ON) {
+            SortAlphaProxies(plan.AlphaWorld, cameraPosition, cameraForward);
+            SortAlphaProxies(plan.AlphaDynamic, cameraPosition, cameraForward);
 
-        for (const Ps2RenderProxy* proxy : plan.OpaqueWorld) {
-            if (proxy != nullptr) {
-                DrawOpaqueProxy(*proxy, viewProjection, viewport);
+            for (const Ps2RenderProxy* proxy : plan.OpaqueWorld) {
+                if (proxy != nullptr) {
+                    DrawOpaqueProxy(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                }
             }
+
+            for (const Ps2RenderProxy* proxy : plan.OpaqueDynamic) {
+                if (proxy != nullptr) {
+                    DrawOpaqueProxy(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                }
+            }
+
+            for (const Ps2RenderProxy* proxy : plan.AlphaWorld) {
+                if (proxy != nullptr) {
+                    DrawAlphaProxy(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                }
+            }
+
+            for (const Ps2RenderProxy* proxy : plan.AlphaDynamic) {
+                if (proxy != nullptr) {
+                    DrawAlphaProxy(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                }
+            }
+            return;
         }
 
-        for (const Ps2RenderProxy* proxy : plan.OpaqueDynamic) {
-            if (proxy != nullptr) {
-                DrawOpaqueProxy(*proxy, viewProjection, viewport);
-            }
-        }
-
-        ApplyAlphaBlendState(true);
-        for (const Ps2RenderProxy* proxy : plan.AlphaWorld) {
-            if (proxy != nullptr) {
-                DrawAlphaProxy(*proxy, viewProjection, viewport);
-            }
-        }
-
-        for (const Ps2RenderProxy* proxy : plan.AlphaDynamic) {
-            if (proxy != nullptr) {
-                DrawAlphaProxy(*proxy, viewProjection, viewport);
-            }
-        }
-        ApplyAlphaBlendState(false);
+        DrawSoftwareDepthPass(
+            plan,
+            view,
+            projection,
+            viewport,
+            camera->get_NearPlaneDistance(),
+            cameraPosition,
+            cameraForward);
     }
 
     void Ps2RenderManager3D::SetGsGlobal(GSGLOBAL* gsGlobal) {
         GsGlobal = gsGlobal;
     }
 
-    void Ps2RenderManager3D::DrawOpaqueProxy(const Ps2RenderProxy& proxy, const ::float4x4& viewProjection, const ::float4& viewport) {
+    void Ps2RenderManager3D::DrawOpaqueProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {
         const Ps2RuntimeModel* model = proxy.GetModel();
         const Ps2RuntimeMaterial* material = proxy.GetMaterial();
         ::IDrawable3D* drawable = proxy.GetDrawable();
@@ -236,6 +318,9 @@ namespace helengine::ps2 {
             parentPosition = parent->get_Position();
         }
 
+        ApplyMaterialAlphaState(*material);
+        const bool doubleSided = material->GetDoubleSided();
+
         GSTEXTURE* texture = nullptr;
         if (!material->GetTextureRelativePath().empty()) {
             texture = ResolveTexture(GsGlobal, material->GetTextureRelativePath());
@@ -252,6 +337,9 @@ namespace helengine::ps2 {
             ::float3 positionA = positions[indexA] + parentPosition;
             ::float3 positionB = positions[indexB] + parentPosition;
             ::float3 positionC = positions[indexC] + parentPosition;
+            ::float3 viewPositionA = TransformPosition(positionA, view);
+            ::float3 viewPositionB = TransformPosition(positionB, view);
+            ::float3 viewPositionC = TransformPosition(positionC, view);
 
             ::float3 normalA = indexA < normals.size() ? normals[indexA] : ::float3::get_Zero();
             ::float3 normalB = indexB < normals.size() ? normals[indexB] : ::float3::get_Zero();
@@ -260,45 +348,111 @@ namespace helengine::ps2 {
             const std::uint64_t colorA = ResolveVertexColor(*material, normalA);
             const std::uint64_t colorB = ResolveVertexColor(*material, normalB);
             const std::uint64_t colorC = ResolveVertexColor(*material, normalC);
-            float screenAX;
-            float screenAY;
-            float screenAZ;
-            float screenBX;
-            float screenBY;
-            float screenBZ;
-            float screenCX;
-            float screenCY;
-            float screenCZ;
-            if (!ProjectWorldPosition(positionA, viewProjection, viewport, screenAX, screenAY, screenAZ)
-                || !ProjectWorldPosition(positionB, viewProjection, viewport, screenBX, screenBY, screenBZ)
-                || !ProjectWorldPosition(positionC, viewProjection, viewport, screenCX, screenCY, screenCZ)) {
+
+            Ps2ClipVertex vertexA = CreateClipVertex(viewPositionA, texCoords.size() > indexA ? texCoords[indexA] : ::float2(0.0f, 0.0f), colorA);
+            Ps2ClipVertex vertexB = CreateClipVertex(viewPositionB, texCoords.size() > indexB ? texCoords[indexB] : ::float2(0.0f, 0.0f), colorB);
+            Ps2ClipVertex vertexC = CreateClipVertex(viewPositionC, texCoords.size() > indexC ? texCoords[indexC] : ::float2(0.0f, 0.0f), colorC);
+
+            std::vector<Ps2ClipVertex> clippedVertices;
+            ClipTriangleAgainstNearPlane(vertexA, vertexB, vertexC, nearPlaneDistance, clippedVertices);
+            if (clippedVertices.size() < 3) {
                 continue;
             }
 
-            if (texture != nullptr
+            const bool useTexture = texture != nullptr
                 && indexA < texCoords.size()
                 && indexB < texCoords.size()
-                && indexC < texCoords.size()) {
-                gsKit_prim_triangle_goraud_texture_3d(
-                    GsGlobal,
-                    texture,
-                    screenAX, screenAY, screenAZ, texCoords[indexA].X, texCoords[indexA].Y,
-                    screenBX, screenBY, screenBZ, texCoords[indexB].X, texCoords[indexB].Y,
-                    screenCX, screenCY, screenCZ, texCoords[indexC].X, texCoords[indexC].Y,
-                    colorA, colorB, colorC);
-                continue;
-            }
+                && indexC < texCoords.size();
 
-            gsKit_prim_triangle_gouraud_3d(
-                GsGlobal,
-                screenAX, screenAY, screenAZ, colorA,
-                screenBX, screenBY, screenBZ, colorB,
-                screenCX, screenCY, screenCZ, colorC);
+            for (std::size_t clippedIndex = 1; clippedIndex + 1 < clippedVertices.size(); clippedIndex++) {
+                const Ps2ClipVertex& clippedA = clippedVertices[0];
+                const Ps2ClipVertex& clippedB = clippedVertices[clippedIndex];
+                const Ps2ClipVertex& clippedC = clippedVertices[clippedIndex + 1];
+
+                float screenAX;
+                float screenAY;
+                float screenAZ;
+                float screenBX;
+                float screenBY;
+                float screenBZ;
+                float screenCX;
+                float screenCY;
+                float screenCZ;
+                if (!ProjectWorldPosition(clippedA.ViewPosition, projection, viewport, screenAX, screenAY, screenAZ)
+                    || !ProjectWorldPosition(clippedB.ViewPosition, projection, viewport, screenBX, screenBY, screenBZ)
+                    || !ProjectWorldPosition(clippedC.ViewPosition, projection, viewport, screenCX, screenCY, screenCZ)) {
+                    continue;
+                }
+
+                if (!doubleSided
+                    && !IsFrontFacingTriangle(screenAX, screenAY, screenBX, screenBY, screenCX, screenCY)) {
+                    continue;
+                }
+
+                if (!ShouldDrawAlphaTestTriangle(
+                        *material,
+                        texture,
+                        clippedA.TexCoord,
+                        clippedB.TexCoord,
+                        clippedC.TexCoord,
+                        clippedA.Alpha,
+                        clippedB.Alpha,
+                        clippedC.Alpha)) {
+                    continue;
+                }
+
+                const std::uint64_t clippedColorA = PackColor(clippedA.Red, clippedA.Green, clippedA.Blue, clippedA.Alpha);
+                const std::uint64_t clippedColorB = PackColor(clippedB.Red, clippedB.Green, clippedB.Blue, clippedB.Alpha);
+                const std::uint64_t clippedColorC = PackColor(clippedC.Red, clippedC.Green, clippedC.Blue, clippedC.Alpha);
+
+                if (useTexture) {
+                    gsKit_prim_triangle_goraud_texture_3d(
+                        GsGlobal,
+                        texture,
+                        screenAX, screenAY, screenAZ, clippedA.TexCoord.X, clippedA.TexCoord.Y,
+                        screenBX, screenBY, screenBZ, clippedB.TexCoord.X, clippedB.TexCoord.Y,
+                        screenCX, screenCY, screenCZ, clippedC.TexCoord.X, clippedC.TexCoord.Y,
+                        clippedColorA, clippedColorB, clippedColorC);
+                    continue;
+                }
+
+                gsKit_prim_triangle_gouraud_3d(
+                    GsGlobal,
+                    screenAX, screenAY, screenAZ, clippedColorA,
+                    screenBX, screenBY, screenBZ, clippedColorB,
+                    screenCX, screenCY, screenCZ, clippedColorC);
+            }
         }
     }
 
-    void Ps2RenderManager3D::DrawAlphaProxy(const Ps2RenderProxy& proxy, const ::float4x4& viewProjection, const ::float4& viewport) {
-        DrawOpaqueProxy(proxy, viewProjection, viewport);
+    void Ps2RenderManager3D::DrawAlphaProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {
+        DrawOpaqueProxy(proxy, view, projection, viewport, nearPlaneDistance);
+    }
+
+    void Ps2RenderManager3D::DrawSoftwareDepthPass(
+        const Ps2FramePlan& plan,
+        const ::float4x4& view,
+        const ::float4x4& projection,
+        const ::float4& viewport,
+        float nearPlaneDistance,
+        const ::float3& cameraPosition,
+        const ::float3& cameraForward) {
+        std::vector<const Ps2RenderProxy*> sortedProxies;
+        sortedProxies.reserve(plan.OpaqueWorld.size() + plan.OpaqueDynamic.size() + plan.AlphaWorld.size() + plan.AlphaDynamic.size());
+        sortedProxies.insert(sortedProxies.end(), plan.OpaqueWorld.begin(), plan.OpaqueWorld.end());
+        sortedProxies.insert(sortedProxies.end(), plan.OpaqueDynamic.begin(), plan.OpaqueDynamic.end());
+        sortedProxies.insert(sortedProxies.end(), plan.AlphaWorld.begin(), plan.AlphaWorld.end());
+        sortedProxies.insert(sortedProxies.end(), plan.AlphaDynamic.begin(), plan.AlphaDynamic.end());
+
+        SortAlphaProxies(sortedProxies, cameraPosition, cameraForward);
+
+        for (const Ps2RenderProxy* proxy : sortedProxies) {
+            if (proxy == nullptr) {
+                continue;
+            }
+
+            DrawOpaqueProxy(*proxy, view, projection, viewport, nearPlaneDistance);
+        }
     }
 
     void Ps2RenderManager3D::ApplyDepthState(bool enabled) {
@@ -313,6 +467,54 @@ namespace helengine::ps2 {
         }
     }
 
+    void Ps2RenderManager3D::ApplyMaterialAlphaState(const Ps2RuntimeMaterial& material) {
+        if (GsGlobal == nullptr) {
+            return;
+        }
+
+        if (material.GetAlphaMode() == ::Ps2MaterialAlphaMode::Opaque) {
+            gsKit_set_test(GsGlobal, GS_ATEST_OFF);
+            gsKit_set_primalpha(GsGlobal, GS_SETREG_ALPHA(0, 0, 0, 0, 0), 0);
+            GsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
+        } else if (material.GetAlphaMode() == ::Ps2MaterialAlphaMode::AlphaTest) {
+            gsKit_set_test(GsGlobal, GS_ATEST_OFF);
+            gsKit_set_primalpha(GsGlobal, GS_SETREG_ALPHA(0, 0, 0, 0, 0), 0);
+            GsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
+        } else if (material.GetAlphaMode() == ::Ps2MaterialAlphaMode::AlphaBlend) {
+            gsKit_set_test(GsGlobal, GS_ATEST_OFF);
+            gsKit_set_primalpha(GsGlobal, GS_BLEND_BACK2FRONT, 0);
+            GsGlobal->PrimAlphaEnable = GS_SETTING_ON;
+        } else if (material.GetAlphaMode() == ::Ps2MaterialAlphaMode::Additive) {
+            gsKit_set_test(GsGlobal, GS_ATEST_OFF);
+            gsKit_set_primalpha(GsGlobal, GS_SETREG_ALPHA(0, 2, 2, 1, 0x80), 0);
+            GsGlobal->PrimAlphaEnable = GS_SETTING_ON;
+        }
+    }
+
+    bool Ps2RenderManager3D::ShouldDrawAlphaTestTriangle(
+        const Ps2RuntimeMaterial& material,
+        GSTEXTURE* texture,
+        const ::float2& texCoordA,
+        const ::float2& texCoordB,
+        const ::float2& texCoordC,
+        std::uint8_t alphaA,
+        std::uint8_t alphaB,
+        std::uint8_t alphaC) const {
+        if (material.GetAlphaMode() != ::Ps2MaterialAlphaMode::AlphaTest) {
+            return true;
+        }
+
+        if (texture != nullptr) {
+            alphaA = SampleTextureAlpha(texture, texCoordA);
+            alphaB = SampleTextureAlpha(texture, texCoordB);
+            alphaC = SampleTextureAlpha(texture, texCoordC);
+        }
+
+        return alphaA >= AlphaTestCutoff
+            || alphaB >= AlphaTestCutoff
+            || alphaC >= AlphaTestCutoff;
+    }
+
     void Ps2RenderManager3D::SortAlphaProxies(std::vector<const Ps2RenderProxy*>& proxies, const ::float3& cameraPosition, const ::float3& cameraForward) {
         std::sort(proxies.begin(), proxies.end(), [this, &cameraPosition, &cameraForward](const Ps2RenderProxy* left, const Ps2RenderProxy* right) {
             if (left == nullptr) {
@@ -325,18 +527,6 @@ namespace helengine::ps2 {
 
             return this->ComputeProxyDepth(*left, cameraPosition, cameraForward) > this->ComputeProxyDepth(*right, cameraPosition, cameraForward);
         });
-    }
-
-    void Ps2RenderManager3D::ApplyAlphaBlendState(bool enabled) {
-        if (GsGlobal == nullptr) {
-            return;
-        }
-
-        if (enabled) {
-            gsKit_set_primalpha(GsGlobal, GS_SETREG_ALPHA(1, 2, 0, 0, 0), 1);
-        } else {
-            gsKit_set_primalpha(GsGlobal, GS_SETREG_ALPHA(0, 0, 0, 0, 0), 0);
-        }
     }
 
     ::CameraComponent* Ps2RenderManager3D::GetActiveCamera() const {
@@ -357,28 +547,28 @@ namespace helengine::ps2 {
     }
 
     bool Ps2RenderManager3D::ProjectWorldPosition(
-        const ::float3& worldPosition,
-        const ::float4x4& viewProjection,
+        const ::float3& viewPosition,
+        const ::float4x4& projection,
         const ::float4& viewport,
         float& screenX,
         float& screenY,
         float& screenZ) const {
-        const float clipX = (worldPosition.X * viewProjection.M11)
-            + (worldPosition.Y * viewProjection.M21)
-            + (worldPosition.Z * viewProjection.M31)
-            + viewProjection.M41;
-        const float clipY = (worldPosition.X * viewProjection.M12)
-            + (worldPosition.Y * viewProjection.M22)
-            + (worldPosition.Z * viewProjection.M32)
-            + viewProjection.M42;
-        const float clipZ = (worldPosition.X * viewProjection.M13)
-            + (worldPosition.Y * viewProjection.M23)
-            + (worldPosition.Z * viewProjection.M33)
-            + viewProjection.M43;
-        const float clipW = (worldPosition.X * viewProjection.M14)
-            + (worldPosition.Y * viewProjection.M24)
-            + (worldPosition.Z * viewProjection.M34)
-            + viewProjection.M44;
+        const float clipX = (viewPosition.X * projection.M11)
+            + (viewPosition.Y * projection.M21)
+            + (viewPosition.Z * projection.M31)
+            + projection.M41;
+        const float clipY = (viewPosition.X * projection.M12)
+            + (viewPosition.Y * projection.M22)
+            + (viewPosition.Z * projection.M32)
+            + projection.M42;
+        const float clipZ = (viewPosition.X * projection.M13)
+            + (viewPosition.Y * projection.M23)
+            + (viewPosition.Z * projection.M33)
+            + projection.M43;
+        const float clipW = (viewPosition.X * projection.M14)
+            + (viewPosition.Y * projection.M24)
+            + (viewPosition.Z * projection.M34)
+            + projection.M44;
 
         if (clipW <= MinimumClipW) {
             return false;
@@ -393,6 +583,42 @@ namespace helengine::ps2 {
         screenY = viewport.Y + ((1.0f - normalizedY) * 0.5f * viewport.W);
         screenZ = (normalizedZ + 1.0f) * 0.5f;
         return true;
+    }
+
+    bool Ps2RenderManager3D::IsFrontFacingTriangle(
+        float screenAX,
+        float screenAY,
+        float screenBX,
+        float screenBY,
+        float screenCX,
+        float screenCY) const {
+        const float edgeABX = screenBX - screenAX;
+        const float edgeABY = screenBY - screenAY;
+        const float edgeACX = screenCX - screenAX;
+        const float edgeACY = screenCY - screenAY;
+        const float signedArea = (edgeABX * edgeACY) - (edgeABY * edgeACX);
+        return signedArea > 0.0f;
+    }
+
+    std::uint8_t Ps2RenderManager3D::SampleTextureAlpha(GSTEXTURE* texture, const ::float2& texCoord) const {
+        if (texture == nullptr || texture->Mem == nullptr || texture->Width == 0 || texture->Height == 0) {
+            return 0xFF;
+        }
+
+        const float clampedU = std::clamp(texCoord.X, 0.0f, 1.0f);
+        const float clampedV = std::clamp(texCoord.Y, 0.0f, 1.0f);
+        const std::size_t pixelX = static_cast<std::size_t>(clampedU * static_cast<float>(texture->Width - 1));
+        const std::size_t pixelY = static_cast<std::size_t>(clampedV * static_cast<float>(texture->Height - 1));
+        const std::size_t pixelIndex = (pixelY * static_cast<std::size_t>(texture->Width)) + pixelX;
+        const std::uint8_t* colorBytes = reinterpret_cast<const std::uint8_t*>(texture->Mem);
+        return colorBytes[(pixelIndex * 4) + 3];
+    }
+
+    ::float3 Ps2RenderManager3D::TransformPosition(const ::float3& position, const ::float4x4& matrix) const {
+        return ::float3(
+            (position.X * matrix.M11) + (position.Y * matrix.M21) + (position.Z * matrix.M31) + matrix.M41,
+            (position.X * matrix.M12) + (position.Y * matrix.M22) + (position.Z * matrix.M32) + matrix.M42,
+            (position.X * matrix.M13) + (position.Y * matrix.M23) + (position.Z * matrix.M33) + matrix.M43);
     }
 
     double Ps2RenderManager3D::ComputeProxyDepth(const Ps2RenderProxy& proxy, const ::float3& cameraPosition, const ::float3& cameraForward) const {
@@ -450,6 +676,12 @@ namespace helengine::ps2 {
             + static_cast<double>(normalizedNormal.Y) * lightY
             + static_cast<double>(normalizedNormal.Z) * lightZ;
         ndotl = std::max(0.0, ndotl);
+
+        if (material.GetLightingMode() == ::Ps2MaterialLightingMode::ShowcaseLit && material.GetExpensiveModeAllowed()) {
+            const double showcaseIntensity = 80.0 + (ndotl * 176.0) + ((ndotl * ndotl) * 48.0);
+            const std::uint8_t intensity = static_cast<std::uint8_t>(std::clamp(std::lround(showcaseIntensity), 0l, 255l));
+            return GS_SETREG_RGBAQ(intensity, intensity, intensity, 0x80, 0x00);
+        }
 
         const std::uint8_t intensity = static_cast<std::uint8_t>(LightingBias + static_cast<int>(ndotl * LightingScale));
         return GS_SETREG_RGBAQ(intensity, intensity, intensity, 0x80, 0x00);

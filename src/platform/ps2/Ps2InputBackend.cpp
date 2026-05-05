@@ -3,11 +3,8 @@
 #include <loadfile.h>
 #include <sifrpc.h>
 
-#include <vector>
-
 #include "InputGamepadButton.hpp"
 #include "runtime/array.hpp"
-#include "runtime/native_list.hpp"
 
 namespace helengine::ps2 {
     Ps2InputBackend::Ps2InputBackend()
@@ -46,8 +43,6 @@ namespace helengine::ps2 {
         Refresh();
 
         InputFrameState frame;
-        frame.set_Keyboard(CaptureKeyboardState());
-        frame.set_Mouse(CaptureMouseState());
 
         InputGamepadState gamepad = CaptureGamepadState();
         if (gamepad.get_Connected()) {
@@ -116,22 +111,6 @@ namespace helengine::ps2 {
         gamepad.set_LeftTrigger(CurrentButtons.L2 ? 32767 : 0);
         gamepad.set_RightTrigger(CurrentButtons.R2 ? 32767 : 0);
         return gamepad;
-    }
-
-    KeyboardState Ps2InputBackend::CaptureKeyboardState() const {
-        List<Keys>* pressedKeys = new List<Keys>();
-        std::vector<Keys> mappedKeys = MapPadButtonsToKeys(CurrentButtons);
-        for (size_t index = 0; index < mappedKeys.size(); index++) {
-            pressedKeys->Add(mappedKeys[index]);
-        }
-
-        KeyboardState keyboardState(pressedKeys, false, false);
-        delete pressedKeys;
-        return keyboardState;
-    }
-
-    MouseState Ps2InputBackend::CaptureMouseState() const {
-        return MouseState();
     }
 
     void Ps2InputBackend::Refresh() {

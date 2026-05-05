@@ -4,6 +4,7 @@ using helengine.baseplatform.Manifest;
 using helengine.baseplatform.Profiles;
 using helengine.baseplatform.Reporting;
 using helengine.baseplatform.Requests;
+using helengine.baseplatform.Results;
 using helengine.baseplatform.Targets;
 using helengine.baseplatform.Definitions;
 
@@ -13,9 +14,11 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     const string RepositoryRootEnvironmentVariableName = "HELENGINE_PS2_REPOSITORY_ROOT";
 
     readonly IPs2NativeBuildExecutor NativeBuildExecutor;
+    readonly Ps2MaterialCooker MaterialCooker;
 
     public Ps2PlatformAssetBuilder() {
         NativeBuildExecutor = new Ps2NativeBuildExecutor();
+        MaterialCooker = new Ps2MaterialCooker();
         Descriptor = new PlatformBuilderDescriptor(
             "helengine.ps2.builder",
             "1.0.0",
@@ -29,6 +32,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
 
     public Ps2PlatformAssetBuilder(IPs2NativeBuildExecutor nativeBuildExecutor) {
         NativeBuildExecutor = nativeBuildExecutor ?? throw new ArgumentNullException(nameof(nativeBuildExecutor));
+        MaterialCooker = new Ps2MaterialCooker();
         Descriptor = new PlatformBuilderDescriptor(
             "helengine.ps2.builder",
             "1.0.0",
@@ -43,6 +47,19 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     public PlatformBuilderDescriptor Descriptor { get; }
 
     public PlatformDefinition Definition { get; }
+
+    /// <summary>
+    /// Rejects material cooking until the PS2 builder exposes concrete material schemas and a serialized runtime payload contract.
+    /// </summary>
+    /// <param name="request">Material translation request to validate.</param>
+    /// <returns>Serialized PS2 runtime material payload.</returns>
+    public PlatformMaterialCookResult CookMaterial(PlatformMaterialCookRequest request) {
+        if (request == null) {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        return MaterialCooker.Cook(request);
+    }
 
     public Task<PlatformBuildReport> BuildAsync(
         PlatformBuildRequest request,
