@@ -38,6 +38,7 @@ namespace helengine::ps2 {
         void ApplyDepthState(bool enabled);
         void ApplyAlphaBlendState(bool enabled);
         ::CameraComponent* GetActiveCamera() const;
+        void SortAlphaProxies(std::vector<const Ps2RenderProxy*>& proxies, const ::float3& cameraPosition, const ::float3& cameraForward);
         void RebuildProxies();
         bool ProjectWorldPosition(
             const ::float3& worldPosition,
@@ -46,6 +47,7 @@ namespace helengine::ps2 {
             float& screenX,
             float& screenY,
             float& screenZ) const;
+        double ComputeProxyDepth(const Ps2RenderProxy& proxy, const ::float3& cameraPosition, const ::float3& cameraForward) const;
         std::uint64_t ResolveVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal);
 
         Ps2FramePlanner FramePlanner;

@@ -180,6 +180,9 @@ namespace helengine::ps2 {
         RebuildProxies();
         Ps2FramePlan plan = FramePlanner.Build(Proxies);
 
+        SortAlphaProxies(plan.AlphaWorld, cameraPosition, cameraForward);
+        SortAlphaProxies(plan.AlphaDynamic, cameraPosition, cameraForward);
+
         for (const Ps2RenderProxy* proxy : plan.OpaqueWorld) {
             if (proxy != nullptr) {
                 DrawOpaqueProxy(*proxy, viewProjection, viewport);
@@ -310,6 +313,20 @@ namespace helengine::ps2 {
         }
     }
 
+    void Ps2RenderManager3D::SortAlphaProxies(std::vector<const Ps2RenderProxy*>& proxies, const ::float3& cameraPosition, const ::float3& cameraForward) {
+        std::sort(proxies.begin(), proxies.end(), [this, &cameraPosition, &cameraForward](const Ps2RenderProxy* left, const Ps2RenderProxy* right) {
+            if (left == nullptr) {
+                return false;
+            }
+
+            if (right == nullptr) {
+                return true;
+            }
+
+            return this->ComputeProxyDepth(*left, cameraPosition, cameraForward) > this->ComputeProxyDepth(*right, cameraPosition, cameraForward);
+        });
+    }
+
     void Ps2RenderManager3D::ApplyAlphaBlendState(bool enabled) {
         if (GsGlobal == nullptr) {
             return;
@@ -376,6 +393,19 @@ namespace helengine::ps2 {
         screenY = viewport.Y + ((1.0f - normalizedY) * 0.5f * viewport.W);
         screenZ = (normalizedZ + 1.0f) * 0.5f;
         return true;
+    }
+
+    double Ps2RenderManager3D::ComputeProxyDepth(const Ps2RenderProxy& proxy, const ::float3& cameraPosition, const ::float3& cameraForward) const {
+        ::IDrawable3D* drawable = proxy.GetDrawable();
+        if (drawable == nullptr || drawable->get_Parent() == nullptr) {
+            return 0.0;
+        }
+
+        const ::float3 proxyPosition = drawable->get_Parent()->get_Position();
+        const ::float3 delta = proxyPosition - cameraPosition;
+        return static_cast<double>(delta.X) * static_cast<double>(cameraForward.X)
+            + static_cast<double>(delta.Y) * static_cast<double>(cameraForward.Y)
+            + static_cast<double>(delta.Z) * static_cast<double>(cameraForward.Z);
     }
 
     void Ps2RenderManager3D::RebuildProxies() {
