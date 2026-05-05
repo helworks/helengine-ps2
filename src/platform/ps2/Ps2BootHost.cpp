@@ -294,6 +294,8 @@ namespace helengine::ps2 {
             GsGlobal->ZBuffering = GS_SETTING_OFF;
         }
 
+        RenderManager3DBackend.SetHdrEnabled(graphicsRendererManifest->HdrEnabled == true);
+
         dmaKit_init(
             D_CTRL_RELE_OFF,
             D_CTRL_MFD_OFF,

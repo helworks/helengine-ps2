@@ -31,6 +31,7 @@ namespace helengine::ps2 {
         ::RuntimeMaterial* BuildMaterialFromAsset(::Asset* materialAsset) override;
         ::RuntimeModel* BuildModelFromRaw(::ModelAsset* data) override;
         void Draw() override;
+        void SetHdrEnabled(bool enabled);
         void SetGsGlobal(GSGLOBAL* gsGlobal);
 
     private:
@@ -56,6 +57,10 @@ namespace helengine::ps2 {
             std::uint8_t alphaA,
             std::uint8_t alphaB,
             std::uint8_t alphaC) const;
+        bool ShouldEmitHdrGlow(const Ps2RuntimeMaterial& material, std::uint64_t colorA, std::uint64_t colorB, std::uint64_t colorC) const;
+        bool IsGlowColorBright(std::uint64_t color) const;
+        float ComputeHdrGlowStrength(std::uint64_t colorA, std::uint64_t colorB, std::uint64_t colorC) const;
+        std::uint64_t BoostHdrColor(std::uint64_t color, float glowStrength) const;
         void SortAlphaProxies(std::vector<const Ps2RenderProxy*>& proxies, const ::float3& cameraPosition, const ::float3& cameraForward);
         void RebuildProxies();
         bool ProjectWorldPosition(
@@ -78,6 +83,7 @@ namespace helengine::ps2 {
         std::uint64_t ResolveVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal);
 
         Ps2FramePlanner FramePlanner;
+        bool HdrEnabled;
         GSGLOBAL* GsGlobal;
         std::vector<Ps2RenderProxy> Proxies;
     };

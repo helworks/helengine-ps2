@@ -41,6 +41,15 @@ namespace helengine::ps2 {
     namespace {
         constexpr double LightingScale = 191.0;
         constexpr double LightingBias = 64.0;
+        constexpr float HdrGlowScale = 1.08f;
+        constexpr float HdrGlowScaleVariance = 0.08f;
+        constexpr float HdrGlowDepthBias = 0.0005f;
+        constexpr float HdrGlowDepthBiasVariance = 0.0003f;
+        constexpr std::uint8_t HdrGlowThreshold = 0xC0;
+        constexpr std::uint8_t HdrGlowHotThreshold = 0xD8;
+        constexpr std::uint8_t HdrGlowExposureCeiling = 0xE0;
+        constexpr float HdrGlowBoostMinimum = 0.35f;
+        constexpr float HdrGlowBoostVariance = 0.45f;
         constexpr float CameraFieldOfViewRadians = 0.785398185f;
         constexpr float MinimumClipW = 0.0001f;
         constexpr float MinimumNearPlaneEpsilon = 0.00001f;
@@ -57,7 +66,29 @@ namespace helengine::ps2 {
             std::uint8_t Alpha;
         };
 
+        struct Ps2HdrGlowTriangle {
+            float ScreenAX;
+            float ScreenAY;
+            float ScreenAZ;
+            float ScreenBX;
+            float ScreenBY;
+            float ScreenBZ;
+            float ScreenCX;
+            float ScreenCY;
+            float ScreenCZ;
+            ::float2 TexCoordA;
+            ::float2 TexCoordB;
+            ::float2 TexCoordC;
+            std::uint64_t ColorA;
+            std::uint64_t ColorB;
+            std::uint64_t ColorC;
+            float GlowStrength;
+            GSTEXTURE* Texture;
+            bool UseTexture;
+        };
+
         std::unordered_map<std::string, GSTEXTURE*> TextureRecords;
+        std::vector<Ps2HdrGlowTriangle> DeferredHdrGlowTriangles;
 
         std::uint8_t ResolveColorComponent(std::uint64_t color, int shift) {
             return static_cast<std::uint8_t>((color >> shift) & 0xFFu);
@@ -65,6 +96,36 @@ namespace helengine::ps2 {
 
         std::uint64_t PackColor(std::uint8_t red, std::uint8_t green, std::uint8_t blue, std::uint8_t alpha) {
             return GS_SETREG_RGBAQ(red, green, blue, alpha, 0x00);
+        }
+
+        float ResolveGlowStrengthFromColor(std::uint64_t color) {
+            const std::uint8_t red = ResolveColorComponent(color, 0);
+            const std::uint8_t green = ResolveColorComponent(color, 8);
+            const std::uint8_t blue = ResolveColorComponent(color, 16);
+            const std::uint8_t brightestChannel = std::max({ red, green, blue });
+            if (brightestChannel <= HdrGlowThreshold) {
+                return 0.0f;
+            }
+
+            const float numerator = static_cast<float>(brightestChannel - HdrGlowThreshold);
+            const float denominator = static_cast<float>(HdrGlowHotThreshold - HdrGlowThreshold);
+            const float normalizedStrength = denominator <= 0.0f ? 0.0f : std::clamp(numerator / denominator, 0.0f, 1.0f);
+            return normalizedStrength * normalizedStrength;
+        }
+
+        std::uint64_t BoostHdrGlowColor(std::uint64_t color, float glowStrength) {
+            const float boostStrength = std::clamp(HdrGlowBoostMinimum + (glowStrength * HdrGlowBoostVariance), 0.0f, 1.0f);
+            const auto boostChannel = [boostStrength](std::uint8_t value) {
+                const double boosted = static_cast<double>(value) + ((255.0 - static_cast<double>(value)) * static_cast<double>(boostStrength));
+                return static_cast<std::uint8_t>(std::clamp(std::lround(boosted), 0l, static_cast<long>(HdrGlowExposureCeiling)));
+            };
+
+            return GS_SETREG_RGBAQ(
+                boostChannel(ResolveColorComponent(color, 0)),
+                boostChannel(ResolveColorComponent(color, 8)),
+                boostChannel(ResolveColorComponent(color, 16)),
+                ResolveColorComponent(color, 24),
+                0x00);
         }
 
         Ps2ClipVertex CreateClipVertex(const ::float3& viewPosition, const ::float2& texCoord, std::uint64_t color) {
@@ -188,10 +249,66 @@ namespace helengine::ps2 {
             TextureRecords.emplace(textureRelativePath, texture);
             return texture;
         }
+
+        void DrawHdrGlowPass(GSGLOBAL* gsGlobal) {
+            if (gsGlobal == nullptr || DeferredHdrGlowTriangles.empty()) {
+                DeferredHdrGlowTriangles.clear();
+                return;
+            }
+
+            gsKit_set_test(gsGlobal, GS_ATEST_OFF);
+
+            gsKit_set_primalpha(gsGlobal, GS_SETREG_ALPHA(0, 2, 2, 1, 0x80), 0);
+            gsGlobal->PrimAlphaEnable = GS_SETTING_ON;
+
+            for (const Ps2HdrGlowTriangle& triangle : DeferredHdrGlowTriangles) {
+                const float glowScale = HdrGlowScale + (triangle.GlowStrength * HdrGlowScaleVariance);
+                const float glowDepthBias = HdrGlowDepthBias + (triangle.GlowStrength * HdrGlowDepthBiasVariance);
+                const float centerX = (triangle.ScreenAX + triangle.ScreenBX + triangle.ScreenCX) / 3.0f;
+                const float centerY = (triangle.ScreenAY + triangle.ScreenBY + triangle.ScreenCY) / 3.0f;
+                const float glowAX = centerX + ((triangle.ScreenAX - centerX) * glowScale);
+                const float glowAY = centerY + ((triangle.ScreenAY - centerY) * glowScale);
+                const float glowBX = centerX + ((triangle.ScreenBX - centerX) * glowScale);
+                const float glowBY = centerY + ((triangle.ScreenBY - centerY) * glowScale);
+                const float glowCX = centerX + ((triangle.ScreenCX - centerX) * glowScale);
+                const float glowCY = centerY + ((triangle.ScreenCY - centerY) * glowScale);
+                const float glowAZ = std::max(0.0f, triangle.ScreenAZ - glowDepthBias);
+                const float glowBZ = std::max(0.0f, triangle.ScreenBZ - glowDepthBias);
+                const float glowCZ = std::max(0.0f, triangle.ScreenCZ - glowDepthBias);
+                const std::uint64_t glowColorA = BoostHdrGlowColor(triangle.ColorA, triangle.GlowStrength);
+                const std::uint64_t glowColorB = BoostHdrGlowColor(triangle.ColorB, triangle.GlowStrength);
+                const std::uint64_t glowColorC = BoostHdrGlowColor(triangle.ColorC, triangle.GlowStrength);
+
+                if (triangle.UseTexture && triangle.Texture != nullptr) {
+                    gsKit_prim_triangle_goraud_texture_3d(
+                        gsGlobal,
+                        triangle.Texture,
+                        glowAX, glowAY, glowAZ, triangle.TexCoordA.X, triangle.TexCoordA.Y,
+                        glowBX, glowBY, glowBZ, triangle.TexCoordB.X, triangle.TexCoordB.Y,
+                        glowCX, glowCY, glowCZ, triangle.TexCoordC.X, triangle.TexCoordC.Y,
+                        glowColorA, glowColorB, glowColorC);
+                } else {
+                    gsKit_prim_triangle_gouraud_3d(
+                        gsGlobal,
+                        glowAX, glowAY, glowAZ, glowColorA,
+                        glowBX, glowBY, glowBZ, glowColorB,
+                        glowCX, glowCY, glowCZ, glowColorC);
+                }
+            }
+
+            if (gsGlobal->ZBuffering == GS_SETTING_ON) {
+                gsKit_set_test(gsGlobal, GS_ZTEST_ON);
+            } else {
+                gsKit_set_test(gsGlobal, GS_ZTEST_OFF);
+            }
+
+            DeferredHdrGlowTriangles.clear();
+        }
     }
 
     Ps2RenderManager3D::Ps2RenderManager3D()
         : FramePlanner(),
+          HdrEnabled(false),
           GsGlobal(nullptr),
           Proxies() {
     }
@@ -248,6 +365,7 @@ namespace helengine::ps2 {
             camera->get_FarPlaneDistance(),
             projection);
 
+        DeferredHdrGlowTriangles.clear();
         ApplyDepthState(GsGlobal->ZBuffering == GS_SETTING_ON);
         RebuildProxies();
         Ps2FramePlan plan = FramePlanner.Build(Proxies);
@@ -279,6 +397,8 @@ namespace helengine::ps2 {
                     DrawAlphaProxy(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
                 }
             }
+
+            DrawHdrGlowPass(GsGlobal);
             return;
         }
 
@@ -290,6 +410,7 @@ namespace helengine::ps2 {
             camera->get_NearPlaneDistance(),
             cameraPosition,
             cameraForward);
+        DrawHdrGlowPass(GsGlobal);
     }
 
     void Ps2RenderManager3D::SetGsGlobal(GSGLOBAL* gsGlobal) {
@@ -413,16 +534,43 @@ namespace helengine::ps2 {
                         screenBX, screenBY, screenBZ, clippedB.TexCoord.X, clippedB.TexCoord.Y,
                         screenCX, screenCY, screenCZ, clippedC.TexCoord.X, clippedC.TexCoord.Y,
                         clippedColorA, clippedColorB, clippedColorC);
-                    continue;
+                } else {
+                    gsKit_prim_triangle_gouraud_3d(
+                        GsGlobal,
+                        screenAX, screenAY, screenAZ, clippedColorA,
+                        screenBX, screenBY, screenBZ, clippedColorB,
+                        screenCX, screenCY, screenCZ, clippedColorC);
                 }
 
-                gsKit_prim_triangle_gouraud_3d(
-                    GsGlobal,
-                    screenAX, screenAY, screenAZ, clippedColorA,
-                    screenBX, screenBY, screenBZ, clippedColorB,
-                    screenCX, screenCY, screenCZ, clippedColorC);
+                if (HdrEnabled && ShouldEmitHdrGlow(*material, clippedColorA, clippedColorB, clippedColorC)) {
+                    const float glowStrength = ComputeHdrGlowStrength(clippedColorA, clippedColorB, clippedColorC);
+                    Ps2HdrGlowTriangle glowTriangle;
+                    glowTriangle.ScreenAX = screenAX;
+                    glowTriangle.ScreenAY = screenAY;
+                    glowTriangle.ScreenAZ = screenAZ;
+                    glowTriangle.ScreenBX = screenBX;
+                    glowTriangle.ScreenBY = screenBY;
+                    glowTriangle.ScreenBZ = screenBZ;
+                    glowTriangle.ScreenCX = screenCX;
+                    glowTriangle.ScreenCY = screenCY;
+                    glowTriangle.ScreenCZ = screenCZ;
+                    glowTriangle.TexCoordA = clippedA.TexCoord;
+                    glowTriangle.TexCoordB = clippedB.TexCoord;
+                    glowTriangle.TexCoordC = clippedC.TexCoord;
+                    glowTriangle.ColorA = BoostHdrColor(clippedColorA, glowStrength);
+                    glowTriangle.ColorB = BoostHdrColor(clippedColorB, glowStrength);
+                    glowTriangle.ColorC = BoostHdrColor(clippedColorC, glowStrength);
+                    glowTriangle.GlowStrength = glowStrength;
+                    glowTriangle.Texture = texture;
+                    glowTriangle.UseTexture = useTexture;
+                    DeferredHdrGlowTriangles.push_back(glowTriangle);
+                }
             }
         }
+    }
+
+    void Ps2RenderManager3D::SetHdrEnabled(bool enabled) {
+        HdrEnabled = enabled;
     }
 
     void Ps2RenderManager3D::DrawAlphaProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {
@@ -513,6 +661,46 @@ namespace helengine::ps2 {
         return alphaA >= AlphaTestCutoff
             || alphaB >= AlphaTestCutoff
             || alphaC >= AlphaTestCutoff;
+    }
+
+    bool Ps2RenderManager3D::ShouldEmitHdrGlow(const Ps2RuntimeMaterial& material, std::uint64_t colorA, std::uint64_t colorB, std::uint64_t colorC) const {
+        if (!HdrEnabled) {
+            return false;
+        }
+
+        if (material.GetAlphaMode() != ::Ps2MaterialAlphaMode::Opaque
+            && material.GetAlphaMode() != ::Ps2MaterialAlphaMode::Additive) {
+            return false;
+        }
+
+        return IsGlowColorBright(colorA)
+            || IsGlowColorBright(colorB)
+            || IsGlowColorBright(colorC);
+    }
+
+    bool Ps2RenderManager3D::IsGlowColorBright(std::uint64_t color) const {
+        return ResolveColorComponent(color, 0) >= HdrGlowThreshold
+            || ResolveColorComponent(color, 8) >= HdrGlowThreshold
+            || ResolveColorComponent(color, 16) >= HdrGlowThreshold;
+    }
+
+    float Ps2RenderManager3D::ComputeHdrGlowStrength(std::uint64_t colorA, std::uint64_t colorB, std::uint64_t colorC) const {
+        return std::max({ ResolveGlowStrengthFromColor(colorA), ResolveGlowStrengthFromColor(colorB), ResolveGlowStrengthFromColor(colorC) });
+    }
+
+    std::uint64_t Ps2RenderManager3D::BoostHdrColor(std::uint64_t color, float glowStrength) const {
+        const float boostStrength = std::clamp(HdrGlowBoostMinimum + (glowStrength * HdrGlowBoostVariance), 0.0f, 1.0f);
+        const auto boostChannel = [boostStrength](std::uint8_t value) {
+            const double boosted = static_cast<double>(value) + ((255.0 - static_cast<double>(value)) * static_cast<double>(boostStrength));
+            return static_cast<std::uint8_t>(std::clamp(std::lround(boosted), 0l, 255l));
+        };
+
+        return GS_SETREG_RGBAQ(
+            boostChannel(ResolveColorComponent(color, 0)),
+            boostChannel(ResolveColorComponent(color, 8)),
+            boostChannel(ResolveColorComponent(color, 16)),
+            ResolveColorComponent(color, 24),
+            0x00);
     }
 
     void Ps2RenderManager3D::SortAlphaProxies(std::vector<const Ps2RenderProxy*>& proxies, const ::float3& cameraPosition, const ::float3& cameraForward) {
