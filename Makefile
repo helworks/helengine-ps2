@@ -17,14 +17,34 @@ BUILD_DIR := build
 SOURCE_DIR := src
 GENERATED_CORE_STAGE_ROOT := $(BUILD_DIR)/generated-core
 GENERATED_CORE_STAGE_STAMP := $(GENERATED_CORE_STAGE_ROOT)/.prepared
+GENERATED_CORE_STAGE_INPUTS := \
+	$(HELENGINE_CORE_CPP_ROOT)/helengine_core_unity.cpp \
+	$(HELENGINE_CORE_CPP_ROOT)/IInputBackend.hpp \
+	$(HELENGINE_CORE_CPP_ROOT)/RenderManager3D.hpp \
+	$(HELENGINE_CORE_CPP_ROOT)/Ps2MaterialAsset.hpp \
+	$(HELENGINE_CORE_CPP_ROOT)/runtime/runtime_graphics_renderer_manifest.hpp \
+	$(HELENGINE_CORE_CPP_ROOT)/runtime/runtime_graphics_renderer_manifest.cpp
 PS2_SOURCES := \
 	$(SOURCE_DIR)/main.cpp \
 	$(SOURCE_DIR)/platform/ps2/Ps2InputBackend.cpp \
-	$(SOURCE_DIR)/platform/ps2/Ps2BootHost.cpp
+	$(SOURCE_DIR)/platform/ps2/Ps2BootHost.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/Ps2FramePlan.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/Ps2FramePlanner.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RenderManager3D.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RenderProxy.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RuntimeMaterial.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RuntimeModel.cpp
 OBJECTS := \
 	$(patsubst $(SOURCE_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(PS2_SOURCES)) \
 	$(BUILD_DIR)/generated/runtime/runtime_startup_manifest.o \
 	$(BUILD_DIR)/generated/runtime/runtime_code_module_manifest.o \
+	$(BUILD_DIR)/generated/runtime/runtime_graphics_renderer_manifest.o \
+	$(BUILD_DIR)/generated/RendererBackendCapabilityProfile.o \
+	$(BUILD_DIR)/generated/RuntimeMaterialLightingModel.o \
+	$(BUILD_DIR)/generated/Ps2MaterialAlphaMode.o \
+	$(BUILD_DIR)/generated/Ps2MaterialAsset.o \
+	$(BUILD_DIR)/generated/Ps2MaterialLightingMode.o \
+	$(BUILD_DIR)/generated/Ps2RenderClass.o \
 	$(BUILD_DIR)/generated/helengine_core_unity.o
 
 CXX := mips64r5900el-ps2-elf-g++
@@ -67,7 +87,7 @@ LDLIBS := \
 
 all: $(TARGET)
 
-$(GENERATED_CORE_STAGE_STAMP): $(HELENGINE_CORE_CPP_ROOT)/helengine_core_unity.cpp $(SOURCE_DIR)/app_context_ps2.hpp
+$(GENERATED_CORE_STAGE_STAMP): $(GENERATED_CORE_STAGE_INPUTS) $(SOURCE_DIR)/app_context_ps2.hpp
 	@rm -rf $(GENERATED_CORE_STAGE_ROOT)
 	@mkdir -p $(GENERATED_CORE_STAGE_ROOT)
 	@cp -R $(HELENGINE_CORE_CPP_ROOT)/. $(GENERATED_CORE_STAGE_ROOT)/
@@ -85,8 +105,33 @@ $(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.cpp
 
 $(BUILD_DIR)/platform/ps2/Ps2BootHost.o: $(GENERATED_CORE_STAGE_STAMP)
 $(BUILD_DIR)/platform/ps2/Ps2InputBackend.o: $(GENERATED_CORE_STAGE_STAMP)
+$(BUILD_DIR)/platform/ps2/rendering/%.o: $(GENERATED_CORE_STAGE_STAMP)
 
 $(BUILD_DIR)/generated/helengine_core_unity.o: $(GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp $(GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/generated/RendererBackendCapabilityProfile.o: $(GENERATED_CORE_STAGE_ROOT)/RendererBackendCapabilityProfile.cpp $(GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/generated/RuntimeMaterialLightingModel.o: $(GENERATED_CORE_STAGE_ROOT)/RuntimeMaterialLightingModel.cpp $(GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/generated/Ps2MaterialAlphaMode.o: $(GENERATED_CORE_STAGE_ROOT)/Ps2MaterialAlphaMode.cpp $(GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/generated/Ps2MaterialAsset.o: $(GENERATED_CORE_STAGE_ROOT)/Ps2MaterialAsset.cpp $(GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/generated/Ps2MaterialLightingMode.o: $(GENERATED_CORE_STAGE_ROOT)/Ps2MaterialLightingMode.cpp $(GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/generated/Ps2RenderClass.o: $(GENERATED_CORE_STAGE_ROOT)/Ps2RenderClass.cpp $(GENERATED_CORE_STAGE_STAMP)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
@@ -95,6 +140,10 @@ $(BUILD_DIR)/generated/runtime/runtime_startup_manifest.o: $(GENERATED_CORE_STAG
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/generated/runtime/runtime_code_module_manifest.o: $(GENERATED_CORE_STAGE_ROOT)/runtime/runtime_code_module_manifest.cpp $(GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/generated/runtime/runtime_graphics_renderer_manifest.o: $(GENERATED_CORE_STAGE_ROOT)/runtime/runtime_graphics_renderer_manifest.cpp $(GENERATED_CORE_STAGE_STAMP)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 

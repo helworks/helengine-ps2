@@ -18,10 +18,12 @@
 #include "SceneAsset.hpp"
 #include "SpriteComponent.hpp"
 #include "platform/ps2/Ps2InputBackend.hpp"
+#include "platform/ps2/rendering/Ps2RenderManager3D.hpp"
 #include "Ps2DebugTexture.hpp"
 #include "TextureUtils.hpp"
 #include "RenderManager2D.hpp"
 #include "RenderManager3D.hpp"
+#include "runtime/runtime_graphics_renderer_manifest.hpp"
 #include "RuntimeModel.hpp"
 #include "RuntimeTexture.hpp"
 #include "runtime/runtime_startup_manifest.hpp"
@@ -184,23 +186,8 @@ namespace {
         }
     };
 
-    class Ps2RenderManager3D final : public RenderManager3D {
-    public:
-        RuntimeModel* BuildModelFromRaw(ModelAsset* data) override {
-            RuntimeModel* model = new RuntimeModel();
-            if (data != nullptr) {
-                model->set_Id(data->get_Id());
-            }
-
-            return model;
-        }
-
-        void Draw() override {
-        }
-    };
-
     Ps2RenderManager2D RenderManager2DBackend;
-    Ps2RenderManager3D RenderManager3DBackend;
+    helengine::ps2::Ps2RenderManager3D RenderManager3DBackend;
     ::Entity* BootEntity = nullptr;
     ::SpriteComponent* BootSprite = nullptr;
 }
@@ -290,10 +277,22 @@ namespace helengine::ps2 {
             return false;
         }
 
+        RenderManager3DBackend.SetGsGlobal(GsGlobal);
+
         GsGlobal->Mode = GS_MODE_NTSC;
         GsGlobal->PSM = GS_PSM_CT32;
         GsGlobal->DoubleBuffering = GS_SETTING_OFF;
-        GsGlobal->ZBuffering = GS_SETTING_OFF;
+        const HERuntimeGraphicsRendererManifest* graphicsRendererManifest = he_get_runtime_graphics_renderer_manifest();
+        if (graphicsRendererManifest == 0) {
+            BootLog("graphics renderer manifest missing");
+            return false;
+        }
+
+        if (graphicsRendererManifest->Ps2DepthHandlerMode == HERuntimePs2DepthHandlerMode::Hardware) {
+            GsGlobal->ZBuffering = GS_SETTING_ON;
+        } else {
+            GsGlobal->ZBuffering = GS_SETTING_OFF;
+        }
 
         dmaKit_init(
             D_CTRL_RELE_OFF,

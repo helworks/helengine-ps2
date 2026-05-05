@@ -3,7 +3,14 @@ using helengine.baseplatform.Profiles;
 
 namespace helengine.ps2.builder;
 
+/// <summary>
+/// Creates the typed platform metadata exposed by the PS2 builder.
+/// </summary>
 public static class Ps2PlatformDefinitionFactory {
+    /// <summary>
+    /// Creates the PS2 platform definition with renderer-family-aware graphics profiles and material schemas.
+    /// </summary>
+    /// <returns>Typed PS2 platform metadata consumed by the editor and builder tests.</returns>
     public static PlatformDefinition Create() {
         return new PlatformDefinition(
             "ps2",
@@ -13,7 +20,7 @@ public static class Ps2PlatformDefinitionFactory {
                     "ps2-default",
                     "PS2 Default",
                     "Standard PS2 player build",
-                    "gs-kit",
+                    "ps2-standard-forward",
                     "default",
                     [
                         new PlatformSettingDefinition(
@@ -34,9 +41,9 @@ public static class Ps2PlatformDefinitionFactory {
             ],
             [
                 new PlatformGraphicsProfileDefinition(
-                    "gs-kit",
-                    "GSKit",
-                    "GSKit framebuffer backend",
+                    "ps2-standard-forward",
+                    "PS2 Standard Forward",
+                    "Standard PS2 forward renderer for gameplay scenes.",
                     [
                         new PlatformSettingDefinition(
                             "default-width",
@@ -65,7 +72,55 @@ public static class Ps2PlatformDefinitionFactory {
                             PlatformSettingKind.Boolean,
                             "false",
                             true,
-                            [])
+                            []),
+                        new PlatformSettingDefinition(
+                            "depth-handler-mode",
+                            "Depth Handler Mode",
+                            PlatformSettingKind.Choice,
+                            "hardware",
+                            true,
+                            ["hardware", "software"])
+                    ]),
+                new PlatformGraphicsProfileDefinition(
+                    "ps2-showcase-forward",
+                    "PS2 Showcase Forward",
+                    "Expensive PS2 forward renderer for tiny showcase scenes.",
+                    [
+                        new PlatformSettingDefinition(
+                            "default-width",
+                            "Default Width",
+                            PlatformSettingKind.Text,
+                            "640",
+                            true,
+                            []),
+                        new PlatformSettingDefinition(
+                            "default-height",
+                            "Default Height",
+                            PlatformSettingKind.Text,
+                            "448",
+                            true,
+                            []),
+                        new PlatformSettingDefinition(
+                            "vsync-enabled",
+                            "VSync Enabled",
+                            PlatformSettingKind.Boolean,
+                            "true",
+                            true,
+                            []),
+                        new PlatformSettingDefinition(
+                            "fullscreen-enabled",
+                            "Fullscreen Enabled",
+                            PlatformSettingKind.Boolean,
+                            "false",
+                            true,
+                            []),
+                        new PlatformSettingDefinition(
+                            "depth-handler-mode",
+                            "Depth Handler Mode",
+                            PlatformSettingKind.Choice,
+                            "hardware",
+                            true,
+                            ["hardware", "software"])
                     ])
             ],
             [
@@ -84,6 +139,117 @@ public static class Ps2PlatformDefinitionFactory {
                     "Font",
                     false,
                     ["font.asset", "ttf", "otf"])
+            ],
+            [
+                new PlatformMaterialSchemaDefinition(
+                    "ps2-unlit-textured",
+                    "PS2 Unlit Textured",
+                    ["ps2-standard-forward", "ps2-showcase-forward"],
+                    [
+                        new PlatformMaterialFieldDefinition(
+                            "texture-relative-path",
+                            "Texture",
+                            PlatformMaterialFieldKind.Text,
+                            string.Empty,
+                            false,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            "alpha-mode",
+                            "Alpha Mode",
+                            PlatformMaterialFieldKind.Choice,
+                            "opaque",
+                            true,
+                            ["opaque", "alpha-test", "alpha-blend", "additive"]),
+                        new PlatformMaterialFieldDefinition(
+                            "double-sided",
+                            "Double Sided",
+                            PlatformMaterialFieldKind.Boolean,
+                            "false",
+                            true,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            "vertex-color-mode",
+                            "Vertex Color",
+                            PlatformMaterialFieldKind.Choice,
+                            "multiply",
+                            true,
+                            ["multiply", "ignore"])
+                    ]),
+                new PlatformMaterialSchemaDefinition(
+                    "ps2-simple-lit-textured",
+                    "PS2 Simple Lit Textured",
+                    ["ps2-standard-forward", "ps2-showcase-forward"],
+                    [
+                        new PlatformMaterialFieldDefinition(
+                            "texture-relative-path",
+                            "Texture",
+                            PlatformMaterialFieldKind.Text,
+                            string.Empty,
+                            false,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            "alpha-mode",
+                            "Alpha Mode",
+                            PlatformMaterialFieldKind.Choice,
+                            "opaque",
+                            true,
+                            ["opaque", "alpha-test", "alpha-blend", "additive"]),
+                        new PlatformMaterialFieldDefinition(
+                            "double-sided",
+                            "Double Sided",
+                            PlatformMaterialFieldKind.Boolean,
+                            "false",
+                            true,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            "vertex-color-mode",
+                            "Vertex Color",
+                            PlatformMaterialFieldKind.Choice,
+                            "multiply",
+                            true,
+                            ["multiply", "ignore"])
+                    ]),
+                new PlatformMaterialSchemaDefinition(
+                    "ps2-showcase-lit-textured",
+                    "PS2 Showcase Lit Textured",
+                    ["ps2-showcase-forward"],
+                    [
+                        new PlatformMaterialFieldDefinition(
+                            "texture-relative-path",
+                            "Texture",
+                            PlatformMaterialFieldKind.Text,
+                            string.Empty,
+                            false,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            "alpha-mode",
+                            "Alpha Mode",
+                            PlatformMaterialFieldKind.Choice,
+                            "opaque",
+                            true,
+                            ["opaque", "alpha-test", "alpha-blend", "additive"]),
+                        new PlatformMaterialFieldDefinition(
+                            "double-sided",
+                            "Double Sided",
+                            PlatformMaterialFieldKind.Boolean,
+                            "false",
+                            true,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            "vertex-color-mode",
+                            "Vertex Color",
+                            PlatformMaterialFieldKind.Choice,
+                            "multiply",
+                            true,
+                            ["multiply", "ignore"]),
+                        new PlatformMaterialFieldDefinition(
+                            "expensive-mode-allowed",
+                            "Expensive Mode",
+                            PlatformMaterialFieldKind.Boolean,
+                            "true",
+                            true,
+                            [])
+                    ])
             ],
             [
                 new PlatformComponentCompatibilityDefinition(
