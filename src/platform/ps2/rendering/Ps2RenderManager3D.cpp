@@ -865,13 +865,21 @@ namespace helengine::ps2 {
             + static_cast<double>(normalizedNormal.Z) * lightZ;
         ndotl = std::max(0.0, ndotl);
 
+        const double roughness = std::clamp(static_cast<double>(material.GetRoughness()), 0.0, 1.0);
+        const double specularStrength = std::clamp(static_cast<double>(material.GetSpecularStrength()), 0.0, 1.0);
+        const double emissiveStrength = std::clamp(static_cast<double>(material.GetEmissiveStrength()), 0.0, 1.0);
+        const double diffuseScale = 1.0 - (roughness * 0.35);
+        const double baseIntensity = static_cast<double>(LightingBias) + (ndotl * static_cast<double>(LightingScale) * diffuseScale);
+        const double specularPower = 4.0 + ((1.0 - roughness) * 8.0);
+        const double specularBoost = std::pow(ndotl, specularPower) * specularStrength * (material.GetLightingMode() == ::Ps2MaterialLightingMode::ShowcaseLit ? 96.0 : 48.0);
+        const double emissiveBoost = emissiveStrength * (material.GetLightingMode() == ::Ps2MaterialLightingMode::ShowcaseLit ? 72.0 : 24.0);
+        double intensityValue = baseIntensity + specularBoost + emissiveBoost;
+
         if (material.GetLightingMode() == ::Ps2MaterialLightingMode::ShowcaseLit && material.GetExpensiveModeAllowed()) {
-            const double showcaseIntensity = 80.0 + (ndotl * 176.0) + ((ndotl * ndotl) * 48.0);
-            const std::uint8_t intensity = static_cast<std::uint8_t>(std::clamp(std::lround(showcaseIntensity), 0l, 255l));
-            return GS_SETREG_RGBAQ(intensity, intensity, intensity, 0x80, 0x00);
+            intensityValue += 24.0 + (ndotl * 28.0);
         }
 
-        const std::uint8_t intensity = static_cast<std::uint8_t>(LightingBias + static_cast<int>(ndotl * LightingScale));
+        const std::uint8_t intensity = static_cast<std::uint8_t>(std::clamp(std::lround(intensityValue), 0l, 255l));
         return GS_SETREG_RGBAQ(intensity, intensity, intensity, 0x80, 0x00);
     }
 }

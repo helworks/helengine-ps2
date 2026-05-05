@@ -53,6 +53,7 @@ public class Ps2PlatformAssetBuilderTests {
                 ["texture-relative-path"] = "cooked/textures/test.hasset",
                 ["alpha-mode"] = "opaque",
                 ["double-sided"] = "false",
+                ["cast-shadows"] = "false",
                 ["vertex-color-mode"] = "multiply"
             }));
 
@@ -63,6 +64,7 @@ public class Ps2PlatformAssetBuilderTests {
         Assert.Equal(Ps2RenderClass.Opaque, materialAsset.RenderClass);
         Assert.Equal("cooked/textures/test.hasset", materialAsset.TextureRelativePath);
         Assert.False(materialAsset.DoubleSided);
+        Assert.False(materialAsset.CastShadows);
         Assert.True(materialAsset.UseVertexColor);
         Assert.False(materialAsset.ExpensiveModeAllowed);
         Assert.Empty(result.ReferencedShaderAssetIds);
@@ -86,15 +88,23 @@ public class Ps2PlatformAssetBuilderTests {
                 ["texture-relative-path"] = "cooked/textures/test.hasset",
                 ["alpha-mode"] = "alpha-blend",
                 ["double-sided"] = "true",
+                ["cast-shadows"] = "true",
                 ["vertex-color-mode"] = "multiply",
-                ["expensive-mode-allowed"] = "true"
+                ["expensive-mode-allowed"] = "true",
+                ["roughness"] = "0.22",
+                ["specular-strength"] = "0.88",
+                ["emissive-strength"] = "0.15"
             }));
 
         Ps2MaterialAsset materialAsset = Assert.IsType<Ps2MaterialAsset>(AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
         Assert.Equal(Ps2MaterialAlphaMode.AlphaBlend, materialAsset.AlphaMode);
         Assert.Equal(Ps2RenderClass.Transparent, materialAsset.RenderClass);
         Assert.True(materialAsset.DoubleSided);
+        Assert.True(materialAsset.CastShadows);
         Assert.True(materialAsset.ExpensiveModeAllowed);
+        Assert.Equal(0.22f, materialAsset.Roughness);
+        Assert.Equal(0.88f, materialAsset.SpecularStrength);
+        Assert.Equal(0.15f, materialAsset.EmissiveStrength);
     }
 
     /// <summary>
@@ -115,6 +125,7 @@ public class Ps2PlatformAssetBuilderTests {
                 ["texture-relative-path"] = "cooked/textures/test.hasset",
                 ["alpha-mode"] = "alpha-test",
                 ["double-sided"] = "false",
+                ["cast-shadows"] = "false",
                 ["vertex-color-mode"] = "multiply"
             }));
 
@@ -122,6 +133,7 @@ public class Ps2PlatformAssetBuilderTests {
         Assert.Equal(Ps2MaterialAlphaMode.AlphaTest, materialAsset.AlphaMode);
         Assert.Equal(Ps2RenderClass.AlphaTest, materialAsset.RenderClass);
         Assert.False(materialAsset.DoubleSided);
+        Assert.False(materialAsset.CastShadows);
     }
 
     [Fact]

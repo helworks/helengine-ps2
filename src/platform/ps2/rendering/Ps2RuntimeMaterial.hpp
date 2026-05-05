@@ -17,16 +17,24 @@ namespace helengine::ps2 {
         ::Ps2RenderClass GetRenderClass() const;
         const std::string& GetTextureRelativePath() const;
         bool GetDoubleSided() const;
+        bool GetCastShadows() const;
         bool GetExpensiveModeAllowed() const;
+        float GetRoughness() const;
+        float GetSpecularStrength() const;
+        float GetEmissiveStrength() const;
         bool UsesVertexColor() const;
         void LoadFromCooked(::Ps2MaterialAsset* materialAsset);
 
     private:
         ::Ps2MaterialAlphaMode AlphaMode;
         bool DoubleSided;
+        bool CastShadows;
         bool ExpensiveModeAllowed;
         ::Ps2MaterialLightingMode LightingMode;
         ::Ps2RenderClass RenderClass;
+        float Roughness;
+        float SpecularStrength;
+        float EmissiveStrength;
         std::string TextureRelativePath;
         bool UseVertexColor;
     };

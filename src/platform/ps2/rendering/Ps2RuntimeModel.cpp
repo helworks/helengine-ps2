@@ -1,5 +1,7 @@
 #include "platform/ps2/rendering/Ps2RuntimeModel.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 
@@ -9,6 +11,10 @@
 
 namespace helengine::ps2 {
     Ps2RuntimeModel::Ps2RuntimeModel() {
+        BoundsMinimum = ::float3::get_Zero();
+        BoundsMaximum = ::float3::get_Zero();
+        BoundsCenter = ::float3::get_Zero();
+        BoundsRadius = 0.0f;
     }
 
     void Ps2RuntimeModel::LoadFromRaw(::ModelAsset* modelAsset) {
@@ -27,9 +33,32 @@ namespace helengine::ps2 {
         }
 
         Positions.reserve(static_cast<std::size_t>(modelAsset->Positions->Length));
+        BoundsMinimum = ::float3(
+            std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max());
+        BoundsMaximum = ::float3(
+            std::numeric_limits<float>::lowest(),
+            std::numeric_limits<float>::lowest(),
+            std::numeric_limits<float>::lowest());
         for (int32_t index = 0; index < modelAsset->Positions->Length; index++) {
-            Positions.push_back(modelAsset->Positions->Data[index]);
+            const ::float3 position = modelAsset->Positions->Data[index];
+            Positions.push_back(position);
+            BoundsMinimum.X = std::min(BoundsMinimum.X, position.X);
+            BoundsMinimum.Y = std::min(BoundsMinimum.Y, position.Y);
+            BoundsMinimum.Z = std::min(BoundsMinimum.Z, position.Z);
+            BoundsMaximum.X = std::max(BoundsMaximum.X, position.X);
+            BoundsMaximum.Y = std::max(BoundsMaximum.Y, position.Y);
+            BoundsMaximum.Z = std::max(BoundsMaximum.Z, position.Z);
         }
+        BoundsCenter = ::float3(
+            (BoundsMinimum.X + BoundsMaximum.X) * 0.5f,
+            (BoundsMinimum.Y + BoundsMaximum.Y) * 0.5f,
+            (BoundsMinimum.Z + BoundsMaximum.Z) * 0.5f);
+        const float halfExtentX = (BoundsMaximum.X - BoundsMinimum.X) * 0.5f;
+        const float halfExtentY = (BoundsMaximum.Y - BoundsMinimum.Y) * 0.5f;
+        const float halfExtentZ = (BoundsMaximum.Z - BoundsMinimum.Z) * 0.5f;
+        BoundsRadius = std::sqrt((halfExtentX * halfExtentX) + (halfExtentY * halfExtentY) + (halfExtentZ * halfExtentZ));
 
         if (modelAsset->Normals != nullptr && modelAsset->Normals->Length > 0) {
             Normals.reserve(static_cast<std::size_t>(modelAsset->Normals->Length));
@@ -81,4 +110,22 @@ namespace helengine::ps2 {
     const std::vector<::float2>& Ps2RuntimeModel::GetTexCoords() const {
         return TexCoords;
     }
+
+    const ::float3& Ps2RuntimeModel::GetBoundsMinimum() const {
+        return BoundsMinimum;
+    }
+
+    const ::float3& Ps2RuntimeModel::GetBoundsMaximum() const {
+        return BoundsMaximum;
+    }
+
+    const ::float3& Ps2RuntimeModel::GetBoundsCenter() const {
+        return BoundsCenter;
+    }
+
+    float Ps2RuntimeModel::GetBoundsRadius() const {
+        return BoundsRadius;
+    }
 }
+#include <algorithm>
+#include <cmath>

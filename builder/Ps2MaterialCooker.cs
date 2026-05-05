@@ -1,6 +1,7 @@
 using helengine;
 using helengine.baseplatform.Requests;
 using helengine.baseplatform.Results;
+using System.Globalization;
 
 namespace helengine.ps2.builder;
 
@@ -27,8 +28,12 @@ public sealed class Ps2MaterialCooker {
             RenderClass = ResolveRenderClass(alphaMode),
             TextureRelativePath = ReadOptionalField(request.FieldValues, Ps2MaterialSchemaIds.TextureRelativePathFieldId),
             DoubleSided = ReadRequiredBooleanField(request.FieldValues, Ps2MaterialSchemaIds.DoubleSidedFieldId),
+            CastShadows = ReadRequiredBooleanField(request.FieldValues, Ps2MaterialSchemaIds.CastShadowsFieldId),
             UseVertexColor = ResolveUseVertexColor(ReadRequiredField(request.FieldValues, Ps2MaterialSchemaIds.VertexColorModeFieldId)),
-            ExpensiveModeAllowed = ResolveExpensiveModeAllowed(request)
+            ExpensiveModeAllowed = ResolveExpensiveModeAllowed(request),
+            Roughness = ResolveRoughness(request),
+            SpecularStrength = ResolveSpecularStrength(request),
+            EmissiveStrength = ResolveEmissiveStrength(request)
         };
 
         return new PlatformMaterialCookResult(helengine.files.AssetSerializer.SerializeToBytes(cookedAsset), Array.Empty<string>());
@@ -114,6 +119,53 @@ public sealed class Ps2MaterialCooker {
     }
 
     /// <summary>
+    /// Resolves the roughness value for one PS2 material.
+    /// </summary>
+    /// <param name="request">Builder-owned material translation request.</param>
+    /// <returns>Cooked roughness value.</returns>
+    static float ResolveRoughness(PlatformMaterialCookRequest request) {
+        if (string.Equals(request.SchemaId, Ps2MaterialSchemaIds.UnlitTextured, StringComparison.OrdinalIgnoreCase)) {
+            return 1.0f;
+        } else if (string.Equals(request.SchemaId, Ps2MaterialSchemaIds.SimpleLitTextured, StringComparison.OrdinalIgnoreCase)) {
+            return ReadOptionalFloatField(request.FieldValues, Ps2MaterialSchemaIds.RoughnessFieldId, 0.6f);
+        } else if (string.Equals(request.SchemaId, Ps2MaterialSchemaIds.ShowcaseLitTextured, StringComparison.OrdinalIgnoreCase)) {
+            return ReadOptionalFloatField(request.FieldValues, Ps2MaterialSchemaIds.RoughnessFieldId, 0.35f);
+        }
+
+        throw new InvalidOperationException($"PS2 material schema '{request.SchemaId}' is not supported.");
+    }
+
+    /// <summary>
+    /// Resolves the specular strength value for one PS2 material.
+    /// </summary>
+    /// <param name="request">Builder-owned material translation request.</param>
+    /// <returns>Cooked specular strength value.</returns>
+    static float ResolveSpecularStrength(PlatformMaterialCookRequest request) {
+        if (string.Equals(request.SchemaId, Ps2MaterialSchemaIds.UnlitTextured, StringComparison.OrdinalIgnoreCase)) {
+            return 0.0f;
+        } else if (string.Equals(request.SchemaId, Ps2MaterialSchemaIds.SimpleLitTextured, StringComparison.OrdinalIgnoreCase)) {
+            return ReadOptionalFloatField(request.FieldValues, Ps2MaterialSchemaIds.SpecularStrengthFieldId, 0.25f);
+        } else if (string.Equals(request.SchemaId, Ps2MaterialSchemaIds.ShowcaseLitTextured, StringComparison.OrdinalIgnoreCase)) {
+            return ReadOptionalFloatField(request.FieldValues, Ps2MaterialSchemaIds.SpecularStrengthFieldId, 0.65f);
+        }
+
+        throw new InvalidOperationException($"PS2 material schema '{request.SchemaId}' is not supported.");
+    }
+
+    /// <summary>
+    /// Resolves the emissive strength value for one PS2 material.
+    /// </summary>
+    /// <param name="request">Builder-owned material translation request.</param>
+    /// <returns>Cooked emissive strength value.</returns>
+    static float ResolveEmissiveStrength(PlatformMaterialCookRequest request) {
+        if (string.Equals(request.SchemaId, Ps2MaterialSchemaIds.ShowcaseLitTextured, StringComparison.OrdinalIgnoreCase)) {
+            return ReadOptionalFloatField(request.FieldValues, Ps2MaterialSchemaIds.EmissiveStrengthFieldId, 0.0f);
+        }
+
+        return 0.0f;
+    }
+
+    /// <summary>
     /// Reads one required serialized field value from the request field map.
     /// </summary>
     /// <param name="fieldValues">Serialized field values keyed by field identifier.</param>
@@ -166,6 +218,33 @@ public sealed class Ps2MaterialCooker {
         bool parsedValue;
         if (!bool.TryParse(value, out parsedValue)) {
             throw new InvalidOperationException($"PS2 material field '{fieldId}' must be a boolean value.");
+        }
+
+        return parsedValue;
+    }
+
+    /// <summary>
+    /// Reads one optional serialized float field value from the request field map.
+    /// </summary>
+    /// <param name="fieldValues">Serialized field values keyed by builder-defined field identifier.</param>
+    /// <param name="fieldId">Field identifier to resolve.</param>
+    /// <param name="defaultValue">Fallback value used when the field is absent.</param>
+    /// <returns>Parsed float field value or the supplied default.</returns>
+    static float ReadOptionalFloatField(IReadOnlyDictionary<string, string> fieldValues, string fieldId, float defaultValue) {
+        if (fieldValues == null) {
+            throw new ArgumentNullException(nameof(fieldValues));
+        } else if (string.IsNullOrWhiteSpace(fieldId)) {
+            throw new ArgumentException("Field id must be provided.", nameof(fieldId));
+        }
+
+        string value;
+        if (!fieldValues.TryGetValue(fieldId, out value) || string.IsNullOrWhiteSpace(value)) {
+            return defaultValue;
+        }
+
+        float parsedValue;
+        if (!float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out parsedValue)) {
+            throw new InvalidOperationException($"PS2 material field '{fieldId}' must be a numeric value.");
         }
 
         return parsedValue;

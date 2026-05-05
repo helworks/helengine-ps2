@@ -35,6 +35,11 @@ public static class Ps2MaterialSchemaIds {
     public const string DoubleSidedFieldId = "double-sided";
 
     /// <summary>
+    /// Field identifier for whether the material contributes to shadow passes.
+    /// </summary>
+    public const string CastShadowsFieldId = "cast-shadows";
+
+    /// <summary>
     /// Field identifier for the vertex-color mode.
     /// </summary>
     public const string VertexColorModeFieldId = "vertex-color-mode";
@@ -43,4 +48,19 @@ public static class Ps2MaterialSchemaIds {
     /// Field identifier for the expensive showcase-path toggle.
     /// </summary>
     public const string ExpensiveModeAllowedFieldId = "expensive-mode-allowed";
+
+    /// <summary>
+    /// Field identifier for the fixed-shader roughness control.
+    /// </summary>
+    public const string RoughnessFieldId = "roughness";
+
+    /// <summary>
+    /// Field identifier for the fixed-shader specular-strength control.
+    /// </summary>
+    public const string SpecularStrengthFieldId = "specular-strength";
+
+    /// <summary>
+    /// Field identifier for the fixed-shader emissive-strength control.
+    /// </summary>
+    public const string EmissiveStrengthFieldId = "emissive-strength";
 }

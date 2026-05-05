@@ -168,6 +168,13 @@ public static class Ps2PlatformDefinitionFactory {
                             true,
                             []),
                         new PlatformMaterialFieldDefinition(
+                            Ps2MaterialSchemaIds.CastShadowsFieldId,
+                            "Cast Shadows",
+                            PlatformMaterialFieldKind.Boolean,
+                            "false",
+                            true,
+                            []),
+                        new PlatformMaterialFieldDefinition(
                             "vertex-color-mode",
                             "Vertex Color",
                             PlatformMaterialFieldKind.Choice,
@@ -197,6 +204,13 @@ public static class Ps2PlatformDefinitionFactory {
                         new PlatformMaterialFieldDefinition(
                             "double-sided",
                             "Double Sided",
+                            PlatformMaterialFieldKind.Boolean,
+                            "false",
+                            true,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            Ps2MaterialSchemaIds.CastShadowsFieldId,
+                            "Cast Shadows",
                             PlatformMaterialFieldKind.Boolean,
                             "false",
                             true,
@@ -236,6 +250,13 @@ public static class Ps2PlatformDefinitionFactory {
                             true,
                             []),
                         new PlatformMaterialFieldDefinition(
+                            Ps2MaterialSchemaIds.CastShadowsFieldId,
+                            "Cast Shadows",
+                            PlatformMaterialFieldKind.Boolean,
+                            "false",
+                            true,
+                            []),
+                        new PlatformMaterialFieldDefinition(
                             "vertex-color-mode",
                             "Vertex Color",
                             PlatformMaterialFieldKind.Choice,
@@ -243,10 +264,31 @@ public static class Ps2PlatformDefinitionFactory {
                             true,
                             ["multiply", "ignore"]),
                         new PlatformMaterialFieldDefinition(
+                            Ps2MaterialSchemaIds.RoughnessFieldId,
+                            "Roughness",
+                            PlatformMaterialFieldKind.Number,
+                            "0.35",
+                            true,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            Ps2MaterialSchemaIds.SpecularStrengthFieldId,
+                            "Specular Strength",
+                            PlatformMaterialFieldKind.Number,
+                            "0.65",
+                            true,
+                            []),
+                        new PlatformMaterialFieldDefinition(
                             "expensive-mode-allowed",
                             "Expensive Mode",
                             PlatformMaterialFieldKind.Boolean,
                             "true",
+                            true,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            Ps2MaterialSchemaIds.EmissiveStrengthFieldId,
+                            "Emissive Strength",
+                            PlatformMaterialFieldKind.Number,
+                            "0.0",
                             true,
                             [])
                     ])

@@ -10,9 +10,13 @@ namespace helengine::ps2 {
     Ps2RuntimeMaterial::Ps2RuntimeMaterial()
         : AlphaMode(::Ps2MaterialAlphaMode::Opaque),
           DoubleSided(false),
+          CastShadows(false),
           ExpensiveModeAllowed(false),
           LightingMode(::Ps2MaterialLightingMode::Unlit),
           RenderClass(::Ps2RenderClass::Opaque),
+          Roughness(0.5f),
+          SpecularStrength(0.5f),
+          EmissiveStrength(0.0f),
           TextureRelativePath(),
           UseVertexColor(false) {
     }
@@ -37,8 +41,24 @@ namespace helengine::ps2 {
         return DoubleSided;
     }
 
+    bool Ps2RuntimeMaterial::GetCastShadows() const {
+        return CastShadows;
+    }
+
     bool Ps2RuntimeMaterial::GetExpensiveModeAllowed() const {
         return ExpensiveModeAllowed;
+    }
+
+    float Ps2RuntimeMaterial::GetRoughness() const {
+        return Roughness;
+    }
+
+    float Ps2RuntimeMaterial::GetSpecularStrength() const {
+        return SpecularStrength;
+    }
+
+    float Ps2RuntimeMaterial::GetEmissiveStrength() const {
+        return EmissiveStrength;
     }
 
     bool Ps2RuntimeMaterial::UsesVertexColor() const {
@@ -56,7 +76,11 @@ namespace helengine::ps2 {
         RenderClass = materialAsset->RenderClass;
         TextureRelativePath = materialAsset->TextureRelativePath;
         DoubleSided = materialAsset->DoubleSided;
+        CastShadows = materialAsset->CastShadows;
         UseVertexColor = materialAsset->UseVertexColor;
         ExpensiveModeAllowed = materialAsset->ExpensiveModeAllowed;
+        Roughness = materialAsset->Roughness;
+        SpecularStrength = materialAsset->SpecularStrength;
+        EmissiveStrength = materialAsset->EmissiveStrength;
     }
 }

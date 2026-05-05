@@ -20,11 +20,19 @@ namespace helengine::ps2 {
         const std::vector<std::uint16_t>& GetIndices() const;
         const std::vector<::float3>& GetPositions() const;
         const std::vector<::float2>& GetTexCoords() const;
+        const ::float3& GetBoundsMinimum() const;
+        const ::float3& GetBoundsMaximum() const;
+        const ::float3& GetBoundsCenter() const;
+        float GetBoundsRadius() const;
 
     private:
         std::vector<std::uint16_t> Indices;
         std::vector<::float3> Normals;
         std::vector<::float3> Positions;
         std::vector<::float2> TexCoords;
+        ::float3 BoundsMinimum;
+        ::float3 BoundsMaximum;
+        ::float3 BoundsCenter;
+        float BoundsRadius;
     };
 }
