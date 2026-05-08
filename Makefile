@@ -17,13 +17,7 @@ BUILD_DIR := build
 SOURCE_DIR := src
 GENERATED_CORE_STAGE_ROOT := $(BUILD_DIR)/generated-core
 GENERATED_CORE_STAGE_STAMP := $(GENERATED_CORE_STAGE_ROOT)/.prepared
-GENERATED_CORE_STAGE_INPUTS := \
-	$(HELENGINE_CORE_CPP_ROOT)/helengine_core_amalgamated.cpp \
-	$(HELENGINE_CORE_CPP_ROOT)/IInputBackend.hpp \
-	$(HELENGINE_CORE_CPP_ROOT)/RenderManager3D.hpp \
-	$(HELENGINE_CORE_CPP_ROOT)/Ps2MaterialAsset.hpp \
-	$(HELENGINE_CORE_CPP_ROOT)/runtime/runtime_graphics_renderer_manifest.hpp \
-	$(HELENGINE_CORE_CPP_ROOT)/runtime/runtime_graphics_renderer_manifest.cpp
+GENERATED_CORE_STAGE_INPUTS = $(shell find $(HELENGINE_CORE_CPP_ROOT) -type f | sort)
 PS2_SOURCES := \
 	$(SOURCE_DIR)/main.cpp \
 	$(SOURCE_DIR)/platform/ps2/Ps2InputBackend.cpp \
@@ -38,6 +32,7 @@ OBJECTS := \
 	$(patsubst $(SOURCE_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(PS2_SOURCES)) \
 	$(BUILD_DIR)/generated/runtime/runtime_startup_manifest.o \
 	$(BUILD_DIR)/generated/runtime/runtime_code_module_manifest.o \
+	$(BUILD_DIR)/generated/runtime/runtime_ps2_asset_path_manifest.o \
 	$(BUILD_DIR)/generated/helengine_core_amalgamated.o
 
 CXX := mips64r5900el-ps2-elf-g++
@@ -112,5 +107,10 @@ $(BUILD_DIR)/generated/runtime/runtime_code_module_manifest.o: $(GENERATED_CORE_
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/generated/runtime/runtime_ps2_asset_path_manifest.o: $(GENERATED_CORE_STAGE_ROOT)/runtime/runtime_ps2_asset_path_manifest.cpp $(GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
 clean:
 	@rm -rf $(BUILD_DIR)
+

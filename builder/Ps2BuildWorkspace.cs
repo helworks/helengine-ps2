@@ -62,6 +62,11 @@ public sealed class Ps2BuildWorkspace {
     public string GeneratedCoreRootPath { get; }
 
     /// <summary>
+    /// Gets the generated runtime folder that receives PS2-specific native manifest source.
+    /// </summary>
+    public string GeneratedRuntimeRootPath => Path.Combine(GeneratedCoreRootPath, "runtime");
+
+    /// <summary>
     /// Gets the final export root that receives the ELF and cooked runtime files.
     /// </summary>
     public string OutputRootPath { get; }
@@ -75,6 +80,16 @@ public sealed class Ps2BuildWorkspace {
     /// Gets the staged PS2 disc root exported to the final output directory.
     /// </summary>
     public string DiscRootPath => Path.Combine(OutputRootPath, "disc");
+
+    /// <summary>
+    /// Gets the generated PS2 runtime asset-path manifest header path.
+    /// </summary>
+    public string RuntimeAssetPathManifestHeaderPath => Path.Combine(GeneratedRuntimeRootPath, "runtime_ps2_asset_path_manifest.hpp");
+
+    /// <summary>
+    /// Gets the generated PS2 runtime asset-path manifest source path.
+    /// </summary>
+    public string RuntimeAssetPathManifestSourcePath => Path.Combine(GeneratedRuntimeRootPath, "runtime_ps2_asset_path_manifest.cpp");
 
     /// <summary>
     /// Gets the generated PS2 boot configuration file path inside the staged disc root.

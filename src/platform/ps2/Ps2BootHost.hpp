@@ -23,7 +23,7 @@ namespace helengine::ps2 {
         bool InitializeRuntime();
         bool InitializeGraphics();
         bool LoadPackagedStartupScene();
-        ::Asset* LoadPackagedAsset(const std::string& relativePath);
+        ::Asset* LoadPackagedPhysicalAsset(const std::string& physicalPath);
         void PresentBootFrame();
         std::string ResolveApplicationDirectoryPath() const;
 

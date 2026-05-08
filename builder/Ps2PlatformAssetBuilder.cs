@@ -16,11 +16,15 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     readonly IPs2NativeBuildExecutor NativeBuildExecutor;
     readonly Ps2MaterialCooker MaterialCooker;
     readonly Ps2DiscLayoutWriter DiscLayoutWriter;
+    readonly Ps2RuntimeAssetPathManifestWriter RuntimeAssetPathManifestWriter;
+    readonly Ps2CookedAssetPathRewriter CookedAssetPathRewriter;
 
     public Ps2PlatformAssetBuilder() {
         NativeBuildExecutor = new Ps2NativeBuildExecutor();
         MaterialCooker = new Ps2MaterialCooker();
         DiscLayoutWriter = new Ps2DiscLayoutWriter();
+        RuntimeAssetPathManifestWriter = new Ps2RuntimeAssetPathManifestWriter();
+        CookedAssetPathRewriter = new Ps2CookedAssetPathRewriter();
         Descriptor = new PlatformBuilderDescriptor(
             "helengine.ps2.builder",
             "1.0.0",
@@ -36,6 +40,8 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         NativeBuildExecutor = nativeBuildExecutor ?? throw new ArgumentNullException(nameof(nativeBuildExecutor));
         MaterialCooker = new Ps2MaterialCooker();
         DiscLayoutWriter = new Ps2DiscLayoutWriter();
+        RuntimeAssetPathManifestWriter = new Ps2RuntimeAssetPathManifestWriter();
+        CookedAssetPathRewriter = new Ps2CookedAssetPathRewriter();
         Descriptor = new PlatformBuilderDescriptor(
             "helengine.ps2.builder",
             "1.0.0",
@@ -90,6 +96,9 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
 
         if (diagnostics.Count == 0) {
             Ps2BuildWorkspace workspace = CreateWorkspace(request);
+            IReadOnlyDictionary<string, string> logicalToPhysicalPaths = DiscLayoutWriter.BuildLogicalToPhysicalPathMap(workspace);
+            CookedAssetPathRewriter.Rewrite(workspace.StagingRootPath, logicalToPhysicalPaths);
+            RuntimeAssetPathManifestWriter.Write(workspace.GeneratedCoreRootPath, request.Manifest, logicalToPhysicalPaths);
             NativeBuildExecutor.Build(workspace, cancellationToken);
             DiscLayoutWriter.Write(workspace);
             NativeBuildExecutor.PackageIso(workspace, cancellationToken);
@@ -143,7 +152,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
                 continue;
             }
 
-            string destinationPath = Path.Combine(request.OutputRoot, "disc", NormalizeRelativePath(artifact.RelativePath));
+            string destinationPath = Path.Combine(request.WorkingRoot, "ps2-staging", NormalizeRelativePath(artifact.RelativePath));
             string destinationDirectory = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectory)) {
                 Directory.CreateDirectory(destinationDirectory);
@@ -284,3 +293,8 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         }
     }
 }
+
+
+
+
+

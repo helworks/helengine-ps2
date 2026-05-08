@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <malloc.h>
 #include <gsKit.h>
+#include <algorithm>
 #include <cstring>
 #include <cstdio>
 #include <cmath>
@@ -21,14 +22,13 @@
 #include "SpriteComponent.hpp"
 #include "platform/ps2/Ps2InputBackend.hpp"
 #include "platform/ps2/rendering/Ps2RenderManager3D.hpp"
-#include "Ps2DebugTexture.hpp"
 #include "TextureUtils.hpp"
 #include "RenderManager2D.hpp"
 #include "RenderManager3D.hpp"
 #include "runtime/runtime_graphics_renderer_manifest.hpp"
+#include "runtime/runtime_ps2_asset_path_manifest.hpp"
 #include "RuntimeModel.hpp"
 #include "RuntimeTexture.hpp"
-#include "runtime/runtime_startup_manifest.hpp"
 #include "system/io/file.hpp"
 #include "system/io/path.hpp"
 #include "TextLayoutUtils.hpp"
@@ -85,20 +85,6 @@ namespace {
         gsKit_texture_upload(ActiveGsGlobal, &record.Texture);
         record.Uploaded = true;
         return true;
-    }
-
-    ::TextureAsset* BuildBootTextureAsset() {
-        const std::vector<std::uint8_t> pixels = helengine::ps2::BuildCheckerboardDebugTexture(8, 8);
-        auto* colors = new Array<std::uint8_t>(static_cast<int32_t>(pixels.size()));
-        if (colors != nullptr && colors->Data != nullptr && !pixels.empty()) {
-            std::memcpy(colors->Data, pixels.data(), pixels.size());
-        }
-
-        auto* texture = new ::TextureAsset();
-        texture->Colors = colors;
-        texture->Width = 8;
-        texture->Height = 8;
-        return texture;
     }
 
     class Ps2RenderManager2D final : public RenderManager2D {
@@ -285,8 +271,6 @@ namespace {
 
     Ps2RenderManager2D RenderManager2DBackend;
     helengine::ps2::Ps2RenderManager3D RenderManager3DBackend;
-    ::Entity* BootEntity = nullptr;
-    ::SpriteComponent* BootSprite = nullptr;
 }
 
 namespace helengine::ps2 {
@@ -348,19 +332,9 @@ namespace helengine::ps2 {
         BootLog(StartupSceneLoaded ? "startup scene load succeeded" : "startup scene load failed");
 
         if (!StartupSceneLoaded) {
-            BootLog("2d fallback sprite init");
-            BootEntity = new Entity();
-            BootEntity->InitComponents();
-            BootEntity->set_LayerMask(0b00000001);
-            BootEntity->set_Position(::float3(192.0f, 96.0f, 0.0f));
-
-            BootSprite = new SpriteComponent();
-            BootSprite->set_RenderOrder2D(0);
-            BootSprite->set_Size(new ::int2(256, 256));
-            BootSprite->set_Texture(EngineRenderManager2D->BuildTextureFromRaw(BuildBootTextureAsset()));
-            BootSprite->set_Color(::byte4(255, 255, 255, 255));
-            BootEntity->AddComponent(BootSprite);
-            BootLog("2d fallback sprite ready");
+            BootLog("startup scene load failed; halting");
+            while (true) {
+            }
         }
 
         return true;
@@ -413,13 +387,13 @@ namespace helengine::ps2 {
 
     bool Ps2BootHost::LoadPackagedStartupScene() {
         try {
-            const char* startupSceneRelativePath = he_get_runtime_startup_scene_relative_path();
-            if (startupSceneRelativePath == nullptr || startupSceneRelativePath[0] == '\0') {
+            const char* startupScenePhysicalPath = he_get_runtime_ps2_startup_scene_path();
+            if (startupScenePhysicalPath == nullptr || startupScenePhysicalPath[0] == '\0') {
                 BootLog("no startup scene configured");
                 return false;
             }
 
-            Asset* startupAsset = LoadPackagedAsset(startupSceneRelativePath);
+            Asset* startupAsset = LoadPackagedPhysicalAsset(startupScenePhysicalPath);
             if (startupAsset == nullptr) {
                 BootLog("startup scene asset load returned null");
                 return false;
@@ -428,7 +402,7 @@ namespace helengine::ps2 {
             SceneAsset* startupScene = static_cast<SceneAsset*>(startupAsset);
             if (EngineCore != nullptr && EngineCore->get_SceneLoadService() != nullptr) {
                 EngineCore->get_SceneLoadService()->Load(startupScene);
-                BootLog(std::string("startup scene loaded: ") + startupSceneRelativePath);
+                BootLog(std::string("startup scene loaded: ") + startupScenePhysicalPath);
                 return true;
             }
 
@@ -443,14 +417,13 @@ namespace helengine::ps2 {
         }
     }
 
-    Asset* Ps2BootHost::LoadPackagedAsset(const std::string& relativePath) {
-        std::string fullPath = Path::Combine(ResolveApplicationDirectoryPath(), relativePath);
-        if (!File::Exists(fullPath)) {
-            BootLog(std::string("packaged asset missing: ") + fullPath);
+    Asset* Ps2BootHost::LoadPackagedPhysicalAsset(const std::string& physicalPath) {
+        if (!File::Exists(physicalPath)) {
+            BootLog(std::string("packaged asset missing: ") + physicalPath);
             return nullptr;
         }
 
-        FileStream* stream = File::OpenRead(fullPath);
+        FileStream* stream = File::OpenRead(physicalPath);
         return AssetSerializer::Deserialize(stream);
     }
 
@@ -459,9 +432,7 @@ namespace helengine::ps2 {
             return;
         }
 
-        BootLog("frame loop");
         while (true) {
-            BootLog("frame begin");
             if (EngineCore != 0) {
                 EngineCore->Update();
             }
@@ -474,8 +445,23 @@ namespace helengine::ps2 {
                 if (EngineCore->get_ObjectManager() != nullptr &&
                     EngineCore->get_ObjectManager()->get_Drawables2D() != nullptr) {
                     auto* drawables2D = EngineCore->get_ObjectManager()->get_Drawables2D();
+                    std::vector<::IDrawable2D*> orderedDrawables;
+                    orderedDrawables.reserve(static_cast<std::size_t>(drawables2D->Count()));
                     for (int32_t i = 0; i < drawables2D->Count(); i++) {
-                        ::IDrawable2D* drawable = (*drawables2D)[i];
+                        orderedDrawables.push_back((*drawables2D)[i]);
+                    }
+
+                    std::stable_sort(
+                        orderedDrawables.begin(),
+                        orderedDrawables.end(),
+                        [](::IDrawable2D* left, ::IDrawable2D* right) {
+                            const std::uint32_t leftOrder = left != nullptr ? left->get_RenderOrder2D() : 0;
+                            const std::uint32_t rightOrder = right != nullptr ? right->get_RenderOrder2D() : 0;
+                            return leftOrder < rightOrder;
+                        });
+
+                    for (std::size_t i = 0; i < orderedDrawables.size(); i++) {
+                        ::IDrawable2D* drawable = orderedDrawables[i];
                         if (drawable != nullptr) {
                             drawable->Draw();
                         }
@@ -483,14 +469,8 @@ namespace helengine::ps2 {
                 }
             }
 
-            const u64 inputIndicatorColor = EngineInputBackend != nullptr && EngineInputBackend->ShouldShowGreenFrame()
-                ? GS_SETREG_RGBAQ(0x00, 0x90, 0x30, 0x00, 0x00)
-                : GS_SETREG_RGBAQ(0x90, 0x00, 0x90, 0x00, 0x00);
-            gsKit_prim_sprite(GsGlobal, 20.0f, 20.0f, 52.0f, 52.0f, 0, inputIndicatorColor);
-
             gsKit_queue_exec(GsGlobal);
             gsKit_sync_flip(GsGlobal);
-            BootLog("frame present");
         }
     }
 
