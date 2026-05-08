@@ -10,9 +10,9 @@
 typedef struct gsGlobal GSGLOBAL;
 typedef struct gsTexture GSTEXTURE;
 
-class Asset;
 class CameraComponent;
 class ModelAsset;
+class Ps2MaterialAsset;
 class RuntimeMaterial;
 class RuntimeModel;
 class float3;
@@ -28,7 +28,7 @@ namespace helengine::ps2 {
     public:
         Ps2RenderManager3D();
 
-        ::RuntimeMaterial* BuildMaterialFromAsset(::Asset* materialAsset) override;
+        ::RuntimeMaterial* BuildMaterialFromCooked(::Ps2MaterialAsset* materialAsset) override;
         ::RuntimeModel* BuildModelFromRaw(::ModelAsset* data) override;
         void Draw() override;
         void SetHdrEnabled(bool enabled);

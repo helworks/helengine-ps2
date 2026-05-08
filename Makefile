@@ -39,12 +39,6 @@ OBJECTS := \
 	$(BUILD_DIR)/generated/runtime/runtime_startup_manifest.o \
 	$(BUILD_DIR)/generated/runtime/runtime_code_module_manifest.o \
 	$(BUILD_DIR)/generated/runtime/runtime_graphics_renderer_manifest.o \
-	$(BUILD_DIR)/generated/RendererBackendCapabilityProfile.o \
-	$(BUILD_DIR)/generated/RuntimeMaterialLightingModel.o \
-	$(BUILD_DIR)/generated/Ps2MaterialAlphaMode.o \
-	$(BUILD_DIR)/generated/Ps2MaterialAsset.o \
-	$(BUILD_DIR)/generated/Ps2MaterialLightingMode.o \
-	$(BUILD_DIR)/generated/Ps2RenderClass.o \
 	$(BUILD_DIR)/generated/helengine_core_unity.o
 
 CXX := mips64r5900el-ps2-elf-g++
@@ -108,30 +102,6 @@ $(BUILD_DIR)/platform/ps2/Ps2InputBackend.o: $(GENERATED_CORE_STAGE_STAMP)
 $(BUILD_DIR)/platform/ps2/rendering/%.o: $(GENERATED_CORE_STAGE_STAMP)
 
 $(BUILD_DIR)/generated/helengine_core_unity.o: $(GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp $(GENERATED_CORE_STAGE_STAMP)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/generated/RendererBackendCapabilityProfile.o: $(GENERATED_CORE_STAGE_ROOT)/RendererBackendCapabilityProfile.cpp $(GENERATED_CORE_STAGE_STAMP)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/generated/RuntimeMaterialLightingModel.o: $(GENERATED_CORE_STAGE_ROOT)/RuntimeMaterialLightingModel.cpp $(GENERATED_CORE_STAGE_STAMP)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/generated/Ps2MaterialAlphaMode.o: $(GENERATED_CORE_STAGE_ROOT)/Ps2MaterialAlphaMode.cpp $(GENERATED_CORE_STAGE_STAMP)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/generated/Ps2MaterialAsset.o: $(GENERATED_CORE_STAGE_ROOT)/Ps2MaterialAsset.cpp $(GENERATED_CORE_STAGE_STAMP)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/generated/Ps2MaterialLightingMode.o: $(GENERATED_CORE_STAGE_ROOT)/Ps2MaterialLightingMode.cpp $(GENERATED_CORE_STAGE_STAMP)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/generated/Ps2RenderClass.o: $(GENERATED_CORE_STAGE_ROOT)/Ps2RenderClass.cpp $(GENERATED_CORE_STAGE_STAMP)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 

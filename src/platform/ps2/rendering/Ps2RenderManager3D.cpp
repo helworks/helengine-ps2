@@ -313,14 +313,13 @@ namespace helengine::ps2 {
           Proxies() {
     }
 
-    ::RuntimeMaterial* Ps2RenderManager3D::BuildMaterialFromAsset(::Asset* materialAsset) {
-        ::Ps2MaterialAsset* cookedAsset = he_cpp_try_cast<Ps2MaterialAsset>(materialAsset);
-        if (cookedAsset == nullptr) {
+    ::RuntimeMaterial* Ps2RenderManager3D::BuildMaterialFromCooked(::Ps2MaterialAsset* materialAsset) {
+        if (materialAsset == nullptr) {
             throw std::invalid_argument("PS2 cooked material asset is required.");
         }
 
         Ps2RuntimeMaterial* runtimeMaterial = new Ps2RuntimeMaterial();
-        runtimeMaterial->LoadFromCooked(cookedAsset);
+        runtimeMaterial->LoadFromCooked(materialAsset);
         return runtimeMaterial;
     }
 
