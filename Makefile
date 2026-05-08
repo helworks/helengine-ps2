@@ -18,7 +18,7 @@ SOURCE_DIR := src
 GENERATED_CORE_STAGE_ROOT := $(BUILD_DIR)/generated-core
 GENERATED_CORE_STAGE_STAMP := $(GENERATED_CORE_STAGE_ROOT)/.prepared
 GENERATED_CORE_STAGE_INPUTS := \
-	$(HELENGINE_CORE_CPP_ROOT)/helengine_core_unity.cpp \
+	$(HELENGINE_CORE_CPP_ROOT)/helengine_core_amalgamated.cpp \
 	$(HELENGINE_CORE_CPP_ROOT)/IInputBackend.hpp \
 	$(HELENGINE_CORE_CPP_ROOT)/RenderManager3D.hpp \
 	$(HELENGINE_CORE_CPP_ROOT)/Ps2MaterialAsset.hpp \
@@ -38,8 +38,7 @@ OBJECTS := \
 	$(patsubst $(SOURCE_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(PS2_SOURCES)) \
 	$(BUILD_DIR)/generated/runtime/runtime_startup_manifest.o \
 	$(BUILD_DIR)/generated/runtime/runtime_code_module_manifest.o \
-	$(BUILD_DIR)/generated/runtime/runtime_graphics_renderer_manifest.o \
-	$(BUILD_DIR)/generated/helengine_core_unity.o
+	$(BUILD_DIR)/generated/helengine_core_amalgamated.o
 
 CXX := mips64r5900el-ps2-elf-g++
 STRIP := mips64r5900el-ps2-elf-strip
@@ -101,7 +100,7 @@ $(BUILD_DIR)/platform/ps2/Ps2BootHost.o: $(GENERATED_CORE_STAGE_STAMP)
 $(BUILD_DIR)/platform/ps2/Ps2InputBackend.o: $(GENERATED_CORE_STAGE_STAMP)
 $(BUILD_DIR)/platform/ps2/rendering/%.o: $(GENERATED_CORE_STAGE_STAMP)
 
-$(BUILD_DIR)/generated/helengine_core_unity.o: $(GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp $(GENERATED_CORE_STAGE_STAMP)
+$(BUILD_DIR)/generated/helengine_core_amalgamated.o: $(GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp $(GENERATED_CORE_STAGE_STAMP)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
@@ -110,10 +109,6 @@ $(BUILD_DIR)/generated/runtime/runtime_startup_manifest.o: $(GENERATED_CORE_STAG
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/generated/runtime/runtime_code_module_manifest.o: $(GENERATED_CORE_STAGE_ROOT)/runtime/runtime_code_module_manifest.cpp $(GENERATED_CORE_STAGE_STAMP)
-	@mkdir -p $(dir $@)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
-
-$(BUILD_DIR)/generated/runtime/runtime_graphics_renderer_manifest.o: $(GENERATED_CORE_STAGE_ROOT)/runtime/runtime_graphics_renderer_manifest.cpp $(GENERATED_CORE_STAGE_STAMP)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 

@@ -36,7 +36,7 @@ public static class Program {
         Directory.CreateDirectory(Path.GetDirectoryName(sceneSourcePath)!);
         Directory.CreateDirectory(generatedCoreRoot);
         File.WriteAllText(sceneSourcePath, "scene payload");
-        File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_unity.cpp"), "// generated");
+        File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "// generated");
 
         string previousDirectory = Directory.GetCurrentDirectory();
         try {

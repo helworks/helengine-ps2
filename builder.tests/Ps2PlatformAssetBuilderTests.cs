@@ -150,7 +150,7 @@ public class Ps2PlatformAssetBuilderTests {
         Directory.CreateDirectory(generatedCoreRoot);
         File.WriteAllText(sceneOutputPath, "scene payload");
         File.WriteAllText(modelOutputPath, "model payload");
-        File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_unity.cpp"), "// generated");
+        File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "// generated");
 
         string previousDirectory = Directory.GetCurrentDirectory();
         try {
