@@ -213,11 +213,14 @@ public class Ps2PlatformAssetBuilderTests {
             Assert.True(report.Succeeded);
             Assert.Empty(diagnosticReporter.Diagnostics);
             Assert.Equal(2, progressReporter.Updates.Count);
-            Assert.True(File.Exists(Path.Combine(outputRoot, "helengine_ps2.elf")));
-            Assert.True(File.Exists(Path.Combine(outputRoot, "cooked", "scenes", "main.hasset")));
-            Assert.True(File.Exists(Path.Combine(outputRoot, "cooked", "imported", "box_a.hasset")));
+            Assert.True(File.Exists(Path.Combine(outputRoot, "disc", "SYSTEM.CNF")));
+            Assert.True(File.Exists(Path.Combine(outputRoot, "disc", "HELENGINE.ELF")));
+            Assert.True(File.Exists(Path.Combine(outputRoot, "disc", "cooked", "scenes", "main.hasset")));
+            Assert.True(File.Exists(Path.Combine(outputRoot, "disc", "cooked", "imported", "box_a.hasset")));
+            Assert.True(File.Exists(Path.Combine(outputRoot, "game.iso")));
             Assert.False(File.Exists(Path.Combine(workingRoot, "tmp", "ps2-build-manifest.json")));
             Assert.Equal(generatedCoreRoot, nativeBuildExecutor.LastWorkspace.GeneratedCoreRootPath);
+            Assert.True(nativeBuildExecutor.PackageIsoCalled);
         } finally {
             try {
                 Directory.SetCurrentDirectory(previousDirectory);
@@ -235,12 +238,20 @@ public class Ps2PlatformAssetBuilderTests {
 
     sealed class FakePs2NativeBuildExecutor : IPs2NativeBuildExecutor {
         public Ps2BuildWorkspace LastWorkspace { get; private set; }
+        public bool PackageIsoCalled { get; private set; }
 
         public void Build(Ps2BuildWorkspace workspace, CancellationToken cancellationToken) {
             LastWorkspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
             string executableDirectoryPath = Path.GetDirectoryName(workspace.NativeExecutablePath)!;
             Directory.CreateDirectory(executableDirectoryPath);
             File.WriteAllText(workspace.NativeExecutablePath, "elf");
+        }
+
+        public void PackageIso(Ps2BuildWorkspace workspace, CancellationToken cancellationToken) {
+            LastWorkspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
+            PackageIsoCalled = true;
+            Directory.CreateDirectory(Path.GetDirectoryName(workspace.IsoOutputPath)!);
+            File.WriteAllText(workspace.IsoOutputPath, "iso");
         }
     }
 }
