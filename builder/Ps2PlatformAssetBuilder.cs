@@ -15,10 +15,12 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
 
     readonly IPs2NativeBuildExecutor NativeBuildExecutor;
     readonly Ps2MaterialCooker MaterialCooker;
+    readonly Ps2DiscLayoutWriter DiscLayoutWriter;
 
     public Ps2PlatformAssetBuilder() {
         NativeBuildExecutor = new Ps2NativeBuildExecutor();
         MaterialCooker = new Ps2MaterialCooker();
+        DiscLayoutWriter = new Ps2DiscLayoutWriter();
         Descriptor = new PlatformBuilderDescriptor(
             "helengine.ps2.builder",
             "1.0.0",
@@ -33,6 +35,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     public Ps2PlatformAssetBuilder(IPs2NativeBuildExecutor nativeBuildExecutor) {
         NativeBuildExecutor = nativeBuildExecutor ?? throw new ArgumentNullException(nameof(nativeBuildExecutor));
         MaterialCooker = new Ps2MaterialCooker();
+        DiscLayoutWriter = new Ps2DiscLayoutWriter();
         Descriptor = new PlatformBuilderDescriptor(
             "helengine.ps2.builder",
             "1.0.0",
@@ -88,7 +91,9 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         if (diagnostics.Count == 0) {
             Ps2BuildWorkspace workspace = CreateWorkspace(request);
             NativeBuildExecutor.Build(workspace, cancellationToken);
-            CopyNativeExecutable(workspace);
+            DiscLayoutWriter.Write(workspace);
+            NativeBuildExecutor.PackageIso(workspace, cancellationToken);
+            VerifyPackagedOutputs(workspace);
         }
 
         bool succeeded = diagnostics.Count == 0;
@@ -138,7 +143,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
                 continue;
             }
 
-            string destinationPath = Path.Combine(request.OutputRoot, NormalizeRelativePath(artifact.RelativePath));
+            string destinationPath = Path.Combine(request.OutputRoot, "disc", NormalizeRelativePath(artifact.RelativePath));
             string destinationDirectory = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectory)) {
                 Directory.CreateDirectory(destinationDirectory);
@@ -199,17 +204,20 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), normalizedRelativePath));
     }
 
-    static void CopyNativeExecutable(Ps2BuildWorkspace workspace) {
+    static void VerifyPackagedOutputs(Ps2BuildWorkspace workspace) {
         if (workspace == null) {
             throw new ArgumentNullException(nameof(workspace));
         }
 
-        if (!File.Exists(workspace.NativeExecutablePath)) {
-            throw new FileNotFoundException($"PS2 native executable '{workspace.NativeExecutablePath}' was not produced by the Docker build.", workspace.NativeExecutablePath);
+        if (!File.Exists(workspace.DiscBootConfigPath)) {
+            throw new FileNotFoundException("PS2 disc boot config was not produced.", workspace.DiscBootConfigPath);
         }
-
-        string outputExecutablePath = Path.Combine(workspace.OutputRootPath, "helengine_ps2.elf");
-        File.Copy(workspace.NativeExecutablePath, outputExecutablePath, true);
+        if (!File.Exists(workspace.DiscExecutablePath)) {
+            throw new FileNotFoundException("PS2 disc boot executable was not produced.", workspace.DiscExecutablePath);
+        }
+        if (!File.Exists(workspace.IsoOutputPath)) {
+            throw new FileNotFoundException("PS2 ISO output was not produced.", workspace.IsoOutputPath);
+        }
     }
 
     static string NormalizeRelativePath(string path) {

@@ -65,4 +65,24 @@ public sealed class Ps2BuildWorkspace {
     /// Gets the absolute path to the built ELF produced by the Docker build.
     /// </summary>
     public string NativeExecutablePath { get; }
+
+    /// <summary>
+    /// Gets the staged PS2 disc root exported to the final output directory.
+    /// </summary>
+    public string DiscRootPath => Path.Combine(OutputRootPath, "disc");
+
+    /// <summary>
+    /// Gets the generated PS2 boot configuration file path inside the staged disc root.
+    /// </summary>
+    public string DiscBootConfigPath => Path.Combine(DiscRootPath, "SYSTEM.CNF");
+
+    /// <summary>
+    /// Gets the staged PS2 boot ELF path inside the staged disc root.
+    /// </summary>
+    public string DiscExecutablePath => Path.Combine(DiscRootPath, "HELENGINE.ELF");
+
+    /// <summary>
+    /// Gets the final bootable PS2 ISO output path.
+    /// </summary>
+    public string IsoOutputPath => Path.Combine(OutputRootPath, "game.iso");
 }

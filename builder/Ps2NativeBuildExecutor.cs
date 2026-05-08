@@ -3,7 +3,7 @@ using System.Diagnostics;
 namespace helengine.ps2.builder;
 
 /// <summary>
-/// Builds the native PS2 ELF through the Docker-based toolchain.
+/// Builds the native PS2 ELF and packages the staged ISO through the Docker-based toolchain.
 /// </summary>
 public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
     /// <summary>
@@ -53,6 +53,56 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
     }
 
     /// <summary>
+    /// Packages the staged PS2 disc layout into one bootable ISO image.
+    /// </summary>
+    /// <param name="workspace">Prepared PS2 build workspace.</param>
+    /// <param name="cancellationToken">Cancellation token used to stop the packaging cooperatively.</param>
+    public void PackageIso(Ps2BuildWorkspace workspace, CancellationToken cancellationToken) {
+        if (workspace == null) {
+            throw new ArgumentNullException(nameof(workspace));
+        }
+
+        Directory.CreateDirectory(workspace.OutputRootPath);
+        RunProcess(
+            "docker",
+            CreatePackageIsoArguments(workspace),
+            workspace.RepositoryRootPath,
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Builds the Docker command line used to package one staged PS2 disc layout into a bootable ISO image.
+    /// </summary>
+    /// <param name="workspace">Prepared PS2 build workspace.</param>
+    /// <returns>Ordered arguments for the Docker invocation.</returns>
+    public static IReadOnlyList<string> CreatePackageIsoArguments(Ps2BuildWorkspace workspace) {
+        if (workspace == null) {
+            throw new ArgumentNullException(nameof(workspace));
+        }
+
+        return
+        [
+            "run",
+            "--rm",
+            "-v",
+            $"{workspace.OutputRootPath}:/export",
+            "-w",
+            "/export",
+            DockerImageTag,
+            "xorriso",
+            "-as",
+            "mkisofs",
+            "-iso-level",
+            "2",
+            "-V",
+            "HELENGINE_PS2",
+            "-o",
+            "/export/game.iso",
+            "/export/disc"
+        ];
+    }
+
+    /// <summary>
     /// Runs one child process and throws when the exit code is non-zero.
     /// </summary>
     /// <param name="fileName">Executable name to start.</param>
@@ -68,7 +118,9 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             FileName = fileName,
             WorkingDirectory = workingDirectory,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
 
         for (int index = 0; index < arguments.Count; index++) {
@@ -76,14 +128,20 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
         }
 
         using Process process = Process.Start(startInfo) ?? throw new InvalidOperationException($"Failed to start '{fileName}'.");
+        Task<string> standardOutputTask = process.StandardOutput.ReadToEndAsync();
+        Task<string> standardErrorTask = process.StandardError.ReadToEndAsync();
         while (!process.HasExited) {
             cancellationToken.ThrowIfCancellationRequested();
             process.WaitForExit(100);
         }
 
         process.WaitForExit();
+        Task.WaitAll(standardOutputTask, standardErrorTask);
+        string standardOutput = standardOutputTask.Result;
+        string standardError = standardErrorTask.Result;
         if (process.ExitCode != 0) {
-            throw new InvalidOperationException($"Process '{fileName}' exited with code {process.ExitCode}.");
+            throw new InvalidOperationException(
+                $"Process '{fileName}' exited with code {process.ExitCode}.{Environment.NewLine}{standardOutput}{Environment.NewLine}{standardError}");
         }
     }
 }

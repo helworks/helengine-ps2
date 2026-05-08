@@ -99,12 +99,20 @@ public static class Program {
                 throw new InvalidOperationException("Smoke test build failed.");
             }
 
-            if (!File.Exists(Path.Combine(outputRoot, "cooked", "scenes", "main.hasset"))) {
+            if (!File.Exists(Path.Combine(outputRoot, "disc", "SYSTEM.CNF"))) {
+                throw new InvalidOperationException("Smoke test PS2 boot config is missing.");
+            }
+
+            if (!File.Exists(Path.Combine(outputRoot, "disc", "HELENGINE.ELF"))) {
+                throw new InvalidOperationException("Smoke test PS2 disc executable is missing.");
+            }
+
+            if (!File.Exists(Path.Combine(outputRoot, "disc", "cooked", "scenes", "main.hasset"))) {
                 throw new InvalidOperationException("Smoke test scene output is missing.");
             }
 
-            if (!File.Exists(Path.Combine(outputRoot, "helengine_ps2.elf"))) {
-                throw new InvalidOperationException("Smoke test PS2 ELF is missing.");
+            if (!File.Exists(Path.Combine(outputRoot, "game.iso"))) {
+                throw new InvalidOperationException("Smoke test PS2 ISO is missing.");
             }
 
             Console.WriteLine("Smoke test passed.");
@@ -138,6 +146,11 @@ public static class Program {
             string executableDirectoryPath = Path.GetDirectoryName(workspace.NativeExecutablePath)!;
             Directory.CreateDirectory(executableDirectoryPath);
             File.WriteAllText(workspace.NativeExecutablePath, "elf");
+        }
+
+        public void PackageIso(Ps2BuildWorkspace workspace, CancellationToken cancellationToken) {
+            Directory.CreateDirectory(Path.GetDirectoryName(workspace.IsoOutputPath)!);
+            File.WriteAllText(workspace.IsoOutputPath, "iso");
         }
     }
 }

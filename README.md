@@ -5,8 +5,8 @@ This repository contains the native PlayStation 2 host scaffold for Helengine.
 ## Current milestone
 
 - Docker-only build using the official precompiled `ps2dev` release toolchain
-- Native PS2 ELF output
-- PCSX2 boot check with a solid black screen
+- Bootable PS2 ISO output plus an inspectable staged disc root
+- PCSX2 boot check through the packaged disc image
 
 ## Renderer foundation
 
@@ -28,8 +28,12 @@ docker run --rm -v "$PWD":/workspace -w /workspace helengine-ps2 make
 
 The first `docker build` downloads and unpacks the official `ps2dev` release toolchain into the image.
 
-The build emits `build/helengine_ps2.elf`.
+The build emits:
+
+- `build/helengine_ps2.elf` inside the repository as the intermediate native executable
+- `game.iso` in the requested export root
+- `disc/` in the requested export root for inspection
 
 ## Boot check
 
-Load `build/helengine_ps2.elf` in PCSX2. The expected result for this milestone is a solid black frame.
+Boot `game.iso` in PCSX2. The expected result for this milestone is that the image is recognized as bootable and enters the Helengine PS2 runtime instead of returning to the BIOS browser.
