@@ -7,6 +7,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cmath>
+#include <exception>
 #include <unordered_map>
 #include <vector>
 
@@ -411,27 +412,35 @@ namespace helengine::ps2 {
     }
 
     bool Ps2BootHost::LoadPackagedStartupScene() {
-        const char* startupSceneRelativePath = he_get_runtime_startup_scene_relative_path();
-        if (startupSceneRelativePath == nullptr || startupSceneRelativePath[0] == '\0') {
-            BootLog("no startup scene configured");
+        try {
+            const char* startupSceneRelativePath = he_get_runtime_startup_scene_relative_path();
+            if (startupSceneRelativePath == nullptr || startupSceneRelativePath[0] == '\0') {
+                BootLog("no startup scene configured");
+                return false;
+            }
+
+            Asset* startupAsset = LoadPackagedAsset(startupSceneRelativePath);
+            if (startupAsset == nullptr) {
+                BootLog("startup scene asset load returned null");
+                return false;
+            }
+
+            SceneAsset* startupScene = static_cast<SceneAsset*>(startupAsset);
+            if (EngineCore != nullptr && EngineCore->get_SceneLoadService() != nullptr) {
+                EngineCore->get_SceneLoadService()->Load(startupScene);
+                BootLog(std::string("startup scene loaded: ") + startupSceneRelativePath);
+                return true;
+            }
+
+            BootLog("startup scene load service missing");
+            return false;
+        } catch (const std::exception& exception) {
+            BootLog(std::string("startup scene exception: ") + exception.what());
+            return false;
+        } catch (...) {
+            BootLog("startup scene exception: unknown");
             return false;
         }
-
-        Asset* startupAsset = LoadPackagedAsset(startupSceneRelativePath);
-        if (startupAsset == nullptr) {
-            BootLog("startup scene asset load returned null");
-            return false;
-        }
-
-        SceneAsset* startupScene = static_cast<SceneAsset*>(startupAsset);
-        if (EngineCore != nullptr && EngineCore->get_SceneLoadService() != nullptr) {
-            EngineCore->get_SceneLoadService()->Load(startupScene);
-            BootLog(std::string("startup scene loaded: ") + startupSceneRelativePath);
-            return true;
-        }
-
-        BootLog("startup scene load service missing");
-        return false;
     }
 
     Asset* Ps2BootHost::LoadPackagedAsset(const std::string& relativePath) {
