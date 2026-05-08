@@ -6,6 +6,7 @@
 #include <gsKit.h>
 #include <cstring>
 #include <cstdio>
+#include <cmath>
 #include <unordered_map>
 #include <vector>
 
@@ -29,6 +30,7 @@
 #include "runtime/runtime_startup_manifest.hpp"
 #include "system/io/file.hpp"
 #include "system/io/path.hpp"
+#include "TextLayoutUtils.hpp"
 #include "TextureAsset.hpp"
 
 namespace {
@@ -52,6 +54,10 @@ namespace {
         std::fflush(stdout);
     }
 
+    void BootLog(const std::string& message) {
+        BootLog(message.c_str());
+    }
+
     GSGLOBAL* ActiveGsGlobal = nullptr;
 
     struct Ps2TextureRecord {
@@ -61,6 +67,24 @@ namespace {
     };
 
     std::unordered_map<const ::RuntimeTexture*, Ps2TextureRecord> TextureRecords;
+
+    bool EnsureTextureUploaded(Ps2TextureRecord& record) {
+        if (record.Uploaded) {
+            return true;
+        }
+
+        record.Texture.Vram = gsKit_vram_alloc(
+            ActiveGsGlobal,
+            gsKit_texture_size(record.Texture.Width, record.Texture.Height, record.Texture.PSM),
+            GSKIT_ALLOC_USERBUFFER);
+        if (record.Texture.Vram == GSKIT_ALLOC_ERROR) {
+            return false;
+        }
+
+        gsKit_texture_upload(ActiveGsGlobal, &record.Texture);
+        record.Uploaded = true;
+        return true;
+    }
 
     ::TextureAsset* BuildBootTextureAsset() {
         const std::vector<std::uint8_t> pixels = helengine::ps2::BuildCheckerboardDebugTexture(8, 8);
@@ -120,18 +144,7 @@ namespace {
                 auto textureIt = TextureRecords.find(runtimeTexture);
                 if (textureIt != TextureRecords.end()) {
                     Ps2TextureRecord& record = textureIt->second;
-                    if (!record.Uploaded) {
-                        record.Texture.Vram = gsKit_vram_alloc(
-                            ActiveGsGlobal,
-                            gsKit_texture_size(record.Texture.Width, record.Texture.Height, record.Texture.PSM),
-                            GSKIT_ALLOC_USERBUFFER);
-                        if (record.Texture.Vram != GSKIT_ALLOC_ERROR) {
-                            gsKit_texture_upload(ActiveGsGlobal, &record.Texture);
-                            record.Uploaded = true;
-                        }
-                    }
-
-                    if (record.Uploaded) {
+                    if (EnsureTextureUploaded(record)) {
                         gsKit_prim_sprite_texture(
                             ActiveGsGlobal,
                             &record.Texture,
@@ -161,7 +174,90 @@ namespace {
         }
 
         void DrawText(ITextDrawable2D* text) override {
-            (void)text;
+            if (ActiveGsGlobal == 0 || text == nullptr) {
+                return;
+            }
+
+            ::Entity* parent = text->get_Parent();
+            if (parent == nullptr) {
+                return;
+            }
+
+            ::FontAsset* font = text->get_Font();
+            if (font == nullptr || font->get_FontInfo() == nullptr || font->get_Texture() == nullptr) {
+                return;
+            }
+
+            auto textureIt = TextureRecords.find(font->get_Texture());
+            if (textureIt == TextureRecords.end()) {
+                return;
+            }
+
+            Ps2TextureRecord& record = textureIt->second;
+            if (!EnsureTextureUploaded(record)) {
+                return;
+            }
+
+            std::string content = text->get_Text();
+            if (text->get_WrapText() && text->get_Size() != nullptr) {
+                content = TextLayoutUtils::WrapText(content, font, text->get_Size()->X);
+            }
+
+            const ::float3 position = parent->get_Position();
+            const ::byte4 color = text->get_Color();
+            const u64 rgba = GS_SETREG_RGBAQ(color.X, color.Y, color.Z, color.W, 0x00);
+            const double lineHeight = std::max(static_cast<double>(font->get_LineHeight()), 1.0);
+            const double baseX = std::round(position.X);
+            const double baseY = std::round(position.Y);
+            double offsetX = 0.0;
+            double offsetY = 0.0;
+
+            for (int32_t index = 0; index < static_cast<int32_t>(content.size()); index++) {
+                const char character = content[static_cast<std::size_t>(index)];
+                if (character == '\n') {
+                    offsetY += lineHeight;
+                    offsetX = 0.0;
+                    continue;
+                }
+
+                if (character == '\r') {
+                    continue;
+                }
+
+                if (character == ' ') {
+                    offsetX += font->get_FontInfo()->get_SpaceWidth();
+                    continue;
+                }
+
+                ::FontChar glyph;
+                if (font->get_Characters() == nullptr || !font->get_Characters()->TryGetValue(character, glyph)) {
+                    continue;
+                }
+
+                const double pixelWidth = glyph.SourceRect.Z * static_cast<double>(record.Texture.Width);
+                const double pixelHeight = glyph.SourceRect.W * static_cast<double>(record.Texture.Height);
+                const double sourceX = glyph.SourceRect.X * static_cast<double>(record.Texture.Width);
+                const double sourceY = glyph.SourceRect.Y * static_cast<double>(record.Texture.Height);
+                const double drawX = baseX + offsetX;
+                const double drawY = baseY + std::round(offsetY) + glyph.OffsetY;
+
+                gsKit_prim_sprite_texture(
+                    ActiveGsGlobal,
+                    &record.Texture,
+                    static_cast<float>(drawX),
+                    static_cast<float>(drawY),
+                    static_cast<float>(sourceX),
+                    static_cast<float>(sourceY),
+                    static_cast<float>(drawX + pixelWidth),
+                    static_cast<float>(drawY + pixelHeight),
+                    static_cast<float>(sourceX + pixelWidth),
+                    static_cast<float>(sourceY + pixelHeight),
+                    0.0f,
+                    rgba);
+
+                const double advance = glyph.AdvanceWidth > 0.0f ? glyph.AdvanceWidth : pixelWidth;
+                offsetX += advance;
+            }
         }
 
         void DrawRoundedRect(IRoundedRectDrawable2D* shape) override {
@@ -199,7 +295,8 @@ namespace helengine::ps2 {
           EngineInputBackend(0),
           EngineRenderManager2D(0),
           EngineRenderManager3D(0),
-          GsGlobal(0) {
+          GsGlobal(0),
+          StartupSceneLoaded(false) {
     }
 
     int Ps2BootHost::Run() {
@@ -246,22 +343,24 @@ namespace helengine::ps2 {
         BootLog("core initialized");
 
         BootLog("startup scene load begin");
-        LoadPackagedStartupScene();
-        BootLog("startup scene load ready");
+        StartupSceneLoaded = LoadPackagedStartupScene();
+        BootLog(StartupSceneLoaded ? "startup scene load succeeded" : "startup scene load failed");
 
-        BootLog("2d boot sprite init");
-        BootEntity = new Entity();
-        BootEntity->InitComponents();
-        BootEntity->set_LayerMask(0b00000001);
-        BootEntity->set_Position(::float3(192.0f, 96.0f, 0.0f));
+        if (!StartupSceneLoaded) {
+            BootLog("2d fallback sprite init");
+            BootEntity = new Entity();
+            BootEntity->InitComponents();
+            BootEntity->set_LayerMask(0b00000001);
+            BootEntity->set_Position(::float3(192.0f, 96.0f, 0.0f));
 
-        BootSprite = new SpriteComponent();
-        BootSprite->set_RenderOrder2D(0);
-        BootSprite->set_Size(new ::int2(256, 256));
-        BootSprite->set_Texture(EngineRenderManager2D->BuildTextureFromRaw(BuildBootTextureAsset()));
-        BootSprite->set_Color(::byte4(255, 255, 255, 255));
-        BootEntity->AddComponent(BootSprite);
-        BootLog("2d boot sprite ready");
+            BootSprite = new SpriteComponent();
+            BootSprite->set_RenderOrder2D(0);
+            BootSprite->set_Size(new ::int2(256, 256));
+            BootSprite->set_Texture(EngineRenderManager2D->BuildTextureFromRaw(BuildBootTextureAsset()));
+            BootSprite->set_Color(::byte4(255, 255, 255, 255));
+            BootEntity->AddComponent(BootSprite);
+            BootLog("2d fallback sprite ready");
+        }
 
         return true;
     }
@@ -311,29 +410,34 @@ namespace helengine::ps2 {
         return true;
     }
 
-    void Ps2BootHost::LoadPackagedStartupScene() {
+    bool Ps2BootHost::LoadPackagedStartupScene() {
         const char* startupSceneRelativePath = he_get_runtime_startup_scene_relative_path();
         if (startupSceneRelativePath == nullptr || startupSceneRelativePath[0] == '\0') {
             BootLog("no startup scene configured");
-            return;
+            return false;
         }
 
         Asset* startupAsset = LoadPackagedAsset(startupSceneRelativePath);
         if (startupAsset == nullptr) {
             BootLog("startup scene asset load returned null");
-            return;
+            return false;
         }
 
         SceneAsset* startupScene = static_cast<SceneAsset*>(startupAsset);
         if (EngineCore != nullptr && EngineCore->get_SceneLoadService() != nullptr) {
             EngineCore->get_SceneLoadService()->Load(startupScene);
+            BootLog(std::string("startup scene loaded: ") + startupSceneRelativePath);
+            return true;
         }
+
+        BootLog("startup scene load service missing");
+        return false;
     }
 
     Asset* Ps2BootHost::LoadPackagedAsset(const std::string& relativePath) {
         std::string fullPath = Path::Combine(ResolveApplicationDirectoryPath(), relativePath);
         if (!File::Exists(fullPath)) {
-            BootLog("packaged asset missing");
+            BootLog(std::string("packaged asset missing: ") + fullPath);
             return nullptr;
         }
 

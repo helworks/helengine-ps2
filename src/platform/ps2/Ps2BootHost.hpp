@@ -22,7 +22,7 @@ namespace helengine::ps2 {
     private:
         bool InitializeRuntime();
         bool InitializeGraphics();
-        void LoadPackagedStartupScene();
+        bool LoadPackagedStartupScene();
         ::Asset* LoadPackagedAsset(const std::string& relativePath);
         void PresentBootFrame();
         std::string ResolveApplicationDirectoryPath() const;
@@ -33,5 +33,6 @@ namespace helengine::ps2 {
         ::RenderManager2D* EngineRenderManager2D;
         ::RenderManager3D* EngineRenderManager3D;
         GSGLOBAL* GsGlobal;
+        bool StartupSceneLoaded;
     };
 }
