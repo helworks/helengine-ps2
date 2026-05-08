@@ -173,20 +173,17 @@ public sealed class Ps2CookedAssetPathRewriter {
         out bool changed) {
         using MemoryStream readStream = new(record.Payload ?? Array.Empty<byte>(), false);
         using EngineBinaryReader reader = EngineBinaryReader.Create(readStream, EngineBinaryEndianness.LittleEndian);
-        byte version = reader.ReadByte();
-        if (version != 1) {
-            throw new InvalidOperationException($"Unsupported mesh component payload version '{version}'.");
-        }
-
-        SceneAssetReference modelReference = ReadOptionalReference(reader);
-        SceneAssetReference materialReference = ReadOptionalReference(reader);
-        byte[] remainingBytes = ReadRemainingBytes(readStream);
+        MeshComponentScenePayloadSerializer.Read(
+            reader,
+            out SceneAssetReference modelReference,
+            out SceneAssetReference[] materialReferences,
+            out byte renderOrder3D);
 
         changed = false;
         if (RewriteReference(modelReference, logicalToPhysicalPaths)) {
             changed = true;
         }
-        if (RewriteReference(materialReference, logicalToPhysicalPaths)) {
+        if (RewriteSceneAssetReferences(materialReferences, logicalToPhysicalPaths)) {
             changed = true;
         }
         if (!changed) {
@@ -195,10 +192,7 @@ public sealed class Ps2CookedAssetPathRewriter {
 
         using MemoryStream writeStream = new();
         using EngineBinaryWriter writer = EngineBinaryWriter.Create(writeStream, EngineBinaryEndianness.LittleEndian);
-        writer.WriteByte(version);
-        WriteOptionalReference(writer, modelReference);
-        WriteOptionalReference(writer, materialReference);
-        writeStream.Write(remainingBytes, 0, remainingBytes.Length);
+        MeshComponentScenePayloadSerializer.Write(writer, modelReference, materialReferences, renderOrder3D);
         return new SceneComponentAssetRecord {
             ComponentTypeId = record.ComponentTypeId,
             ComponentIndex = record.ComponentIndex,

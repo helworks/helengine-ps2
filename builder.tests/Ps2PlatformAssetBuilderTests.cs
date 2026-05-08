@@ -423,9 +423,186 @@ public class Ps2PlatformAssetBuilderTests {
             SceneAssetReference textFontReference = ReadTextFontReference(packagedSceneAsset.RootEntities[0].Components[0]);
             Assert.Equal(expectedFontPath, textFontReference.RelativePath);
 
-            ReadMeshReferences(packagedSceneAsset.RootEntities[0].Components[1], out SceneAssetReference modelReference, out SceneAssetReference meshMaterialReference);
+            ReadMeshReferencesVersion2(packagedSceneAsset.RootEntities[0].Components[1], out SceneAssetReference modelReference, out SceneAssetReference[] meshMaterialReferences, out byte renderOrder3D);
             Assert.Equal(expectedModelPath, modelReference.RelativePath);
+            SceneAssetReference meshMaterialReference = Assert.Single(meshMaterialReferences);
             Assert.Equal(expectedMaterialPath, meshMaterialReference.RelativePath);
+            Assert.Equal(0, renderOrder3D);
+
+            Ps2MaterialAsset packagedMaterialAsset;
+            using (FileStream materialStream = File.OpenRead(discMaterialPath)) {
+                packagedMaterialAsset = Assert.IsType<Ps2MaterialAsset>(AssetSerializer.Deserialize(materialStream));
+            }
+
+            Assert.Equal(expectedTexturePath, packagedMaterialAsset.TextureRelativePath);
+        } finally {
+            try {
+                Directory.SetCurrentDirectory(previousDirectory);
+            } catch {
+            }
+
+            try {
+                if (Directory.Exists(workingRoot)) {
+                    Directory.Delete(workingRoot, recursive: true);
+                }
+            } catch {
+            }
+        }
+    }
+
+    [Fact]
+    public async Task BuildAsync_WhenPackagedSceneAndMaterialUseLogicalPaths_RewritesVersion2MeshPayloadToPhysicalDiscPaths() {
+        string workingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string outputRoot = Path.Combine(workingRoot, "out");
+        string stagingRoot = Path.Combine(workingRoot, "staging");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+        string sceneOutputPath = Path.Combine(stagingRoot, "cooked", "scenes", "main.hasset");
+        string fontOutputPath = Path.Combine(stagingRoot, "cooked", "fonts", "DemoDiscBody.hefont");
+        string materialOutputPath = Path.Combine(stagingRoot, "cooked", "materials", "menu.hasset");
+        string textureOutputPath = Path.Combine(stagingRoot, "cooked", "textures", "test.hasset");
+        string modelOutputPath = Path.Combine(stagingRoot, "cooked", "imported", "box_a.hasset");
+
+        Directory.CreateDirectory(Path.GetDirectoryName(sceneOutputPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(fontOutputPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(materialOutputPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(textureOutputPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(modelOutputPath)!);
+        Directory.CreateDirectory(generatedCoreRoot);
+
+        SceneAsset sceneAsset = new() {
+            RootEntities = [
+                new SceneEntityAsset {
+                    Components = [
+                        new SceneComponentAssetRecord {
+                            ComponentTypeId = "helengine.TextComponent",
+                            ComponentIndex = 0,
+                            Payload = BuildTextComponentPayload("cooked/fonts/DemoDiscBody.hefont")
+                        },
+                        new SceneComponentAssetRecord {
+                            ComponentTypeId = "helengine.MeshComponent",
+                            ComponentIndex = 1,
+                            Payload = BuildMeshComponentPayloadVersion2(
+                                "cooked/imported/box_a.hasset",
+                                ["cooked/materials/menu.hasset"])
+                        }
+                    ]
+                }
+            ],
+            AssetReferences = [
+                new SceneAssetReference {
+                    SourceKind = SceneAssetReferenceSourceKind.FileSystem,
+                    RelativePath = "cooked/fonts/DemoDiscBody.hefont",
+                    ProviderId = string.Empty,
+                    AssetId = string.Empty
+                },
+                new SceneAssetReference {
+                    SourceKind = SceneAssetReferenceSourceKind.FileSystem,
+                    RelativePath = "cooked/materials/menu.hasset",
+                    ProviderId = string.Empty,
+                    AssetId = string.Empty
+                }
+            ]
+        };
+        Ps2MaterialAsset materialAsset = new() {
+            TextureRelativePath = "cooked/textures/test.hasset"
+        };
+
+        File.WriteAllBytes(sceneOutputPath, helengine.files.AssetSerializer.SerializeToBytes(sceneAsset));
+        File.WriteAllText(fontOutputPath, "font payload");
+        File.WriteAllBytes(materialOutputPath, helengine.files.AssetSerializer.SerializeToBytes(materialAsset));
+        File.WriteAllText(textureOutputPath, "texture payload");
+        File.WriteAllText(modelOutputPath, "model payload");
+        File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "// generated");
+
+        string previousDirectory = Directory.GetCurrentDirectory();
+        try {
+            Directory.SetCurrentDirectory(stagingRoot);
+
+            PlatformBuildManifest manifest = new(
+                3,
+                "project",
+                "1.0.0",
+                "1.0.0",
+                "Scenes/Main.helen",
+                [
+                    new PlatformBuildScene(
+                        "Scenes/Main.helen",
+                        "Main",
+                        "cooked/scenes/main.hasset",
+                        [],
+                        [
+                            new KeyValuePair<string, string>("cooked-relative-path", "cooked/scenes/main.hasset")
+                        ])
+                ],
+                Array.Empty<PlatformBuildAsset>(),
+                [
+                    new PlatformBuildArtifact("cooked/scenes/main.hasset", "scene:main", "sha256:scene", "scene", "shared"),
+                    new PlatformBuildArtifact("cooked/fonts/DemoDiscBody.hefont", "font:body", "sha256:font", "font", "shared"),
+                    new PlatformBuildArtifact("cooked/materials/menu.hasset", "material:menu", "sha256:material", "material", "shared"),
+                    new PlatformBuildArtifact("cooked/textures/test.hasset", "texture:test", "sha256:texture", "asset", "shared"),
+                    new PlatformBuildArtifact("cooked/imported/box_a.hasset", "model:box_a", "sha256:model", "model", "shared")
+                ],
+                Array.Empty<PlatformBuildCodeModule>(),
+                Array.Empty<PlatformArtifactPlacement>(),
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+
+            PlatformBuildRequest request = new(
+                manifest,
+                [new PlatformBuildTargetVariant("ps2-default", "ps2", "ps2", "ps2-default")],
+                [new PlatformCookProfile(
+                    "ps2-default",
+                    "PS2 Default",
+                    new PlatformCookProfileCapabilities(
+                        "ps2",
+                        "raw",
+                        "pcm",
+                        "ps2-scene-v1",
+                        PlatformSerializationEndianness.LittleEndian))],
+                outputRoot,
+                Path.Combine(workingRoot, "tmp"),
+                selectedBuildProfileId: "ps2-default",
+                selectedGraphicsProfileId: "ps2-standard-forward",
+                selectedCodegenProfileId: "default",
+                selectedBuildOptionValues: new Dictionary<string, string>(),
+                selectedGraphicsOptionValues: new Dictionary<string, string>(),
+                selectedCodegenOptionValues: new Dictionary<string, string>(),
+                generatedCoreCppRootPath: generatedCoreRoot,
+                selectedMediaProfileId: "ps2-install-tree",
+                selectedStorageProfileId: "disc-layout");
+
+            FakePs2NativeBuildExecutor nativeBuildExecutor = new();
+            Ps2PlatformAssetBuilder builder = new(nativeBuildExecutor);
+            RecordingProgressReporter progressReporter = new();
+            RecordingDiagnosticReporter diagnosticReporter = new();
+
+            PlatformBuildReport report = await builder.BuildAsync(request, progressReporter, diagnosticReporter, CancellationToken.None);
+
+            Assert.True(report.Succeeded);
+            Assert.Empty(diagnosticReporter.Diagnostics);
+
+            string discScenePath = Path.Combine(outputRoot, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/scenes/main.hasset"));
+            string discMaterialPath = Path.Combine(outputRoot, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/materials/menu.hasset"));
+            SceneAsset packagedSceneAsset;
+            using (FileStream sceneStream = File.OpenRead(discScenePath)) {
+                packagedSceneAsset = Assert.IsType<SceneAsset>(AssetSerializer.Deserialize(sceneStream));
+            }
+
+            string expectedFontPath = BuildExpectedRuntimePhysicalPath("cooked/fonts/DemoDiscBody.hefont");
+            string expectedMaterialPath = BuildExpectedRuntimePhysicalPath("cooked/materials/menu.hasset");
+            string expectedModelPath = BuildExpectedRuntimePhysicalPath("cooked/imported/box_a.hasset");
+            string expectedTexturePath = BuildExpectedRuntimePhysicalPath("cooked/textures/test.hasset");
+
+            Assert.Equal(expectedFontPath, packagedSceneAsset.AssetReferences[0].RelativePath);
+            Assert.Equal(expectedMaterialPath, packagedSceneAsset.AssetReferences[1].RelativePath);
+
+            SceneAssetReference textFontReference = ReadTextFontReference(packagedSceneAsset.RootEntities[0].Components[0]);
+            Assert.Equal(expectedFontPath, textFontReference.RelativePath);
+
+            ReadMeshReferencesVersion2(packagedSceneAsset.RootEntities[0].Components[1], out SceneAssetReference modelReference, out SceneAssetReference[] meshMaterialReferences, out byte renderOrder3D);
+            Assert.Equal(expectedModelPath, modelReference.RelativePath);
+            SceneAssetReference meshMaterialReference = Assert.Single(meshMaterialReferences);
+            Assert.Equal(expectedMaterialPath, meshMaterialReference.RelativePath);
+            Assert.Equal(0, renderOrder3D);
 
             Ps2MaterialAsset packagedMaterialAsset;
             using (FileStream materialStream = File.OpenRead(discMaterialPath)) {
@@ -498,6 +675,29 @@ public class Ps2PlatformAssetBuilderTests {
         return stream.ToArray();
     }
 
+    static byte[] BuildMeshComponentPayloadVersion2(string modelRelativePath, IReadOnlyList<string> materialRelativePaths) {
+        using MemoryStream stream = new();
+        using EngineBinaryWriter writer = EngineBinaryWriter.Create(stream, EngineBinaryEndianness.LittleEndian);
+        SceneAssetReference modelReference = new() {
+            SourceKind = SceneAssetReferenceSourceKind.FileSystem,
+            RelativePath = modelRelativePath,
+            ProviderId = string.Empty,
+            AssetId = string.Empty
+        };
+        SceneAssetReference[] materialReferences = new SceneAssetReference[materialRelativePaths.Count];
+        for (int materialIndex = 0; materialIndex < materialRelativePaths.Count; materialIndex++) {
+            materialReferences[materialIndex] = new SceneAssetReference {
+                SourceKind = SceneAssetReferenceSourceKind.FileSystem,
+                RelativePath = materialRelativePaths[materialIndex],
+                ProviderId = string.Empty,
+                AssetId = string.Empty
+            };
+        }
+
+        MeshComponentScenePayloadSerializer.Write(writer, modelReference, materialReferences, 0);
+        return stream.ToArray();
+    }
+
     static SceneAssetReference ReadTextFontReference(SceneComponentAssetRecord record) {
         using MemoryStream stream = new(record.Payload ?? Array.Empty<byte>(), false);
         using EngineBinaryReader reader = EngineBinaryReader.Create(stream, EngineBinaryEndianness.LittleEndian);
@@ -505,12 +705,15 @@ public class Ps2PlatformAssetBuilderTests {
         return ReadOptionalReference(reader);
     }
 
-    static void ReadMeshReferences(SceneComponentAssetRecord record, out SceneAssetReference modelReference, out SceneAssetReference materialReference) {
+    static void ReadMeshReferencesVersion2(
+        SceneComponentAssetRecord record,
+        out SceneAssetReference modelReference,
+        out SceneAssetReference[] materialReferences,
+        out byte renderOrder3D) {
         using MemoryStream stream = new(record.Payload ?? Array.Empty<byte>(), false);
         using EngineBinaryReader reader = EngineBinaryReader.Create(stream, EngineBinaryEndianness.LittleEndian);
-        Assert.Equal(1, reader.ReadByte());
-        modelReference = ReadOptionalReference(reader);
-        materialReference = ReadOptionalReference(reader);
+        MeshComponentScenePayloadSerializer.Read(reader, out modelReference, out materialReferences, out renderOrder3D);
+        Assert.Equal(MeshComponentScenePayloadSerializer.CurrentVersion, record.Payload[0]);
     }
 
     static SceneAssetReference ReadOptionalReference(EngineBinaryReader reader) {

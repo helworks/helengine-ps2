@@ -124,7 +124,8 @@ namespace {
             const ::float3 position = parent != nullptr ? parent->get_Position() : ::float3();
             ::int2* size = sprite->get_Size();
             const ::byte4 color = sprite->get_Color();
-            const u64 rgba = GS_SETREG_RGBAQ(color.X, color.Y, color.Z, color.W, 0x00);
+            const u8 alpha = static_cast<u8>(std::min(static_cast<int>(color.W), 0x80));
+            const u64 rgba = GS_SETREG_RGBAQ(color.X, color.Y, color.Z, alpha, 0x00);
 
             ::RuntimeTexture* runtimeTexture = sprite->get_Texture();
             if (runtimeTexture != nullptr) {
@@ -132,6 +133,9 @@ namespace {
                 if (textureIt != TextureRecords.end()) {
                     Ps2TextureRecord& record = textureIt->second;
                     if (EnsureTextureUploaded(record)) {
+                        gsKit_set_test(ActiveGsGlobal, GS_ATEST_OFF);
+                        gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 1, 0, 1, 0), 0);
+                        ActiveGsGlobal->PrimAlphaEnable = GS_SETTING_ON;
                         gsKit_prim_sprite_texture(
                             ActiveGsGlobal,
                             &record.Texture,
@@ -145,11 +149,16 @@ namespace {
                             static_cast<float>(record.Texture.Height),
                             0.0f,
                             rgba);
+                        gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 0, 0, 0, 0), 0);
+                        ActiveGsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
                         return;
                     }
                 }
             }
 
+            gsKit_set_test(ActiveGsGlobal, GS_ATEST_OFF);
+            gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 0, 0, 0, 0), 0);
+            ActiveGsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
             gsKit_prim_sprite(
                 ActiveGsGlobal,
                 position.X,
@@ -192,12 +201,17 @@ namespace {
 
             const ::float3 position = parent->get_Position();
             const ::byte4 color = text->get_Color();
-            const u64 rgba = GS_SETREG_RGBAQ(color.X, color.Y, color.Z, color.W, 0x00);
+            const u8 alpha = static_cast<u8>(std::min(static_cast<int>(color.W), 0x80));
+            const u64 rgba = GS_SETREG_RGBAQ(color.X, color.Y, color.Z, alpha, 0x00);
             const double lineHeight = std::max(static_cast<double>(font->get_LineHeight()), 1.0);
             const double baseX = std::round(position.X);
             const double baseY = std::round(position.Y);
             double offsetX = 0.0;
             double offsetY = 0.0;
+
+            gsKit_set_test(ActiveGsGlobal, GS_ATEST_OFF);
+            gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 1, 0, 1, 0), 0);
+            ActiveGsGlobal->PrimAlphaEnable = GS_SETTING_ON;
 
             for (int32_t index = 0; index < static_cast<int32_t>(content.size()); index++) {
                 const char character = content[static_cast<std::size_t>(index)];
@@ -245,6 +259,9 @@ namespace {
                 const double advance = glyph.AdvanceWidth > 0.0f ? glyph.AdvanceWidth : pixelWidth;
                 offsetX += advance;
             }
+
+            gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 0, 0, 0, 0), 0);
+            ActiveGsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
         }
 
         void DrawRoundedRect(IRoundedRectDrawable2D* shape) override {
@@ -256,8 +273,12 @@ namespace {
             const ::float3 position = parent != nullptr ? parent->get_Position() : ::float3();
             ::int2* size = shape->get_Size();
             const ::byte4 color = shape->get_FillColor();
-            const u64 rgba = GS_SETREG_RGBAQ(color.X, color.Y, color.Z, color.W, 0x00);
+            const u8 alpha = static_cast<u8>(std::min(static_cast<int>(color.W), 0x80));
+            const u64 rgba = GS_SETREG_RGBAQ(color.X, color.Y, color.Z, alpha, 0x00);
 
+            gsKit_set_test(ActiveGsGlobal, GS_ATEST_OFF);
+            gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 0, 0, 0, 0), 0);
+            ActiveGsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
             gsKit_prim_sprite(
                 ActiveGsGlobal,
                 position.X,
@@ -439,6 +460,9 @@ namespace helengine::ps2 {
 
             const u64 clearColor = GS_SETREG_RGBAQ(0x10, 0x10, 0x10, 0x00, 0x00);
             gsKit_clear(GsGlobal, clearColor);
+            gsKit_set_test(GsGlobal, GS_ATEST_OFF);
+            gsKit_set_primalpha(GsGlobal, GS_SETREG_ALPHA(0, 0, 0, 0, 0), 0);
+            GsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
 
             if (EngineCore != nullptr) {
                 EngineCore->Draw();
