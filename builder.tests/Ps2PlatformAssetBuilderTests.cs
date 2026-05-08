@@ -236,6 +236,26 @@ public class Ps2PlatformAssetBuilderTests {
         }
     }
 
+    /// <summary>
+    /// Verifies that the ISO packaging command opts into ISO9660 level 2 so the nine-character HELENGINE boot filename stays addressable by the PS2 BIOS.
+    /// </summary>
+    [Fact]
+    public void CreatePackageIsoArguments_WhenUsingHelengineBootFilename_UsesIsoLevel2() {
+        string outputRootPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Ps2BuildWorkspace workspace = new(
+            "C:\\repo",
+            "C:\\repo\\staging",
+            "C:\\generated-core",
+            outputRootPath,
+            "C:\\repo\\build\\helengine_ps2.elf");
+
+        IReadOnlyList<string> arguments = Ps2NativeBuildExecutor.CreatePackageIsoArguments(workspace);
+
+        Assert.Contains("-iso-level", arguments);
+        Assert.Contains("2", arguments);
+        Assert.Equal("/export/disc", arguments[^1]);
+    }
+
     sealed class FakePs2NativeBuildExecutor : IPs2NativeBuildExecutor {
         public Ps2BuildWorkspace LastWorkspace { get; private set; }
         public bool PackageIsoCalled { get; private set; }

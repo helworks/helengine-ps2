@@ -12,6 +12,7 @@ RUN apt-get update \
         g++ \
         make \
         pkg-config \
+        xorriso \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PS2DEV=/usr/local/ps2dev
