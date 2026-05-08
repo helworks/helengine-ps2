@@ -237,10 +237,9 @@ public class Ps2PlatformAssetBuilderTests {
             Assert.True(File.Exists(Path.Combine(generatedCoreRoot, "runtime", "runtime_ps2_asset_path_manifest.cpp")));
             Assert.False(File.Exists(Path.Combine(workingRoot, "tmp", "ps2-build-manifest.json")));
             string runtimeManifestSource = File.ReadAllText(Path.Combine(generatedCoreRoot, "runtime", "runtime_ps2_asset_path_manifest.cpp"));
-            Assert.Contains("cooked/scenes/main.hasset", runtimeManifestSource, StringComparison.Ordinal);
-            Assert.Contains("\\\\COOKED\\\\SCENES\\\\MAIN.HAS;1", runtimeManifestSource, StringComparison.Ordinal);
-            Assert.Contains("cooked/imported/box_a.hasset", runtimeManifestSource, StringComparison.Ordinal);
-            Assert.Contains("\\\\COOKED\\\\IMPORTED\\\\BOX_A.HAS;1", runtimeManifestSource, StringComparison.Ordinal);
+            Assert.Contains("he_get_runtime_ps2_startup_scene_path", runtimeManifestSource, StringComparison.Ordinal);
+            Assert.Contains("cdrom0:\\\\COOKED\\\\SCENES\\\\MAIN.HAS;1", runtimeManifestSource, StringComparison.Ordinal);
+            Assert.DoesNotContain("he_get_runtime_ps2_asset_physical_path", runtimeManifestSource, StringComparison.Ordinal);
             Assert.Equal(generatedCoreRoot, nativeBuildExecutor.LastWorkspace.GeneratedCoreRootPath);
             Assert.True(nativeBuildExecutor.PackageIsoCalled);
         } finally {

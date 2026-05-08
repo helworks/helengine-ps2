@@ -9,10 +9,10 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2RuntimeAssetPathManifestWriterTests {
     /// <summary>
-    /// Ensures the generated runtime manifest embeds the physical startup scene path and general asset mappings.
+    /// Ensures the generated runtime manifest embeds the rooted physical startup scene path without general logical-path lookup tables.
     /// </summary>
     [Fact]
-    public void Write_WhenStartupSceneExists_EmitsPhysicalStartupPathAndAssetLookupEntries() {
+    public void Write_WhenStartupSceneExists_EmitsRootedPhysicalStartupPathOnly() {
         string rootPath = Path.Combine(Path.GetTempPath(), "ps2-runtime-asset-manifest-tests", Guid.NewGuid().ToString("N"));
         string generatedCoreRootPath = Path.Combine(rootPath, "generated-core");
         Directory.CreateDirectory(Path.Combine(generatedCoreRootPath, "runtime"));
@@ -51,13 +51,11 @@ public sealed class Ps2RuntimeAssetPathManifestWriterTests {
         writer.Write(generatedCoreRootPath, manifest, logicalToPhysicalPaths);
 
         string source = File.ReadAllText(Path.Combine(generatedCoreRootPath, "runtime", "runtime_ps2_asset_path_manifest.cpp"));
-        Assert.Contains("kRuntimePs2StartupScenePath[] = \"\\\\COOKED\\\\SCENES\\\\DEMODISC.HAS;1\"", source, StringComparison.Ordinal);
-        Assert.Contains("{ \"cooked/scenes/DemoDiscMainMenu.hasset\", \"\\\\COOKED\\\\SCENES\\\\DEMODISC.HAS;1\" }", source, StringComparison.Ordinal);
-        Assert.Contains("{ \"cdrom0:\\\\cooked\\\\scenes\\\\DemoDiscMainMenu.hasset\", \"\\\\COOKED\\\\SCENES\\\\DEMODISC.HAS;1\" }", source, StringComparison.Ordinal);
-        Assert.Contains("{ \"cooked/fonts/DemoDiscBody.hefont\", \"\\\\COOKED\\\\FONTS\\\\DEMODISC.HEF;1\" }", source, StringComparison.Ordinal);
-        Assert.Contains("{ \"cdrom0:\\\\cooked\\\\fonts\\\\DemoDiscBody.hefont\", \"\\\\COOKED\\\\FONTS\\\\DEMODISC.HEF;1\" }", source, StringComparison.Ordinal);
-        Assert.Contains("NormalizeRuntimePs2LogicalPathCharacter", source, StringComparison.Ordinal);
-        Assert.Contains("RuntimePs2LogicalPathsEqual(entry.LogicalPath, logicalPath)", source, StringComparison.Ordinal);
+        Assert.Contains("kRuntimePs2StartupScenePath[] = \"cdrom0:\\\\COOKED\\\\SCENES\\\\DEMODISC.HAS;1\"", source, StringComparison.Ordinal);
+        Assert.Contains("const char* he_get_runtime_ps2_startup_scene_path()", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("he_get_runtime_ps2_asset_physical_path", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("HERuntimePs2AssetPathEntry", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("RuntimePs2LogicalPathsEqual", source, StringComparison.Ordinal);
     }
 
     /// <summary>
