@@ -7,7 +7,9 @@ public sealed class Ps2DiscLayoutWriter {
     /// <summary>
     /// Stable boot configuration written into the staged PS2 disc root.
     /// </summary>
-    const string BootConfigContents = "BOOT2 = cdrom0:\\HELENGINE.ELF;1\r\nVER = 1.00\r\n";
+    static readonly string BootConfigContents = "BOOT2 = cdrom0:\\"
+        + Ps2BuildWorkspace.DiscExecutableFileName
+        + ";1\r\nVER = 1.00\r\n";
 
     /// <summary>
     /// Writes the staged disc layout for the supplied workspace.

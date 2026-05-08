@@ -33,10 +33,10 @@ public sealed class Ps2DiscLayoutWriterTests {
         writer.Write(workspace);
 
         Assert.True(File.Exists(Path.Combine(outputRootPath, "disc", "SYSTEM.CNF")));
-        Assert.True(File.Exists(Path.Combine(outputRootPath, "disc", "HELENGINE.ELF")));
+        Assert.True(File.Exists(Path.Combine(outputRootPath, "disc", Ps2BuildWorkspace.DiscExecutableFileName)));
         Assert.True(File.Exists(Path.Combine(outputRootPath, "disc", "cooked", "scenes", "main.hasset")));
         Assert.Contains(
-            "BOOT2 = cdrom0:\\HELENGINE.ELF;1",
+            "BOOT2 = cdrom0:\\" + Ps2BuildWorkspace.DiscExecutableFileName + ";1",
             File.ReadAllText(Path.Combine(outputRootPath, "disc", "SYSTEM.CNF")));
     }
 }

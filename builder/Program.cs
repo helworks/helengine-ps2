@@ -103,7 +103,7 @@ public static class Program {
                 throw new InvalidOperationException("Smoke test PS2 boot config is missing.");
             }
 
-            if (!File.Exists(Path.Combine(outputRoot, "disc", "HELENGINE.ELF"))) {
+            if (!File.Exists(Path.Combine(outputRoot, "disc", Ps2BuildWorkspace.DiscExecutableFileName))) {
                 throw new InvalidOperationException("Smoke test PS2 disc executable is missing.");
             }
 

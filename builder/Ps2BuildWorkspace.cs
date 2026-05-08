@@ -5,6 +5,11 @@ namespace helengine.ps2.builder;
 /// </summary>
 public sealed class Ps2BuildWorkspace {
     /// <summary>
+    /// BIOS-safe 8.3 boot executable filename staged into the PS2 disc root.
+    /// </summary>
+    public const string DiscExecutableFileName = "HELENGIN.ELF";
+
+    /// <summary>
     /// Initializes one PS2 build workspace.
     /// </summary>
     /// <param name="repositoryRootPath">PS2 native repository root that contains the Dockerfile and Makefile.</param>
@@ -79,7 +84,7 @@ public sealed class Ps2BuildWorkspace {
     /// <summary>
     /// Gets the staged PS2 boot ELF path inside the staged disc root.
     /// </summary>
-    public string DiscExecutablePath => Path.Combine(DiscRootPath, "HELENGINE.ELF");
+    public string DiscExecutablePath => Path.Combine(DiscRootPath, DiscExecutableFileName);
 
     /// <summary>
     /// Gets the final bootable PS2 ISO output path.

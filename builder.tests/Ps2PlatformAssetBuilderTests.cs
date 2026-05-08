@@ -214,7 +214,7 @@ public class Ps2PlatformAssetBuilderTests {
             Assert.Empty(diagnosticReporter.Diagnostics);
             Assert.Equal(2, progressReporter.Updates.Count);
             Assert.True(File.Exists(Path.Combine(outputRoot, "disc", "SYSTEM.CNF")));
-            Assert.True(File.Exists(Path.Combine(outputRoot, "disc", "HELENGINE.ELF")));
+            Assert.True(File.Exists(Path.Combine(outputRoot, "disc", Ps2BuildWorkspace.DiscExecutableFileName)));
             Assert.True(File.Exists(Path.Combine(outputRoot, "disc", "cooked", "scenes", "main.hasset")));
             Assert.True(File.Exists(Path.Combine(outputRoot, "disc", "cooked", "imported", "box_a.hasset")));
             Assert.True(File.Exists(Path.Combine(outputRoot, "game.iso")));
@@ -237,7 +237,7 @@ public class Ps2PlatformAssetBuilderTests {
     }
 
     /// <summary>
-    /// Verifies that the ISO packaging command opts into ISO9660 level 2 so the nine-character HELENGINE boot filename stays addressable by the PS2 BIOS.
+    /// Verifies that the ISO packaging command opts into ISO9660 level 2 so the staged boot filename remains addressable by the PS2 BIOS.
     /// </summary>
     [Fact]
     public void CreatePackageIsoArguments_WhenUsingHelengineBootFilename_UsesIsoLevel2() {
