@@ -382,6 +382,6 @@ namespace helengine::ps2 {
     }
 
     std::string Ps2BootHost::ResolveApplicationDirectoryPath() const {
-        return ".";
+        return "cdrom0:\\";
     }
 }
