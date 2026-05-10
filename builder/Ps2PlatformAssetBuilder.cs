@@ -7,6 +7,7 @@ using helengine.baseplatform.Requests;
 using helengine.baseplatform.Results;
 using helengine.baseplatform.Targets;
 using helengine.baseplatform.Definitions;
+using helengine.files;
 
 namespace helengine.ps2.builder;
 
@@ -15,6 +16,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
 
     readonly IPs2NativeBuildExecutor NativeBuildExecutor;
     readonly Ps2MaterialCooker MaterialCooker;
+    readonly Ps2PackedMeshCooker PackedMeshCooker;
     readonly Ps2DiscLayoutWriter DiscLayoutWriter;
     readonly Ps2RuntimeAssetPathManifestWriter RuntimeAssetPathManifestWriter;
     readonly Ps2CookedAssetPathRewriter CookedAssetPathRewriter;
@@ -22,6 +24,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     public Ps2PlatformAssetBuilder() {
         NativeBuildExecutor = new Ps2NativeBuildExecutor();
         MaterialCooker = new Ps2MaterialCooker();
+        PackedMeshCooker = new Ps2PackedMeshCooker();
         DiscLayoutWriter = new Ps2DiscLayoutWriter();
         RuntimeAssetPathManifestWriter = new Ps2RuntimeAssetPathManifestWriter();
         CookedAssetPathRewriter = new Ps2CookedAssetPathRewriter();
@@ -39,6 +42,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     public Ps2PlatformAssetBuilder(IPs2NativeBuildExecutor nativeBuildExecutor) {
         NativeBuildExecutor = nativeBuildExecutor ?? throw new ArgumentNullException(nameof(nativeBuildExecutor));
         MaterialCooker = new Ps2MaterialCooker();
+        PackedMeshCooker = new Ps2PackedMeshCooker();
         DiscLayoutWriter = new Ps2DiscLayoutWriter();
         RuntimeAssetPathManifestWriter = new Ps2RuntimeAssetPathManifestWriter();
         CookedAssetPathRewriter = new Ps2CookedAssetPathRewriter();
@@ -159,6 +163,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             }
 
             File.Copy(sourcePath, destinationPath, true);
+            StagePackedMeshArtifact(artifact, sourcePath, destinationPath);
             progressReporter.Report(new PlatformBuildProgressUpdate(
                 "Stage Cooked Artifacts",
                 artifact.LogicalArtifactId,
@@ -192,6 +197,34 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         }
 
         return outcomes;
+    }
+
+    /// <summary>
+    /// Emits the first packed PS2 mesh payload beside staged cooked model artifacts.
+    /// </summary>
+    /// <param name="artifact">Artifact being staged.</param>
+    /// <param name="sourcePath">Source path for the staged artifact.</param>
+    /// <param name="destinationPath">Destination path for the staged artifact.</param>
+    void StagePackedMeshArtifact(PlatformBuildArtifact artifact, string sourcePath, string destinationPath) {
+        if (artifact == null) {
+            throw new ArgumentNullException(nameof(artifact));
+        } else if (!string.Equals(artifact.ArtifactKind, "model", StringComparison.OrdinalIgnoreCase)) {
+            return;
+        } else if (string.IsNullOrWhiteSpace(sourcePath)) {
+            throw new ArgumentException("Source path must be provided for packed mesh staging.", nameof(sourcePath));
+        } else if (string.IsNullOrWhiteSpace(destinationPath)) {
+            throw new ArgumentException("Destination path must be provided for packed mesh staging.", nameof(destinationPath));
+        }
+
+        using FileStream sourceStream = File.OpenRead(sourcePath);
+        ModelAsset modelAsset = AssetSerializer.Deserialize(sourceStream) as ModelAsset;
+        if (modelAsset == null) {
+            throw new InvalidOperationException($"Cooked model artifact '{artifact.RelativePath}' did not deserialize as a model asset.");
+        }
+
+        byte[] packedMeshBytes = PackedMeshCooker.Cook(modelAsset);
+        string packedMeshPath = Path.ChangeExtension(destinationPath, Ps2PackedMeshLayout.PackedMeshExtension);
+        File.WriteAllBytes(packedMeshPath, packedMeshBytes);
     }
 
     static void AddDiagnostic(

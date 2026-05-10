@@ -321,6 +321,127 @@ public class Ps2PlatformAssetBuilderTests {
     }
 
     /// <summary>
+    /// Verifies that PS2 builds emit a qword-aligned packed mesh artifact beside staged opaque cube geometry for the first VU path milestone.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_WhenSceneContainsOpaqueCube_ProducesVuPackedMeshArtifact() {
+        string workingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string outputRoot = Path.Combine(workingRoot, "out");
+        string stagingRoot = Path.Combine(workingRoot, "staging");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+        string sceneOutputPath = Path.Combine(stagingRoot, "cooked", "scenes", "main.hasset");
+        string modelOutputPath = Path.Combine(stagingRoot, "cooked", "engine", "models", "cube.hasset");
+
+        Directory.CreateDirectory(Path.GetDirectoryName(sceneOutputPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(modelOutputPath)!);
+        Directory.CreateDirectory(generatedCoreRoot);
+
+        SceneAsset sceneAsset = new() {
+            RootEntities = [
+                new SceneEntityAsset {
+                    Components = [
+                        new SceneComponentAssetRecord {
+                            ComponentTypeId = "helengine.MeshComponent",
+                            ComponentIndex = 0,
+                            Payload = BuildMeshComponentPayloadVersion2("cooked/engine/models/cube.hasset", Array.Empty<string>())
+                        }
+                    ]
+                }
+            ]
+        };
+        ModelAsset cubeModelAsset = ModelUtils.GenerateCubeMesh(
+            new float3(0f, 0f, 0f),
+            new float3(1f, 1f, 1f));
+
+        File.WriteAllBytes(sceneOutputPath, helengine.files.AssetSerializer.SerializeToBytes(sceneAsset));
+        File.WriteAllBytes(modelOutputPath, helengine.files.AssetSerializer.SerializeToBytes(cubeModelAsset));
+        File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "// generated");
+
+        string previousDirectory = Directory.GetCurrentDirectory();
+        try {
+            Directory.SetCurrentDirectory(stagingRoot);
+
+            PlatformBuildManifest manifest = new(
+                3,
+                "project",
+                "1.0.0",
+                "1.0.0",
+                "Scenes/Main.helen",
+                [
+                    new PlatformBuildScene(
+                        "Scenes/Main.helen",
+                        "Main",
+                        "cooked/scenes/main.hasset",
+                        [],
+                        [
+                            new KeyValuePair<string, string>("cooked-relative-path", "cooked/scenes/main.hasset")
+                        ])
+                ],
+                Array.Empty<PlatformBuildAsset>(),
+                [
+                    new PlatformBuildArtifact("cooked/scenes/main.hasset", "scene:main", "sha256:scene", "scene", "shared"),
+                    new PlatformBuildArtifact("cooked/engine/models/cube.hasset", "model:cube", "sha256:model", "model", "shared")
+                ],
+                Array.Empty<PlatformBuildCodeModule>(),
+                Array.Empty<PlatformArtifactPlacement>(),
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+
+            PlatformBuildRequest request = new(
+                manifest,
+                [new PlatformBuildTargetVariant("ps2-default", "ps2", "ps2", "ps2-default")],
+                [new PlatformCookProfile(
+                    "ps2-default",
+                    "PS2 Default",
+                    new PlatformCookProfileCapabilities(
+                        "ps2",
+                        "raw",
+                        "pcm",
+                        "ps2-scene-v1",
+                        PlatformSerializationEndianness.LittleEndian))],
+                outputRoot,
+                Path.Combine(workingRoot, "tmp"),
+                selectedBuildProfileId: "ps2-default",
+                selectedGraphicsProfileId: "ps2-standard-forward",
+                selectedCodegenProfileId: "default",
+                selectedBuildOptionValues: new Dictionary<string, string>(),
+                selectedGraphicsOptionValues: new Dictionary<string, string>(),
+                selectedCodegenOptionValues: new Dictionary<string, string>(),
+                generatedCoreCppRootPath: generatedCoreRoot,
+                selectedMediaProfileId: "ps2-install-tree",
+                selectedStorageProfileId: "disc-layout");
+
+            FakePs2NativeBuildExecutor nativeBuildExecutor = new();
+            Ps2PlatformAssetBuilder builder = new(nativeBuildExecutor);
+            RecordingProgressReporter progressReporter = new();
+            RecordingDiagnosticReporter diagnosticReporter = new();
+
+            PlatformBuildReport report = await builder.BuildAsync(request, progressReporter, diagnosticReporter, CancellationToken.None);
+
+            Assert.True(report.Succeeded);
+            Assert.Empty(diagnosticReporter.Diagnostics);
+
+            string packedMeshPath = Path.Combine(request.WorkingRoot, "ps2-staging", "cooked", "engine", "models", "cube.vup");
+            Assert.True(File.Exists(packedMeshPath));
+
+            byte[] packedMeshBytes = File.ReadAllBytes(packedMeshPath);
+            Assert.NotEmpty(packedMeshBytes);
+            Assert.Equal(0, packedMeshBytes.Length % 16);
+        } finally {
+            try {
+                Directory.SetCurrentDirectory(previousDirectory);
+            } catch {
+            }
+
+            try {
+                if (Directory.Exists(workingRoot)) {
+                    Directory.Delete(workingRoot, recursive: true);
+                }
+            } catch {
+            }
+        }
+    }
+
+    /// <summary>
     /// Verifies that the ISO packaging command opts into ISO9660 level 2 so the staged boot filename remains addressable by the PS2 BIOS.
     /// </summary>
     [Fact]
