@@ -1168,6 +1168,16 @@ namespace helengine::ps2 {
         }
 
         const std::uint8_t intensity = static_cast<std::uint8_t>(std::clamp(std::lround(intensityValue), 0l, 255l));
-        return GS_SETREG_RGBAQ(intensity, intensity, intensity, 0x80, 0x00);
+        const auto applyIntensity = [intensity](std::uint8_t channel) {
+            const double litChannel = (static_cast<double>(channel) * static_cast<double>(intensity)) / 255.0;
+            return static_cast<std::uint8_t>(std::clamp(std::lround(litChannel), 0l, 255l));
+        };
+
+        return GS_SETREG_RGBAQ(
+            applyIntensity(material.GetBaseColorR()),
+            applyIntensity(material.GetBaseColorG()),
+            applyIntensity(material.GetBaseColorB()),
+            material.GetBaseColorA(),
+            0x00);
     }
 }

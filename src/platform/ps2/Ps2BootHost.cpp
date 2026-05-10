@@ -2,6 +2,7 @@
 
 #include <dmaKit.h>
 #include <debug.h>
+#include <libcdvd.h>
 #include <malloc.h>
 #include <gsKit.h>
 #include <algorithm>
@@ -41,6 +42,9 @@
 namespace {
     constexpr int Ps2DefaultFramebufferWidth = 640;
     constexpr int Ps2DefaultFramebufferHeight = 448;
+    constexpr const char* CubeModelDiagnosticPath = "cdrom0:\\COOKED\\ENGINE\\MODELS\\CUBE.HAS;1";
+    constexpr const char* CubeMaterialEarlyDiagnosticPath = "cdrom0:\\COOKED\\ENGINE\\MAT\\CUBE00\\CUBE00.HAS;1";
+    constexpr const char* CubeMaterialLateDiagnosticPath = "cdrom0:\\COOKED\\ENGINE\\MAT\\CUBE14\\CUBE14.HAS;1";
     constexpr bool EnableCubeSpriteDiagnostics = false;
     constexpr bool EnableCubeTriangle2dDiagnostics = false;
     constexpr bool EnableCubeTriangle3dDiagnostics = false;
@@ -85,6 +89,37 @@ namespace {
 
     void BootLog(const std::string& message) {
         BootLog(message.c_str());
+    }
+
+    void BootLogDiscProbe(const char* label, const char* path) {
+        bool exists = File::Exists(path);
+        BootLog(std::string(label) + ": exists=" + (exists ? "true" : "false") + " path=" + path);
+        std::FILE* directFile = std::fopen(path, "rb");
+        BootLog(std::string(label) + ": fopen=" + (directFile != nullptr ? "true" : "false"));
+        if (directFile != nullptr) {
+            std::fclose(directFile);
+        }
+        if (!exists) {
+            return;
+        }
+
+        try {
+            FileStream* stream = File::OpenRead(path);
+            if (stream == nullptr) {
+                BootLog(std::string(label) + ": open returned null");
+                return;
+            }
+
+            BootLog(std::string(label) + ": open length=" + std::to_string(stream->Length()));
+            delete stream;
+        } catch (Exception* exception) {
+            BootLog(std::string(label) + ": open exception=" + (exception != nullptr ? exception->what() : "null"));
+            delete exception;
+        } catch (const std::exception& exception) {
+            BootLog(std::string(label) + ": open std exception=" + exception.what());
+        } catch (...) {
+            BootLog(std::string(label) + ": open unknown exception");
+        }
     }
 
     void DrawCubeSpriteDiagnosticsFrame(GSGLOBAL* gsGlobal) {
@@ -464,6 +499,13 @@ namespace helengine::ps2 {
 
     bool Ps2BootHost::InitializeRuntime() {
         BootLog("runtime init");
+        BootLog("cdvd init begin");
+        sceCdInit(SCECdINoD);
+        sceCdDiskReady(0);
+        BootLog("cdvd ready");
+        BootLogDiscProbe("disc probe cube model", CubeModelDiagnosticPath);
+        BootLogDiscProbe("disc probe cube material early", CubeMaterialEarlyDiagnosticPath);
+        BootLogDiscProbe("disc probe cube material late", CubeMaterialLateDiagnosticPath);
         EngineCore = new Core();
         EngineOptions = EngineCore->get_InitializationOptions();
         EngineOptions->set_ContentRootPath(ResolveApplicationDirectoryPath());

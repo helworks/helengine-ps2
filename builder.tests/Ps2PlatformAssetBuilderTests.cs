@@ -38,6 +38,33 @@ public class Ps2PlatformAssetBuilderTests {
         Assert.Contains(builder.Definition.MaterialSchemas, schema => schema.SchemaId == "ps2-showcase-lit-textured");
     }
 
+    /// <summary>
+    /// Verifies that the PS2 lit material schemas expose one authored base-color field for project-side standard materials.
+    /// </summary>
+    [Fact]
+    public void Definition_when_ps2_lit_material_schemas_are_exposed_includes_base_color_field() {
+        Ps2PlatformAssetBuilder builder = new();
+
+        PlatformMaterialSchemaDefinition simpleLitSchema = Assert.Single(
+            builder.Definition.MaterialSchemas,
+            schema => schema.SchemaId == Ps2MaterialSchemaIds.SimpleLitTextured);
+        PlatformMaterialSchemaDefinition showcaseLitSchema = Assert.Single(
+            builder.Definition.MaterialSchemas,
+            schema => schema.SchemaId == Ps2MaterialSchemaIds.ShowcaseLitTextured);
+
+        PlatformMaterialFieldDefinition simpleLitBaseColorField = Assert.Single(
+            simpleLitSchema.Fields,
+            field => field.FieldId == "base-color");
+        PlatformMaterialFieldDefinition showcaseLitBaseColorField = Assert.Single(
+            showcaseLitSchema.Fields,
+            field => field.FieldId == "base-color");
+
+        Assert.Equal(PlatformMaterialFieldKind.Color, simpleLitBaseColorField.FieldKind);
+        Assert.Equal("#ffffff", simpleLitBaseColorField.DefaultValue);
+        Assert.Equal(PlatformMaterialFieldKind.Color, showcaseLitBaseColorField.FieldKind);
+        Assert.Equal("#ffffff", showcaseLitBaseColorField.DefaultValue);
+    }
+
     [Fact]
     public void CookMaterial_when_using_ps2_simple_lit_schema_returns_ps2_material_asset() {
         Ps2PlatformAssetBuilder builder = new();
@@ -68,6 +95,36 @@ public class Ps2PlatformAssetBuilderTests {
         Assert.True(materialAsset.UseVertexColor);
         Assert.False(materialAsset.ExpensiveModeAllowed);
         Assert.Empty(result.ReferencedShaderAssetIds);
+    }
+
+    /// <summary>
+    /// Verifies that PS2 cooked lit materials preserve the authored base-color channels used by project-side standard materials.
+    /// </summary>
+    [Fact]
+    public void CookMaterial_when_ps2_material_includes_base_color_persists_cooked_channels() {
+        Ps2PlatformAssetBuilder builder = new();
+
+        PlatformMaterialCookResult result = builder.CookMaterial(new PlatformMaterialCookRequest(
+            "Materials/Test.helmat",
+            "Materials/Test.helmat",
+            "ps2",
+            "ps2-default",
+            "ps2-standard-forward",
+            "ps2-simple-lit-textured",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
+                ["texture-relative-path"] = "cooked/textures/test.hasset",
+                ["alpha-mode"] = "opaque",
+                ["double-sided"] = "false",
+                ["cast-shadows"] = "false",
+                ["vertex-color-mode"] = "multiply",
+                ["base-color"] = "#FF4040FF"
+            }));
+
+        Ps2MaterialAsset materialAsset = Assert.IsType<Ps2MaterialAsset>(AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
+        Assert.Equal((byte)255, ReadByteField(materialAsset, "BaseColorR"));
+        Assert.Equal((byte)64, ReadByteField(materialAsset, "BaseColorG"));
+        Assert.Equal((byte)64, ReadByteField(materialAsset, "BaseColorB"));
+        Assert.Equal((byte)255, ReadByteField(materialAsset, "BaseColorA"));
     }
 
     /// <summary>
@@ -634,6 +691,18 @@ public class Ps2PlatformAssetBuilderTests {
     static string BuildExpectedRuntimePhysicalPath(string logicalRelativePath) {
         string discRelativePath = Ps2DiscPathResolver.ResolveDiscRelativePath(logicalRelativePath).Replace('/', '\\');
         return "cdrom0:\\" + discRelativePath + ";1";
+    }
+
+    static byte ReadByteField(object instance, string fieldName) {
+        if (instance == null) {
+            throw new ArgumentNullException(nameof(instance));
+        } else if (string.IsNullOrWhiteSpace(fieldName)) {
+            throw new ArgumentException("Field name must be provided.", nameof(fieldName));
+        }
+
+        System.Reflection.FieldInfo field = instance.GetType().GetField(fieldName);
+        Assert.NotNull(field);
+        return Assert.IsType<byte>(field.GetValue(instance));
     }
 
     static byte[] BuildTextComponentPayload(string fontRelativePath) {

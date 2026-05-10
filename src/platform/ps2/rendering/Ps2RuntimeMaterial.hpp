@@ -16,6 +16,10 @@ namespace helengine::ps2 {
         ::Ps2MaterialLightingMode GetLightingMode() const;
         ::Ps2RenderClass GetRenderClass() const;
         const std::string& GetTextureRelativePath() const;
+        std::uint8_t GetBaseColorR() const;
+        std::uint8_t GetBaseColorG() const;
+        std::uint8_t GetBaseColorB() const;
+        std::uint8_t GetBaseColorA() const;
         bool GetDoubleSided() const;
         bool GetCastShadows() const;
         bool GetExpensiveModeAllowed() const;
@@ -32,6 +36,10 @@ namespace helengine::ps2 {
         bool ExpensiveModeAllowed;
         ::Ps2MaterialLightingMode LightingMode;
         ::Ps2RenderClass RenderClass;
+        std::uint8_t BaseColorR;
+        std::uint8_t BaseColorG;
+        std::uint8_t BaseColorB;
+        std::uint8_t BaseColorA;
         float Roughness;
         float SpecularStrength;
         float EmissiveStrength;

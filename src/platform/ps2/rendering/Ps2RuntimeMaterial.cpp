@@ -14,6 +14,10 @@ namespace helengine::ps2 {
           ExpensiveModeAllowed(false),
           LightingMode(::Ps2MaterialLightingMode::Unlit),
           RenderClass(::Ps2RenderClass::Opaque),
+          BaseColorR(0xFF),
+          BaseColorG(0xFF),
+          BaseColorB(0xFF),
+          BaseColorA(0xFF),
           Roughness(0.5f),
           SpecularStrength(0.5f),
           EmissiveStrength(0.0f),
@@ -35,6 +39,22 @@ namespace helengine::ps2 {
 
     const std::string& Ps2RuntimeMaterial::GetTextureRelativePath() const {
         return TextureRelativePath;
+    }
+
+    std::uint8_t Ps2RuntimeMaterial::GetBaseColorR() const {
+        return BaseColorR;
+    }
+
+    std::uint8_t Ps2RuntimeMaterial::GetBaseColorG() const {
+        return BaseColorG;
+    }
+
+    std::uint8_t Ps2RuntimeMaterial::GetBaseColorB() const {
+        return BaseColorB;
+    }
+
+    std::uint8_t Ps2RuntimeMaterial::GetBaseColorA() const {
+        return BaseColorA;
     }
 
     bool Ps2RuntimeMaterial::GetDoubleSided() const {
@@ -74,6 +94,10 @@ namespace helengine::ps2 {
         LightingMode = materialAsset->LightingMode;
         AlphaMode = materialAsset->AlphaMode;
         RenderClass = materialAsset->RenderClass;
+        BaseColorR = materialAsset->BaseColorR;
+        BaseColorG = materialAsset->BaseColorG;
+        BaseColorB = materialAsset->BaseColorB;
+        BaseColorA = materialAsset->BaseColorA;
         TextureRelativePath = materialAsset->TextureRelativePath;
         DoubleSided = materialAsset->DoubleSided;
         CastShadows = materialAsset->CastShadows;

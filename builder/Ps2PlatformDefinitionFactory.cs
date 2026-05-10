@@ -221,7 +221,14 @@ public static class Ps2PlatformDefinitionFactory {
                             PlatformMaterialFieldKind.Choice,
                             "multiply",
                             true,
-                            ["multiply", "ignore"])
+                            ["multiply", "ignore"]),
+                        new PlatformMaterialFieldDefinition(
+                            Ps2MaterialSchemaIds.BaseColorFieldId,
+                            "Base Color",
+                            PlatformMaterialFieldKind.Color,
+                            "#ffffff",
+                            false,
+                            [])
                     ]),
                 new PlatformMaterialSchemaDefinition(
                     "ps2-showcase-lit-textured",
@@ -263,6 +270,13 @@ public static class Ps2PlatformDefinitionFactory {
                             "multiply",
                             true,
                             ["multiply", "ignore"]),
+                        new PlatformMaterialFieldDefinition(
+                            Ps2MaterialSchemaIds.BaseColorFieldId,
+                            "Base Color",
+                            PlatformMaterialFieldKind.Color,
+                            "#ffffff",
+                            false,
+                            []),
                         new PlatformMaterialFieldDefinition(
                             Ps2MaterialSchemaIds.RoughnessFieldId,
                             "Roughness",

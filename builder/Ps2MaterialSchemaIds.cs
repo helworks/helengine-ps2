@@ -45,6 +45,11 @@ public static class Ps2MaterialSchemaIds {
     public const string VertexColorModeFieldId = "vertex-color-mode";
 
     /// <summary>
+    /// Field identifier for the authored base color used by lit PS2 materials.
+    /// </summary>
+    public const string BaseColorFieldId = "base-color";
+
+    /// <summary>
     /// Field identifier for the expensive showcase-path toggle.
     /// </summary>
     public const string ExpensiveModeAllowedFieldId = "expensive-mode-allowed";

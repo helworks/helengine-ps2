@@ -7,6 +7,29 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2NativeBuildInputsTests {
     /// <summary>
+    /// Ensures the PS2 boot host initializes and waits for the CD/DVD subsystem before runtime asset loading begins.
+    /// </summary>
+    [Fact]
+    public void Boot_host_initializes_cdvd_before_runtime_asset_loading() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+
+        Assert.Contains("#include <libcdvd.h>", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr const char* CubeModelDiagnosticPath = \"cdrom0:\\\\COOKED\\\\ENGINE\\\\MODELS\\\\CUBE.HAS;1\";", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr const char* CubeMaterialEarlyDiagnosticPath = \"cdrom0:\\\\COOKED\\\\ENGINE\\\\MAT\\\\CUBE00\\\\CUBE00.HAS;1\";", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr const char* CubeMaterialLateDiagnosticPath = \"cdrom0:\\\\COOKED\\\\ENGINE\\\\MAT\\\\CUBE14\\\\CUBE14.HAS;1\";", source, StringComparison.Ordinal);
+        Assert.Contains("void BootLogDiscProbe(const char* label, const char* path)", source, StringComparison.Ordinal);
+        Assert.Contains("BootLog(\"cdvd init begin\");", source, StringComparison.Ordinal);
+        Assert.Contains("sceCdInit(SCECdINoD);", source, StringComparison.Ordinal);
+        Assert.Contains("sceCdDiskReady(0);", source, StringComparison.Ordinal);
+        Assert.Contains("BootLog(\"cdvd ready\");", source, StringComparison.Ordinal);
+        Assert.Contains("std::FILE* directFile = std::fopen(path, \"rb\");", source, StringComparison.Ordinal);
+        Assert.Contains("BootLog(std::string(label) + \": fopen=\" + (directFile != nullptr ? \"true\" : \"false\"));", source, StringComparison.Ordinal);
+        Assert.Contains("BootLogDiscProbe(\"disc probe cube model\", CubeModelDiagnosticPath);", source, StringComparison.Ordinal);
+        Assert.Contains("BootLogDiscProbe(\"disc probe cube material early\", CubeMaterialEarlyDiagnosticPath);", source, StringComparison.Ordinal);
+        Assert.Contains("BootLogDiscProbe(\"disc probe cube material late\", CubeMaterialLateDiagnosticPath);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 boot host applies the engine's PS2 framebuffer defaults before gsKit initializes the screen.
     /// </summary>
     [Fact]
@@ -233,6 +256,24 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("dynamic_cast<::DirectionalLightComponent*>(component)", source, StringComparison.Ordinal);
         Assert.Contains("std::uint64_t Ps2RenderManager3D::ResolveVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection)", source, StringComparison.Ordinal);
         Assert.Contains("bool TryResolveDirectionalLightDirection(::float3& lightDirection) const;", header, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 lit shading path modulates directional-light intensity by the cooked authored base-color channels.
+    /// </summary>
+    [Fact]
+    public void Ps2_renderer3d_modulates_lighting_by_cooked_base_color() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RuntimeMaterial.hpp");
+
+        Assert.Contains("material.GetBaseColorR()", source, StringComparison.Ordinal);
+        Assert.Contains("material.GetBaseColorG()", source, StringComparison.Ordinal);
+        Assert.Contains("material.GetBaseColorB()", source, StringComparison.Ordinal);
+        Assert.Contains("material.GetBaseColorA()", source, StringComparison.Ordinal);
+        Assert.Contains("std::uint8_t GetBaseColorR() const;", header, StringComparison.Ordinal);
+        Assert.Contains("std::uint8_t GetBaseColorG() const;", header, StringComparison.Ordinal);
+        Assert.Contains("std::uint8_t GetBaseColorB() const;", header, StringComparison.Ordinal);
+        Assert.Contains("std::uint8_t GetBaseColorA() const;", header, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -20,12 +20,17 @@ public sealed class Ps2MaterialCooker {
         }
 
         Ps2MaterialAlphaMode alphaMode = ResolveAlphaMode(ReadRequiredField(request.FieldValues, Ps2MaterialSchemaIds.AlphaModeFieldId));
+        ResolveBaseColor(request, out byte baseColorR, out byte baseColorG, out byte baseColorB, out byte baseColorA);
         Ps2MaterialAsset cookedAsset = new Ps2MaterialAsset {
             Id = request.MaterialAssetId,
             RendererFamilyId = request.SelectedGraphicsProfileId,
             LightingMode = ResolveLightingMode(request.SchemaId),
             AlphaMode = alphaMode,
             RenderClass = ResolveRenderClass(alphaMode),
+            BaseColorR = baseColorR,
+            BaseColorG = baseColorG,
+            BaseColorB = baseColorB,
+            BaseColorA = baseColorA,
             TextureRelativePath = ReadOptionalField(request.FieldValues, Ps2MaterialSchemaIds.TextureRelativePathFieldId),
             DoubleSided = ReadRequiredBooleanField(request.FieldValues, Ps2MaterialSchemaIds.DoubleSidedFieldId),
             CastShadows = ReadRequiredBooleanField(request.FieldValues, Ps2MaterialSchemaIds.CastShadowsFieldId),
@@ -119,6 +124,41 @@ public sealed class Ps2MaterialCooker {
     }
 
     /// <summary>
+    /// Resolves the authored base color for one PS2 material request.
+    /// </summary>
+    /// <param name="request">Builder-owned material translation request.</param>
+    /// <returns>Cooked base color consumed by the PS2 runtime.</returns>
+    static void ResolveBaseColor(
+        PlatformMaterialCookRequest request,
+        out byte red,
+        out byte green,
+        out byte blue,
+        out byte alpha) {
+        if (request == null) {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        if (string.Equals(request.SchemaId, Ps2MaterialSchemaIds.UnlitTextured, StringComparison.OrdinalIgnoreCase)) {
+            red = 255;
+            green = 255;
+            blue = 255;
+            alpha = 255;
+            return;
+        }
+
+        string colorValue = ReadOptionalField(request.FieldValues, Ps2MaterialSchemaIds.BaseColorFieldId);
+        if (string.IsNullOrWhiteSpace(colorValue)) {
+            red = 255;
+            green = 255;
+            blue = 255;
+            alpha = 255;
+            return;
+        }
+
+        ParseColor(colorValue, out red, out green, out blue, out alpha);
+    }
+
+    /// <summary>
     /// Resolves the roughness value for one PS2 material.
     /// </summary>
     /// <param name="request">Builder-owned material translation request.</param>
@@ -163,6 +203,51 @@ public sealed class Ps2MaterialCooker {
         }
 
         return 0.0f;
+    }
+
+    /// <summary>
+    /// Parses one serialized hex color into byte channels consumed by the cooked PS2 material.
+    /// </summary>
+    /// <param name="value">Serialized color string in `#RRGGBB` or `#RRGGBBAA` form.</param>
+    /// <returns>Parsed RGBA color.</returns>
+    static void ParseColor(
+        string value,
+        out byte red,
+        out byte green,
+        out byte blue,
+        out byte alpha) {
+        if (string.IsNullOrWhiteSpace(value)) {
+            throw new InvalidOperationException("PS2 material base color must be provided.");
+        }
+
+        ReadOnlySpan<char> span = value.AsSpan().Trim();
+        if (span[0] != '#') {
+            throw new InvalidOperationException($"PS2 material base color '{value}' must start with '#'.");
+        } else if (span.Length != 7 && span.Length != 9) {
+            throw new InvalidOperationException($"PS2 material base color '{value}' must use #RRGGBB or #RRGGBBAA format.");
+        }
+
+        red = ParseColorByte(span.Slice(1, 2), value, "red");
+        green = ParseColorByte(span.Slice(3, 2), value, "green");
+        blue = ParseColorByte(span.Slice(5, 2), value, "blue");
+        alpha = span.Length == 9
+            ? ParseColorByte(span.Slice(7, 2), value, "alpha")
+            : (byte)255;
+    }
+
+    /// <summary>
+    /// Parses one serialized color byte from a two-character hex span.
+    /// </summary>
+    /// <param name="value">Two-character hex span.</param>
+    /// <param name="originalValue">Original serialized color string used for diagnostics.</param>
+    /// <param name="channelName">Human-readable channel label used in failure messages.</param>
+    /// <returns>Parsed byte value.</returns>
+    static byte ParseColorByte(ReadOnlySpan<char> value, string originalValue, string channelName) {
+        if (!byte.TryParse(value, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out byte parsedValue)) {
+            throw new InvalidOperationException($"PS2 material base color '{originalValue}' contains an invalid {channelName} channel.");
+        }
+
+        return parsedValue;
     }
 
     /// <summary>
