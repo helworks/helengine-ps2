@@ -105,16 +105,11 @@ namespace helengine::ps2 {
 
             ::IDrawable3D* drawable = proxy.GetDrawable();
             ::Entity* parent = drawable != nullptr ? drawable->get_Parent() : nullptr;
-            std::string key = parent != nullptr ? parent->get_Id() : std::string();
-            if (key.empty()) {
-                key = parent != nullptr ? parent->get_Name() : std::string();
-            }
-
-            if (key.empty()) {
-                key = "ps2-flat-color-diagnostic";
-            }
-
-            const std::size_t paletteIndex = std::hash<std::string>{}(key) % (sizeof(DiagnosticPalette) / sizeof(DiagnosticPalette[0]));
+            const void* diagnosticSource = parent != nullptr
+                ? static_cast<const void*>(parent)
+                : static_cast<const void*>(drawable);
+            const std::uintptr_t diagnosticKey = reinterpret_cast<std::uintptr_t>(diagnosticSource);
+            const std::size_t paletteIndex = std::hash<std::uintptr_t>{}(diagnosticKey) % (sizeof(DiagnosticPalette) / sizeof(DiagnosticPalette[0]));
             return DiagnosticPalette[paletteIndex];
         }
 
