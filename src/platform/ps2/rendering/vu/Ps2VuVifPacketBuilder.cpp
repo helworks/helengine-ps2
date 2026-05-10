@@ -16,9 +16,7 @@
 #include <packet2_utils.h>
 
 #include "float3.hpp"
-#include "platform/ps2/rendering/Ps2RenderProxy.hpp"
 #include "platform/ps2/rendering/Ps2RuntimeMaterial.hpp"
-#include "platform/ps2/rendering/Ps2RuntimeModel.hpp"
 #include "platform/ps2/rendering/vu/Ps2VuPackedModel.hpp"
 
 namespace helengine::ps2 {
@@ -211,34 +209,15 @@ namespace helengine::ps2 {
             SubmittedTriangleVertexA1 = ::float4(FixedTriangleBX, FixedTriangleBY, FixedTriangleZ, 0.0f);
             SubmittedTriangleVertexA2 = ::float4(FixedTriangleCX, FixedTriangleCY, FixedTriangleZ, 0.0f);
         } else {
-            if (batch.Proxy == nullptr || batch.Proxy->GetModel() == nullptr) {
-                return;
-            }
-
-            const Ps2RuntimeModel* runtimeModel = batch.Proxy->GetModel();
-            const std::vector<::float3>& positions = runtimeModel->GetPositions();
-            const std::vector<std::uint16_t>& indices = runtimeModel->GetIndices();
-            if (positions.empty()) {
-                return;
-            }
-
-            const bool useIndices = !indices.empty();
-            const std::uint32_t sourceVertexCount = useIndices
-                ? static_cast<std::uint32_t>(indices.size())
-                : static_cast<std::uint32_t>(positions.size());
             std::vector<::float3> clippedVertices;
             clippedVertices.reserve(4u);
-            for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < sourceVertexCount; vertexIndex += 3u) {
-                const std::uint32_t indexA = useIndices ? static_cast<std::uint32_t>(indices[vertexIndex + 0u]) : vertexIndex + 0u;
-                const std::uint32_t indexB = useIndices ? static_cast<std::uint32_t>(indices[vertexIndex + 1u]) : vertexIndex + 1u;
-                const std::uint32_t indexC = useIndices ? static_cast<std::uint32_t>(indices[vertexIndex + 2u]) : vertexIndex + 2u;
-                if (indexA >= positions.size() || indexB >= positions.size() || indexC >= positions.size()) {
-                    continue;
-                }
-
-                const ::float4 positionA(positions[indexA].X, positions[indexA].Y, positions[indexA].Z, 1.0f);
-                const ::float4 positionB(positions[indexB].X, positions[indexB].Y, positions[indexB].Z, 1.0f);
-                const ::float4 positionC(positions[indexC].X, positions[indexC].Y, positions[indexC].Z, 1.0f);
+            for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
+                const ::float3 packedPositionA = batch.Model->GetPosition(vertexIndex + 0u);
+                const ::float3 packedPositionB = batch.Model->GetPosition(vertexIndex + 1u);
+                const ::float3 packedPositionC = batch.Model->GetPosition(vertexIndex + 2u);
+                const ::float4 positionA(packedPositionA.X, packedPositionA.Y, packedPositionA.Z, 1.0f);
+                const ::float4 positionB(packedPositionB.X, packedPositionB.Y, packedPositionB.Z, 1.0f);
+                const ::float4 positionC(packedPositionC.X, packedPositionC.Y, packedPositionC.Z, 1.0f);
                 const ::float3 worldPositionA = TransformPosition(positionA, world);
                 const ::float3 worldPositionB = TransformPosition(positionB, world);
                 const ::float3 worldPositionC = TransformPosition(positionC, world);

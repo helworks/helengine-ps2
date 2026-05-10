@@ -34,6 +34,21 @@ namespace helengine::ps2 {
         return TriangleVertexCount;
     }
 
+    ::float3 Ps2VuPackedModel::GetPosition(std::uint32_t vertexIndex) const {
+        if (vertexIndex >= TriangleVertexCount) {
+            throw std::out_of_range("Packed PS2 mesh position index exceeded the triangle vertex stream.");
+        }
+
+        const std::size_t byteOffset = static_cast<std::size_t>(PositionBlockOffsetQwords + vertexIndex) * 16u;
+        if ((byteOffset + 16u) > PackedBytes.size()) {
+            throw std::out_of_range("Packed PS2 mesh position block read exceeded the embedded payload.");
+        }
+
+        float positionComponents[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+        std::memcpy(positionComponents, PackedBytes.data() + byteOffset, sizeof(positionComponents));
+        return ::float3(positionComponents[0], positionComponents[1], positionComponents[2]);
+    }
+
     const std::uint8_t* Ps2VuPackedModel::GetPositionBlockBytes() const {
         return PackedBytes.data() + (PositionBlockOffsetQwords * 16u);
     }

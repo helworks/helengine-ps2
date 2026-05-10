@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <vector>
 
+#include "float3.hpp"
+
 namespace helengine::ps2 {
     class Ps2VuPackedModel final {
     public:
@@ -12,6 +14,7 @@ namespace helengine::ps2 {
         void LoadFromPackedBytes(const std::uint8_t* bytes, std::size_t length);
 
         std::uint32_t GetTriangleVertexCount() const;
+        ::float3 GetPosition(std::uint32_t vertexIndex) const;
         const std::uint8_t* GetPositionBlockBytes() const;
         const std::uint8_t* GetNormalBlockBytes() const;
         const std::uint8_t* GetTexCoordBlockBytes() const;
