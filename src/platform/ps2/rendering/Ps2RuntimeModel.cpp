@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <cstdint>
 #include <stdexcept>
 
 #include "ModelAsset.hpp"
@@ -15,6 +16,7 @@ namespace helengine::ps2 {
         BoundsMaximum = ::float3::get_Zero();
         BoundsCenter = ::float3::get_Zero();
         BoundsRadius = 0.0f;
+        VuPackedModel = nullptr;
     }
 
     void Ps2RuntimeModel::LoadFromRaw(::ModelAsset* modelAsset) {
@@ -27,9 +29,15 @@ namespace helengine::ps2 {
         Normals.clear();
         Indices.clear();
         TexCoords.clear();
+        delete VuPackedModel;
+        VuPackedModel = nullptr;
 
         if (modelAsset->Positions == nullptr || modelAsset->Positions->Length <= 0) {
             throw std::invalid_argument("PS2 raw model data must include positions.");
+        }
+
+        if (modelAsset->Ps2PackedMeshBytes == nullptr || modelAsset->Ps2PackedMeshBytes->Length <= 0) {
+            throw std::invalid_argument("PS2 raw model data must include packed PS2 mesh bytes.");
         }
 
         Positions.reserve(static_cast<std::size_t>(modelAsset->Positions->Length));
@@ -93,6 +101,11 @@ namespace helengine::ps2 {
                 Indices.push_back(static_cast<std::uint16_t>(rawIndex));
             }
         }
+
+        VuPackedModel = new Ps2VuPackedModel();
+        VuPackedModel->LoadFromPackedBytes(
+            reinterpret_cast<const std::uint8_t*>(modelAsset->Ps2PackedMeshBytes->Data),
+            static_cast<std::size_t>(modelAsset->Ps2PackedMeshBytes->Length));
     }
 
     const std::vector<::float3>& Ps2RuntimeModel::GetNormals() const {
@@ -125,6 +138,10 @@ namespace helengine::ps2 {
 
     float Ps2RuntimeModel::GetBoundsRadius() const {
         return BoundsRadius;
+    }
+
+    const Ps2VuPackedModel* Ps2RuntimeModel::GetVuPackedModel() const {
+        return VuPackedModel;
     }
 }
 #include <algorithm>

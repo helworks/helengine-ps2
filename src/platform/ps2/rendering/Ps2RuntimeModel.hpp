@@ -6,6 +6,7 @@
 #include "float2.hpp"
 #include "RuntimeModel.hpp"
 #include "float3.hpp"
+#include "platform/ps2/rendering/vu/Ps2VuPackedModel.hpp"
 
 class ModelAsset;
 
@@ -24,6 +25,7 @@ namespace helengine::ps2 {
         const ::float3& GetBoundsMaximum() const;
         const ::float3& GetBoundsCenter() const;
         float GetBoundsRadius() const;
+        const Ps2VuPackedModel* GetVuPackedModel() const;
 
     private:
         std::vector<std::uint16_t> Indices;
@@ -34,5 +36,6 @@ namespace helengine::ps2 {
         ::float3 BoundsMaximum;
         ::float3 BoundsCenter;
         float BoundsRadius;
+        Ps2VuPackedModel* VuPackedModel;
     };
 }

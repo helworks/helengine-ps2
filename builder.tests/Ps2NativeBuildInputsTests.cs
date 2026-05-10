@@ -7,6 +7,22 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2NativeBuildInputsTests {
     /// <summary>
+    /// Ensures the PS2 runtime model exposes embedded VU packed geometry loaded directly from the cooked model asset payload.
+    /// </summary>
+    [Fact]
+    public void Ps2_runtime_model_exposes_vu_packed_geometry_for_fast_path_loading() {
+        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RuntimeModel.hpp");
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RuntimeModel.cpp");
+
+        Assert.Contains("#include \"platform/ps2/rendering/vu/Ps2VuPackedModel.hpp\"", header, StringComparison.Ordinal);
+        Assert.Contains("const Ps2VuPackedModel* GetVuPackedModel() const;", header, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuPackedModel* VuPackedModel;", header, StringComparison.Ordinal);
+        Assert.Contains("VuPackedModel = new Ps2VuPackedModel();", source, StringComparison.Ordinal);
+        Assert.Contains("modelAsset->Ps2PackedMeshBytes", source, StringComparison.Ordinal);
+        Assert.Contains("VuPackedModel->LoadFromPackedBytes(", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 boot host initializes and waits for the CD/DVD subsystem before runtime asset loading begins.
     /// </summary>
     [Fact]
@@ -153,6 +169,29 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("if (EnableCubeRuntimeDiagnostics && !CubeDiagnosticsShown)", source, StringComparison.Ordinal);
         Assert.Contains("+ \" updateables=\"", source, StringComparison.Ordinal);
         Assert.Contains("get_Updateables()", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 boot host can emit averaged frame-phase timing diagnostics from the real runtime loop when performance investigation is needed.
+    /// </summary>
+    [Fact]
+    public void Boot_host_supports_frame_timing_diagnostics_for_update_draw_and_present() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+
+        Assert.Contains("#include <ctime>", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableFrameTimingDiagnostics = true;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableFrameTimingDiagnosticHalt = true;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr int FrameTimingSampleFrameCount = 60;", source, StringComparison.Ordinal);
+        Assert.Contains("double ResolveSecondsFromClockTicks(std::clock_t startTicks, std::clock_t endTicks)", source, StringComparison.Ordinal);
+        Assert.Contains("void RecordFrameTimingSample(double updateSeconds, double drawSeconds, double presentSeconds)", source, StringComparison.Ordinal);
+        Assert.Contains("\"frame timing avg updateMs=\"", source, StringComparison.Ordinal);
+        Assert.Contains("FrameTimingSampleCompleted = true;", source, StringComparison.Ordinal);
+        Assert.Contains("const std::clock_t frameUpdateStartTicks = std::clock();", source, StringComparison.Ordinal);
+        Assert.Contains("frameUpdateEndTicks = std::clock();", source, StringComparison.Ordinal);
+        Assert.Contains("frameDrawEndTicks = std::clock();", source, StringComparison.Ordinal);
+        Assert.Contains("framePresentEndTicks = std::clock();", source, StringComparison.Ordinal);
+        Assert.Contains("RecordFrameTimingSample(", source, StringComparison.Ordinal);
+        Assert.Contains("if (EnableFrameTimingDiagnostics && EnableFrameTimingDiagnosticHalt && FrameTimingSampleCompleted) {", source, StringComparison.Ordinal);
     }
 
     /// <summary>
