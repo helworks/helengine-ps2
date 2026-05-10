@@ -321,10 +321,10 @@ public class Ps2PlatformAssetBuilderTests {
     }
 
     /// <summary>
-    /// Verifies that PS2 builds emit a qword-aligned packed mesh artifact beside staged opaque cube geometry for the first VU path milestone.
+    /// Verifies that PS2 builds embed a qword-aligned packed mesh payload inside staged opaque cube model assets for the first VU path milestone.
     /// </summary>
     [Fact]
-    public async Task BuildAsync_WhenSceneContainsOpaqueCube_ProducesVuPackedMeshArtifact() {
+    public async Task BuildAsync_WhenSceneContainsOpaqueCube_EmbedsVuPackedMeshBytesInsideCookedModelAsset() {
         string workingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         string outputRoot = Path.Combine(workingRoot, "out");
         string stagingRoot = Path.Combine(workingRoot, "staging");
@@ -420,12 +420,17 @@ public class Ps2PlatformAssetBuilderTests {
             Assert.True(report.Succeeded);
             Assert.Empty(diagnosticReporter.Diagnostics);
 
-            string packedMeshPath = Path.Combine(request.WorkingRoot, "ps2-staging", "cooked", "engine", "models", "cube.vup");
-            Assert.True(File.Exists(packedMeshPath));
+            string stagedModelPath = Path.Combine(request.WorkingRoot, "ps2-staging", "cooked", "engine", "models", "cube.hasset");
+            Assert.True(File.Exists(stagedModelPath));
 
-            byte[] packedMeshBytes = File.ReadAllBytes(packedMeshPath);
-            Assert.NotEmpty(packedMeshBytes);
-            Assert.Equal(0, packedMeshBytes.Length % 16);
+            ModelAsset stagedModelAsset;
+            using (FileStream modelStream = File.OpenRead(stagedModelPath)) {
+                stagedModelAsset = Assert.IsType<ModelAsset>(helengine.files.AssetSerializer.Deserialize(modelStream));
+            }
+
+            Assert.NotNull(stagedModelAsset.Ps2PackedMeshBytes);
+            Assert.NotEmpty(stagedModelAsset.Ps2PackedMeshBytes);
+            Assert.Equal(0, stagedModelAsset.Ps2PackedMeshBytes.Length % 16);
         } finally {
             try {
                 Directory.SetCurrentDirectory(previousDirectory);

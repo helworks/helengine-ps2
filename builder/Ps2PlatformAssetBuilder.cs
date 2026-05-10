@@ -163,7 +163,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             }
 
             File.Copy(sourcePath, destinationPath, true);
-            StagePackedMeshArtifact(artifact, sourcePath, destinationPath);
+            EmbedPackedMeshBytes(artifact, destinationPath);
             progressReporter.Report(new PlatformBuildProgressUpdate(
                 "Stage Cooked Artifacts",
                 artifact.LogicalArtifactId,
@@ -200,31 +200,29 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     }
 
     /// <summary>
-    /// Emits the first packed PS2 mesh payload beside staged cooked model artifacts.
+    /// Embeds the first packed PS2 mesh payload inside staged cooked model artifacts.
     /// </summary>
     /// <param name="artifact">Artifact being staged.</param>
-    /// <param name="sourcePath">Source path for the staged artifact.</param>
     /// <param name="destinationPath">Destination path for the staged artifact.</param>
-    void StagePackedMeshArtifact(PlatformBuildArtifact artifact, string sourcePath, string destinationPath) {
+    void EmbedPackedMeshBytes(PlatformBuildArtifact artifact, string destinationPath) {
         if (artifact == null) {
             throw new ArgumentNullException(nameof(artifact));
         } else if (!string.Equals(artifact.ArtifactKind, "model", StringComparison.OrdinalIgnoreCase)) {
             return;
-        } else if (string.IsNullOrWhiteSpace(sourcePath)) {
-            throw new ArgumentException("Source path must be provided for packed mesh staging.", nameof(sourcePath));
         } else if (string.IsNullOrWhiteSpace(destinationPath)) {
-            throw new ArgumentException("Destination path must be provided for packed mesh staging.", nameof(destinationPath));
+            throw new ArgumentException("Destination path must be provided for packed mesh embedding.", nameof(destinationPath));
         }
 
-        using FileStream sourceStream = File.OpenRead(sourcePath);
-        ModelAsset modelAsset = AssetSerializer.Deserialize(sourceStream) as ModelAsset;
+        ModelAsset modelAsset;
+        using (FileStream destinationStream = File.OpenRead(destinationPath)) {
+            modelAsset = AssetSerializer.Deserialize(destinationStream) as ModelAsset;
+        }
         if (modelAsset == null) {
             throw new InvalidOperationException($"Cooked model artifact '{artifact.RelativePath}' did not deserialize as a model asset.");
         }
 
-        byte[] packedMeshBytes = PackedMeshCooker.Cook(modelAsset);
-        string packedMeshPath = Path.ChangeExtension(destinationPath, Ps2PackedMeshLayout.PackedMeshExtension);
-        File.WriteAllBytes(packedMeshPath, packedMeshBytes);
+        modelAsset.Ps2PackedMeshBytes = PackedMeshCooker.Cook(modelAsset);
+        File.WriteAllBytes(destinationPath, helengine.files.AssetSerializer.SerializeToBytes(modelAsset));
     }
 
     static void AddDiagnostic(
