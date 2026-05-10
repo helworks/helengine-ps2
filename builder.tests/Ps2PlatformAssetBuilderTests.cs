@@ -688,6 +688,142 @@ public class Ps2PlatformAssetBuilderTests {
         }
     }
 
+    [Fact]
+    public async Task BuildAsync_WhenPackagedEngineMatMaterialUsesImportedTexture_RewritesTexturePathToPhysicalDiscPath() {
+        string workingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string outputRoot = Path.Combine(workingRoot, "out");
+        string stagingRoot = Path.Combine(workingRoot, "staging");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+        string sceneOutputPath = Path.Combine(stagingRoot, "cooked", "scenes", "main.hasset");
+        string materialOutputPath = Path.Combine(stagingRoot, "cooked", "engine", "mat", "Cube00", "Cube00.hasset");
+        string modelOutputPath = Path.Combine(stagingRoot, "cooked", "imported", "box_a.hasset");
+        string importedTextureOutputPath = Path.Combine(stagingRoot, "imported", "52368b2561628cadf8662a7975820dcec0e2c0338ec130a4886537df258ff149", "52368b2561628cadf8662a7975820dcec0e2c0338ec130a4886537df258ff149.hasset");
+
+        Directory.CreateDirectory(Path.GetDirectoryName(sceneOutputPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(materialOutputPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(modelOutputPath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(importedTextureOutputPath)!);
+        Directory.CreateDirectory(generatedCoreRoot);
+
+        SceneAsset sceneAsset = new() {
+            RootEntities = [
+                new SceneEntityAsset {
+                    Components = [
+                        new SceneComponentAssetRecord {
+                            ComponentTypeId = "helengine.MeshComponent",
+                            ComponentIndex = 0,
+                            Payload = BuildMeshComponentPayload("cooked/imported/box_a.hasset", "cooked/engine/mat/Cube00/Cube00.hasset")
+                        }
+                    ]
+                }
+            ],
+            AssetReferences = [
+                new SceneAssetReference {
+                    SourceKind = SceneAssetReferenceSourceKind.FileSystem,
+                    RelativePath = "cooked/engine/mat/Cube00/Cube00.hasset",
+                    ProviderId = string.Empty,
+                    AssetId = string.Empty
+                }
+            ]
+        };
+        Ps2MaterialAsset materialAsset = new() {
+            TextureRelativePath = "imported/52368b2561628cadf8662a7975820dcec0e2c0338ec130a4886537df258ff149/52368b2561628cadf8662a7975820dcec0e2c0338ec130a4886537df258ff149.hasset"
+        };
+
+        File.WriteAllBytes(sceneOutputPath, helengine.files.AssetSerializer.SerializeToBytes(sceneAsset));
+        File.WriteAllBytes(materialOutputPath, helengine.files.AssetSerializer.SerializeToBytes(materialAsset));
+        File.WriteAllText(modelOutputPath, "model payload");
+        File.WriteAllText(importedTextureOutputPath, "texture payload");
+        File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "// generated");
+
+        string previousDirectory = Directory.GetCurrentDirectory();
+        try {
+            Directory.SetCurrentDirectory(stagingRoot);
+
+            PlatformBuildManifest manifest = new(
+                3,
+                "project",
+                "1.0.0",
+                "1.0.0",
+                "Scenes/Main.helen",
+                [
+                    new PlatformBuildScene(
+                        "Scenes/Main.helen",
+                        "Main",
+                        "cooked/scenes/main.hasset",
+                        [],
+                        [
+                            new KeyValuePair<string, string>("cooked-relative-path", "cooked/scenes/main.hasset")
+                        ])
+                ],
+                Array.Empty<PlatformBuildAsset>(),
+                [
+                    new PlatformBuildArtifact("cooked/scenes/main.hasset", "scene:main", "sha256:scene", "scene", "shared"),
+                    new PlatformBuildArtifact("cooked/engine/mat/Cube00/Cube00.hasset", "material:cube00", "sha256:material", "material", "shared"),
+                    new PlatformBuildArtifact("cooked/imported/box_a.hasset", "model:box_a", "sha256:model", "model", "shared"),
+                    new PlatformBuildArtifact("imported/52368b2561628cadf8662a7975820dcec0e2c0338ec130a4886537df258ff149/52368b2561628cadf8662a7975820dcec0e2c0338ec130a4886537df258ff149.hasset", "texture:cube00", "sha256:texture", "asset", "shared")
+                ],
+                Array.Empty<PlatformBuildCodeModule>(),
+                Array.Empty<PlatformArtifactPlacement>(),
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+
+            PlatformBuildRequest request = new(
+                manifest,
+                [new PlatformBuildTargetVariant("ps2-default", "ps2", "ps2", "ps2-default")],
+                [new PlatformCookProfile(
+                    "ps2-default",
+                    "PS2 Default",
+                    new PlatformCookProfileCapabilities(
+                        "ps2",
+                        "raw",
+                        "pcm",
+                        "ps2-scene-v1",
+                        PlatformSerializationEndianness.LittleEndian))],
+                outputRoot,
+                Path.Combine(workingRoot, "tmp"),
+                selectedBuildProfileId: "ps2-default",
+                selectedGraphicsProfileId: "ps2-standard-forward",
+                selectedCodegenProfileId: "default",
+                selectedBuildOptionValues: new Dictionary<string, string>(),
+                selectedGraphicsOptionValues: new Dictionary<string, string>(),
+                selectedCodegenOptionValues: new Dictionary<string, string>(),
+                generatedCoreCppRootPath: generatedCoreRoot,
+                selectedMediaProfileId: "ps2-install-tree",
+                selectedStorageProfileId: "disc-layout");
+
+            FakePs2NativeBuildExecutor nativeBuildExecutor = new();
+            Ps2PlatformAssetBuilder builder = new(nativeBuildExecutor);
+            RecordingProgressReporter progressReporter = new();
+            RecordingDiagnosticReporter diagnosticReporter = new();
+
+            PlatformBuildReport report = await builder.BuildAsync(request, progressReporter, diagnosticReporter, CancellationToken.None);
+
+            Assert.True(report.Succeeded);
+            Assert.Empty(diagnosticReporter.Diagnostics);
+
+            string discMaterialPath = Path.Combine(outputRoot, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/engine/mat/Cube00/Cube00.hasset"));
+            Ps2MaterialAsset packagedMaterialAsset;
+            using (FileStream materialStream = File.OpenRead(discMaterialPath)) {
+                packagedMaterialAsset = Assert.IsType<Ps2MaterialAsset>(AssetSerializer.Deserialize(materialStream));
+            }
+
+            string expectedTexturePath = BuildExpectedRuntimePhysicalPath("imported/52368b2561628cadf8662a7975820dcec0e2c0338ec130a4886537df258ff149/52368b2561628cadf8662a7975820dcec0e2c0338ec130a4886537df258ff149.hasset");
+            Assert.Equal(expectedTexturePath, packagedMaterialAsset.TextureRelativePath);
+        } finally {
+            try {
+                Directory.SetCurrentDirectory(previousDirectory);
+            } catch {
+            }
+
+            try {
+                if (Directory.Exists(workingRoot)) {
+                    Directory.Delete(workingRoot, recursive: true);
+                }
+            } catch {
+            }
+        }
+    }
+
     static string BuildExpectedRuntimePhysicalPath(string logicalRelativePath) {
         string discRelativePath = Ps2DiscPathResolver.ResolveDiscRelativePath(logicalRelativePath).Replace('/', '\\');
         return "cdrom0:\\" + discRelativePath + ";1";

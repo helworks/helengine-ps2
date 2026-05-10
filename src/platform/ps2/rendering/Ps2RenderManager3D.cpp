@@ -43,7 +43,7 @@ namespace helengine::ps2 {
         constexpr double LightingScale = 191.0;
         constexpr double LightingBias = 64.0;
         constexpr bool EnableFlatColorDiagnostics = false;
-        constexpr bool EnableLightingOnlyDiagnostics = true;
+        constexpr bool EnableLightingOnlyDiagnostics = false;
         constexpr bool EnableSingleProxyDiagnostics = false;
         constexpr std::size_t SingleProxyDiagnosticIndex = 1;
         constexpr float HdrGlowScale = 1.08f;
@@ -190,6 +190,16 @@ namespace helengine::ps2 {
             return vertex;
         }
 
+        ::float2 ResolveGsTextureCoordinate(const ::float2& normalizedTexCoord, const GSTEXTURE* texture) {
+            if (texture == nullptr) {
+                return ::float2(0.0f, 0.0f);
+            }
+
+            return ::float2(
+                normalizedTexCoord.X * static_cast<float>(texture->Width),
+                normalizedTexCoord.Y * static_cast<float>(texture->Height));
+        }
+
         std::uint8_t InterpolateComponent(std::uint8_t start, std::uint8_t end, float amount) {
             const double blended = static_cast<double>(start) + ((static_cast<double>(end) - static_cast<double>(start)) * static_cast<double>(amount));
             return static_cast<std::uint8_t>(std::clamp(std::lround(blended), 0l, 255l));
@@ -332,12 +342,15 @@ namespace helengine::ps2 {
                 const std::uint64_t glowColorC = BoostHdrGlowColor(triangle.ColorC, triangle.GlowStrength);
 
                 if (triangle.UseTexture && triangle.Texture != nullptr) {
+                    const ::float2 glowTexCoordA = ResolveGsTextureCoordinate(triangle.TexCoordA, triangle.Texture);
+                    const ::float2 glowTexCoordB = ResolveGsTextureCoordinate(triangle.TexCoordB, triangle.Texture);
+                    const ::float2 glowTexCoordC = ResolveGsTextureCoordinate(triangle.TexCoordC, triangle.Texture);
                     gsKit_prim_triangle_goraud_texture_3d(
                         gsGlobal,
                         triangle.Texture,
-                        glowAX, glowAY, glowAZ, triangle.TexCoordA.X, triangle.TexCoordA.Y,
-                        glowBX, glowBY, glowBZ, triangle.TexCoordB.X, triangle.TexCoordB.Y,
-                        glowCX, glowCY, glowCZ, triangle.TexCoordC.X, triangle.TexCoordC.Y,
+                        glowAX, glowAY, glowAZ, glowTexCoordA.X, glowTexCoordA.Y,
+                        glowBX, glowBY, glowBZ, glowTexCoordB.X, glowTexCoordB.Y,
+                        glowCX, glowCY, glowCZ, glowTexCoordC.X, glowTexCoordC.Y,
                         glowColorA, glowColorB, glowColorC);
                 } else {
                     gsKit_prim_triangle_gouraud_3d(
@@ -775,12 +788,15 @@ namespace helengine::ps2 {
                 LastSubmittedTriangleCount++;
 
                 if (useTexture) {
+                    const ::float2 screenTexCoordA = ResolveGsTextureCoordinate(clippedA.TexCoord, texture);
+                    const ::float2 screenTexCoordB = ResolveGsTextureCoordinate(clippedB.TexCoord, texture);
+                    const ::float2 screenTexCoordC = ResolveGsTextureCoordinate(clippedC.TexCoord, texture);
                     gsKit_prim_triangle_goraud_texture_3d(
                         GsGlobal,
                         texture,
-                        screenAX, screenAY, screenAZ, clippedA.TexCoord.X, clippedA.TexCoord.Y,
-                        screenBX, screenBY, screenBZ, clippedB.TexCoord.X, clippedB.TexCoord.Y,
-                        screenCX, screenCY, screenCZ, clippedC.TexCoord.X, clippedC.TexCoord.Y,
+                        screenAX, screenAY, screenAZ, screenTexCoordA.X, screenTexCoordA.Y,
+                        screenBX, screenBY, screenBZ, screenTexCoordB.X, screenTexCoordB.Y,
+                        screenCX, screenCY, screenCZ, screenTexCoordC.X, screenTexCoordC.Y,
                         clippedColorA, clippedColorB, clippedColorC);
                 } else {
                     gsKit_prim_triangle_gouraud_3d(

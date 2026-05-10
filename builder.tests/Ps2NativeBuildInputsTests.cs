@@ -226,7 +226,7 @@ public sealed class Ps2NativeBuildInputsTests {
         string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
 
         Assert.Contains("constexpr bool EnableFlatColorDiagnostics = false;", source, StringComparison.Ordinal);
-        Assert.Contains("constexpr bool EnableLightingOnlyDiagnostics = true;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableLightingOnlyDiagnostics = false;", source, StringComparison.Ordinal);
         Assert.Contains("ResolveDiagnosticProxyColor(proxy)", source, StringComparison.Ordinal);
         Assert.Contains("const bool useDiagnosticFlatColor = EnableFlatColorDiagnostics;", source, StringComparison.Ordinal);
         Assert.Contains("const bool useLightingOnlyDiagnostics = EnableLightingOnlyDiagnostics;", source, StringComparison.Ordinal);
@@ -241,6 +241,22 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("if (!useDiagnosticFlatColor && !ShouldDrawAlphaTestTriangle(", source, StringComparison.Ordinal);
         Assert.Contains("if (!useDiagnosticFlatColor && !useLightingOnlyDiagnostics && HdrEnabled && ShouldEmitHdrGlow(*material, clippedColorA, clippedColorB, clippedColorC)) {", source, StringComparison.Ordinal);
         Assert.Contains("gsKit_prim_triangle_gouraud_3d(", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 renderer converts normalized mesh UVs into texel-space coordinates before submitting textured triangles to gsKit.
+    /// </summary>
+    [Fact]
+    public void Ps2_renderer3d_scales_normalized_uvs_into_gskit_texel_space() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+
+        Assert.Contains("::float2 ResolveGsTextureCoordinate(const ::float2& normalizedTexCoord, const GSTEXTURE* texture)", source, StringComparison.Ordinal);
+        Assert.Contains("normalizedTexCoord.X * static_cast<float>(texture->Width)", source, StringComparison.Ordinal);
+        Assert.Contains("normalizedTexCoord.Y * static_cast<float>(texture->Height)", source, StringComparison.Ordinal);
+        Assert.Contains("const ::float2 screenTexCoordA = ResolveGsTextureCoordinate(clippedA.TexCoord, texture);", source, StringComparison.Ordinal);
+        Assert.Contains("const ::float2 glowTexCoordA = ResolveGsTextureCoordinate(triangle.TexCoordA, triangle.Texture);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("screenAX, screenAY, screenAZ, clippedA.TexCoord.X, clippedA.TexCoord.Y,", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("glowAX, glowAY, glowAZ, triangle.TexCoordA.X, triangle.TexCoordA.Y,", source, StringComparison.Ordinal);
     }
 
     /// <summary>

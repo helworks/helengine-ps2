@@ -60,7 +60,8 @@ public sealed class Ps2CookedAssetPathRewriter {
         }
 
         return logicalRelativePath.StartsWith("cooked/scenes/", StringComparison.OrdinalIgnoreCase)
-            || logicalRelativePath.Contains("/materials/", StringComparison.OrdinalIgnoreCase);
+            || logicalRelativePath.Contains("/materials/", StringComparison.OrdinalIgnoreCase)
+            || logicalRelativePath.Contains("/mat/", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
