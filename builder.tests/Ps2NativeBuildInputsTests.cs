@@ -202,19 +202,37 @@ public sealed class Ps2NativeBuildInputsTests {
     public void Ps2_renderer3d_supports_flat_color_diagnostic_submission_mode() {
         string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
 
-        Assert.Contains("constexpr bool EnableFlatColorDiagnostics = true;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableFlatColorDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableLightingOnlyDiagnostics = true;", source, StringComparison.Ordinal);
         Assert.Contains("ResolveDiagnosticProxyColor(proxy)", source, StringComparison.Ordinal);
         Assert.Contains("const bool useDiagnosticFlatColor = EnableFlatColorDiagnostics;", source, StringComparison.Ordinal);
+        Assert.Contains("const bool useLightingOnlyDiagnostics = EnableLightingOnlyDiagnostics;", source, StringComparison.Ordinal);
         Assert.Contains("if (!useDiagnosticFlatColor) {", source, StringComparison.Ordinal);
         Assert.Contains("ApplyMaterialAlphaState(*material);", source, StringComparison.Ordinal);
         Assert.Contains("GSTEXTURE* texture = nullptr;", source, StringComparison.Ordinal);
-        Assert.Contains("if (!useDiagnosticFlatColor && !material->GetTextureRelativePath().empty()) {", source, StringComparison.Ordinal);
+        Assert.Contains("if (!useDiagnosticFlatColor && !useLightingOnlyDiagnostics && !material->GetTextureRelativePath().empty()) {", source, StringComparison.Ordinal);
         Assert.Contains("const std::uint64_t diagnosticColor = ResolveDiagnosticProxyColor(proxy);", source, StringComparison.Ordinal);
-        Assert.Contains("const std::uint64_t colorA = useDiagnosticFlatColor ? diagnosticColor : ResolveVertexColor(*material, normalA);", source, StringComparison.Ordinal);
+        Assert.Contains("const std::uint64_t colorA = useDiagnosticFlatColor ? diagnosticColor : ResolveVertexColor(*material, normalA, lightDirection);", source, StringComparison.Ordinal);
         Assert.Contains("const bool useTexture = !useDiagnosticFlatColor", source, StringComparison.Ordinal);
+        Assert.Contains("&& !useLightingOnlyDiagnostics", source, StringComparison.Ordinal);
         Assert.Contains("if (!useDiagnosticFlatColor && !ShouldDrawAlphaTestTriangle(", source, StringComparison.Ordinal);
-        Assert.Contains("if (!useDiagnosticFlatColor && HdrEnabled && ShouldEmitHdrGlow(*material, clippedColorA, clippedColorB, clippedColorC)) {", source, StringComparison.Ordinal);
+        Assert.Contains("if (!useDiagnosticFlatColor && !useLightingOnlyDiagnostics && HdrEnabled && ShouldEmitHdrGlow(*material, clippedColorA, clippedColorB, clippedColorC)) {", source, StringComparison.Ordinal);
         Assert.Contains("gsKit_prim_triangle_gouraud_3d(", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 renderer resolves lit vertex colors from the authored directional light before falling back to the diagnostic light vector.
+    /// </summary>
+    [Fact]
+    public void Ps2_renderer3d_uses_scene_directional_light_for_vertex_lighting() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.hpp");
+
+        Assert.Contains("#include \"DirectionalLightComponent.hpp\"", source, StringComparison.Ordinal);
+        Assert.Contains("TryResolveDirectionalLightDirection(lightDirection);", source, StringComparison.Ordinal);
+        Assert.Contains("dynamic_cast<::DirectionalLightComponent*>(component)", source, StringComparison.Ordinal);
+        Assert.Contains("std::uint64_t Ps2RenderManager3D::ResolveVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection)", source, StringComparison.Ordinal);
+        Assert.Contains("bool TryResolveDirectionalLightDirection(::float3& lightDirection) const;", header, StringComparison.Ordinal);
     }
 
     /// <summary>

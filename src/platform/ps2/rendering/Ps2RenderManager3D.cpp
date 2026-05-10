@@ -16,6 +16,7 @@
 #include "AssetSerializer.hpp"
 #include "CameraComponent.hpp"
 #include "Core.hpp"
+#include "DirectionalLightComponent.hpp"
 #include "Entity.hpp"
 #include "IDrawable3D.hpp"
 #include "ModelAsset.hpp"
@@ -41,7 +42,8 @@ namespace helengine::ps2 {
     namespace {
         constexpr double LightingScale = 191.0;
         constexpr double LightingBias = 64.0;
-        constexpr bool EnableFlatColorDiagnostics = true;
+        constexpr bool EnableFlatColorDiagnostics = false;
+        constexpr bool EnableLightingOnlyDiagnostics = true;
         constexpr bool EnableSingleProxyDiagnostics = false;
         constexpr std::size_t SingleProxyDiagnosticIndex = 1;
         constexpr float HdrGlowScale = 1.08f;
@@ -623,6 +625,7 @@ namespace helengine::ps2 {
         ::Entity* parent = drawable->get_Parent();
 
         const bool useDiagnosticFlatColor = EnableFlatColorDiagnostics;
+        const bool useLightingOnlyDiagnostics = EnableLightingOnlyDiagnostics;
         if (!useDiagnosticFlatColor) {
             ApplyMaterialAlphaState(*material);
         } else {
@@ -632,9 +635,11 @@ namespace helengine::ps2 {
         }
 
         const bool doubleSided = material->GetDoubleSided();
+        ::float3 lightDirection = ::float3(0.0f, -0.70710678f, -0.70710678f);
+        TryResolveDirectionalLightDirection(lightDirection);
 
         GSTEXTURE* texture = nullptr;
-        if (!useDiagnosticFlatColor && !material->GetTextureRelativePath().empty()) {
+        if (!useDiagnosticFlatColor && !useLightingOnlyDiagnostics && !material->GetTextureRelativePath().empty()) {
             texture = ResolveTexture(GsGlobal, material->GetTextureRelativePath());
         }
 
@@ -682,9 +687,9 @@ namespace helengine::ps2 {
             ::float3 viewPositionC = TransformPosition(positionC, view);
 
             const std::uint64_t diagnosticColor = ResolveDiagnosticProxyColor(proxy);
-            const std::uint64_t colorA = useDiagnosticFlatColor ? diagnosticColor : ResolveVertexColor(*material, normalA);
-            const std::uint64_t colorB = useDiagnosticFlatColor ? diagnosticColor : ResolveVertexColor(*material, normalB);
-            const std::uint64_t colorC = useDiagnosticFlatColor ? diagnosticColor : ResolveVertexColor(*material, normalC);
+            const std::uint64_t colorA = useDiagnosticFlatColor ? diagnosticColor : ResolveVertexColor(*material, normalA, lightDirection);
+            const std::uint64_t colorB = useDiagnosticFlatColor ? diagnosticColor : ResolveVertexColor(*material, normalB, lightDirection);
+            const std::uint64_t colorC = useDiagnosticFlatColor ? diagnosticColor : ResolveVertexColor(*material, normalC, lightDirection);
 
             Ps2ClipVertex vertexA = CreateClipVertex(viewPositionA, texCoords.size() > indexA ? texCoords[indexA] : ::float2(0.0f, 0.0f), colorA);
             Ps2ClipVertex vertexB = CreateClipVertex(viewPositionB, texCoords.size() > indexB ? texCoords[indexB] : ::float2(0.0f, 0.0f), colorB);
@@ -698,6 +703,7 @@ namespace helengine::ps2 {
             }
 
             const bool useTexture = !useDiagnosticFlatColor
+                && !useLightingOnlyDiagnostics
                 && texture != nullptr
                 && indexA < texCoords.size()
                 && indexB < texCoords.size()
@@ -785,7 +791,7 @@ namespace helengine::ps2 {
                         clippedColorA, clippedColorB, clippedColorC);
                 }
 
-                if (!useDiagnosticFlatColor && HdrEnabled && ShouldEmitHdrGlow(*material, clippedColorA, clippedColorB, clippedColorC)) {
+                if (!useDiagnosticFlatColor && !useLightingOnlyDiagnostics && HdrEnabled && ShouldEmitHdrGlow(*material, clippedColorA, clippedColorB, clippedColorC)) {
                     const float glowStrength = ComputeHdrGlowStrength(clippedColorA, clippedColorB, clippedColorC);
                     Ps2HdrGlowTriangle glowTriangle;
                     glowTriangle.ScreenAX = screenAX;
@@ -1096,7 +1102,36 @@ namespace helengine::ps2 {
         }
     }
 
-    std::uint64_t Ps2RenderManager3D::ResolveVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal) {
+    bool Ps2RenderManager3D::TryResolveDirectionalLightDirection(::float3& lightDirection) const {
+        ::Core* core = ::Core::get_Instance();
+        if (core == nullptr || core->get_ObjectManager() == nullptr || core->get_ObjectManager()->get_Entities() == nullptr) {
+            return false;
+        }
+
+        List<::Entity*>* entities = core->get_ObjectManager()->get_Entities();
+        for (int32_t entityIndex = 0; entityIndex < entities->Count(); entityIndex++) {
+            ::Entity* entity = (*entities)[entityIndex];
+            if (entity == nullptr || entity->get_Components() == nullptr) {
+                continue;
+            }
+
+            List<::Component*>* components = entity->get_Components();
+            for (int32_t componentIndex = 0; componentIndex < components->Count(); componentIndex++) {
+                ::Component* component = (*components)[componentIndex];
+                ::DirectionalLightComponent* directionalLight = dynamic_cast<::DirectionalLightComponent*>(component);
+                if (directionalLight == nullptr || directionalLight->get_Parent() == nullptr) {
+                    continue;
+                }
+
+                lightDirection = ::float4::RotateVector(::float3(0.0f, 0.0f, -1.0f), directionalLight->get_Parent()->get_Orientation());
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    std::uint64_t Ps2RenderManager3D::ResolveVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection) {
         if (material.GetLightingMode() == ::Ps2MaterialLightingMode::Unlit) {
             return GS_SETREG_RGBAQ(0xC0, 0xC0, 0xC0, 0x80, 0x00);
         }
@@ -1109,9 +1144,10 @@ namespace helengine::ps2 {
         }
 
         ::float3 normalizedNormal = ::float3::Normalize(normal);
-        const double lightX = 0.0;
-        const double lightY = -0.70710678;
-        const double lightZ = -0.70710678;
+        ::float3 normalizedLightDirection = ::float3::Normalize(lightDirection);
+        const double lightX = static_cast<double>(normalizedLightDirection.X);
+        const double lightY = static_cast<double>(normalizedLightDirection.Y);
+        const double lightZ = static_cast<double>(normalizedLightDirection.Z);
         double ndotl = static_cast<double>(normalizedNormal.X) * lightX
             + static_cast<double>(normalizedNormal.Y) * lightY
             + static_cast<double>(normalizedNormal.Z) * lightZ;

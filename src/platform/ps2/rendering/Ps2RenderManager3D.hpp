@@ -99,7 +99,8 @@ namespace helengine::ps2 {
         std::uint8_t SampleTextureAlpha(GSTEXTURE* texture, const ::float2& texCoord) const;
         ::float3 TransformPosition(const ::float3& position, const ::float4x4& matrix) const;
         double ComputeProxyDepth(const Ps2RenderProxy& proxy, const ::float3& cameraPosition, const ::float3& cameraForward) const;
-        std::uint64_t ResolveVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal);
+        bool TryResolveDirectionalLightDirection(::float3& lightDirection) const;
+        std::uint64_t ResolveVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection);
 
         Ps2FramePlanner FramePlanner;
         bool HdrEnabled;
