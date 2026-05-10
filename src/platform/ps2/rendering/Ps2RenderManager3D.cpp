@@ -2,15 +2,21 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <malloc.h>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include <dma.h>
+#include <debug.h>
+#include <draw.h>
 #include <gsKit.h>
+#include <packet2.h>
 
 #include "ContentManager.hpp"
 #include "AssetSerializer.hpp"
@@ -43,7 +49,7 @@ namespace helengine::ps2 {
         constexpr double LightingScale = 191.0;
         constexpr double LightingBias = 64.0;
         constexpr bool EnableFlatColorDiagnostics = false;
-        constexpr bool EnableLightingOnlyDiagnostics = false;
+        constexpr bool EnableLightingOnlyDiagnostics = true;
         constexpr bool EnableSingleProxyDiagnostics = false;
         constexpr std::size_t SingleProxyDiagnosticIndex = 1;
         constexpr float HdrGlowScale = 1.08f;
@@ -59,8 +65,30 @@ namespace helengine::ps2 {
         constexpr float MinimumClipW = 0.0001f;
         constexpr float MinimumNearPlaneEpsilon = 0.00001f;
         constexpr std::uint8_t AlphaTestCutoff = 0x80;
+        constexpr bool EnableVuDispatchBypassDiagnostics = false;
+        constexpr bool EnableVuDirectGifDispatchDiagnostics = false;
+        constexpr bool EnableVuDirectGifHelperTriangleDiagnostics = false;
+        constexpr float VuDirectGifDiagnosticTriangleAX = 211.843231f;
+        constexpr float VuDirectGifDiagnosticTriangleAY = 332.156738f;
+        constexpr float VuDirectGifDiagnosticTriangleBX = 211.843231f;
+        constexpr float VuDirectGifDiagnosticTriangleBY = 115.843239f;
+        constexpr float VuDirectGifDiagnosticTriangleCX = 428.156738f;
+        constexpr float VuDirectGifDiagnosticTriangleCY = 332.156738f;
+        constexpr std::uint32_t VuDirectGifDiagnosticTriangleZ = 0x007FFFFFu;
         const ::float3 DefaultForward(0.0f, 0.0f, -1.0f);
         const ::float3 DefaultUp(0.0f, 1.0f, 0.0f);
+
+        void LogVuDirectGifDiagnostics(const std::string& message) {
+            scr_printf("[helengine-ps2] %s\n", message.c_str());
+            std::printf("[helengine-ps2] %s\n", message.c_str());
+            std::fflush(stdout);
+        }
+
+        std::uint64_t BuildVuDirectGifDiagnosticPosition(float screenX, float screenY) {
+            const std::int32_t gsX = static_cast<std::int32_t>((2048.0f + screenX) * 16.0f);
+            const std::int32_t gsY = static_cast<std::int32_t>((2048.0f + screenY) * 16.0f);
+            return GS_SETREG_XYZ2(gsX, gsY, VuDirectGifDiagnosticTriangleZ);
+        }
 
         struct Ps2ClipVertex {
             ::float3 ViewPosition;
@@ -374,6 +402,11 @@ namespace helengine::ps2 {
 
     Ps2RenderManager3D::Ps2RenderManager3D()
         : FramePlanner(),
+          VuOpaqueBatchBuilder(),
+          VuProgramRegistry(),
+          VuVifPacketBuilder(),
+          VuGifStateEncoder(),
+          UseLegacyCpuOpaquePath(false),
           HdrEnabled(false),
           GsGlobal(nullptr),
           Proxies(),
@@ -386,6 +419,13 @@ namespace helengine::ps2 {
           LastProjectionRejectCount(0),
           LastCullRejectCount(0),
           LastSubmittedTriangleCount(0),
+          LastVuBatchDispatchCount(0),
+          LastVuTriangleVertexCount(0),
+          LastVuPacketByteCount(0),
+          LastVuRejectedMissingMaterialCount(0),
+          LastVuRejectedMissingModelCount(0),
+          LastVuRejectedMissingPackedModelCount(0),
+          LastVuPacketPhase(0),
           LastResolvedViewport(),
           LastSubmittedScreenBounds(),
           LastSubmittedTriangleBoundsA(),
@@ -428,6 +468,13 @@ namespace helengine::ps2 {
         LastProjectionRejectCount = 0;
         LastCullRejectCount = 0;
         LastSubmittedTriangleCount = 0;
+        LastVuBatchDispatchCount = 0;
+        LastVuTriangleVertexCount = 0;
+        LastVuPacketByteCount = 0;
+        LastVuRejectedMissingMaterialCount = 0;
+        LastVuRejectedMissingModelCount = 0;
+        LastVuRejectedMissingPackedModelCount = 0;
+        LastVuPacketPhase = 0;
         LastResolvedViewport = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastSubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastSubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -492,23 +539,27 @@ namespace helengine::ps2 {
             if (EnableSingleProxyDiagnostics) {
                 const Ps2RenderProxy* firstProxy = ResolveRenderableProxyByIndex(plan, SingleProxyDiagnosticIndex);
                 if (firstProxy != nullptr) {
-                    DrawOpaqueProxy(*firstProxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                    DrawOpaqueProxyLegacy(*firstProxy, view, projection, viewport, camera->get_NearPlaneDistance());
                 }
 
                 DrawHdrGlowPass(GsGlobal);
                 return;
             }
 
-            for (const Ps2RenderProxy* proxy : plan.OpaqueWorld) {
-                if (proxy != nullptr) {
-                    DrawOpaqueProxy(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
+            if (UseLegacyCpuOpaquePath) {
+                for (const Ps2RenderProxy* proxy : plan.OpaqueWorld) {
+                    if (proxy != nullptr) {
+                        DrawOpaqueProxyLegacy(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                    }
                 }
-            }
 
-            for (const Ps2RenderProxy* proxy : plan.OpaqueDynamic) {
-                if (proxy != nullptr) {
-                    DrawOpaqueProxy(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                for (const Ps2RenderProxy* proxy : plan.OpaqueDynamic) {
+                    if (proxy != nullptr) {
+                        DrawOpaqueProxyLegacy(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                    }
                 }
+            } else {
+                RenderOpaqueWithVuPath(plan, view, projection, viewport, camera->get_NearPlaneDistance());
             }
 
             for (const Ps2RenderProxy* proxy : plan.AlphaWorld) {
@@ -536,6 +587,149 @@ namespace helengine::ps2 {
             cameraPosition,
             cameraForward);
         DrawHdrGlowPass(GsGlobal);
+    }
+
+    void Ps2RenderManager3D::RenderOpaqueWithVuPath(const Ps2FramePlan& plan, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {
+        std::vector<Ps2VuOpaqueBatch> batches = VuOpaqueBatchBuilder.Build(plan);
+        LastVuBatchDispatchCount = batches.size();
+        LastVuRejectedMissingMaterialCount = VuOpaqueBatchBuilder.GetLastRejectedMissingMaterialCount();
+        LastVuRejectedMissingModelCount = VuOpaqueBatchBuilder.GetLastRejectedMissingModelCount();
+        LastVuRejectedMissingPackedModelCount = VuOpaqueBatchBuilder.GetLastRejectedMissingPackedModelCount();
+        for (const Ps2VuOpaqueBatch& batch : batches) {
+            if (batch.Proxy == nullptr) {
+                continue;
+            }
+
+            dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+            ::float4x4 world = BuildWorldMatrix(*batch.Proxy);
+            VuGifStateEncoder.EncodeOpaqueState(batch, GsGlobal);
+            VuVifPacketBuilder.Reset();
+            VuVifPacketBuilder.AddOpaqueBatch(batch, world, view, projection, viewport, nearPlaneDistance, GsGlobal);
+            (void)VuProgramRegistry.ResolveOpaqueProgram(batch);
+            packet2_t* packet = VuVifPacketBuilder.GetPacket();
+            if (packet == nullptr) {
+                continue;
+            }
+
+            LastVuTriangleVertexCount += static_cast<std::size_t>(batch.Model->GetTriangleVertexCount());
+            LastVuPacketByteCount += VuVifPacketBuilder.GetPacketByteCount();
+            LastVuPacketPhase = VuVifPacketBuilder.GetLastCompletedPhase();
+            LastSubmittedTriangleCount += VuVifPacketBuilder.GetSubmittedTriangleCount();
+            if (VuVifPacketBuilder.GetSubmittedTriangleCount() > 0u) {
+                if (LastSubmittedTriangleCount == VuVifPacketBuilder.GetSubmittedTriangleCount()) {
+                    LastSubmittedScreenBounds = VuVifPacketBuilder.GetSubmittedScreenBounds();
+                    LastSubmittedTriangleBoundsA = VuVifPacketBuilder.GetSubmittedTriangleBoundsA();
+                    LastSubmittedTriangleVertexA0 = VuVifPacketBuilder.GetSubmittedTriangleVertexA0();
+                    LastSubmittedTriangleVertexA1 = VuVifPacketBuilder.GetSubmittedTriangleVertexA1();
+                    LastSubmittedTriangleVertexA2 = VuVifPacketBuilder.GetSubmittedTriangleVertexA2();
+                    LastSubmittedTriangleBoundsB = VuVifPacketBuilder.GetSubmittedTriangleBoundsB();
+                    LastSubmittedTriangleVertexB0 = VuVifPacketBuilder.GetSubmittedTriangleVertexB0();
+                    LastSubmittedTriangleVertexB1 = VuVifPacketBuilder.GetSubmittedTriangleVertexB1();
+                    LastSubmittedTriangleVertexB2 = VuVifPacketBuilder.GetSubmittedTriangleVertexB2();
+                } else {
+                    const ::float4 batchBounds = VuVifPacketBuilder.GetSubmittedScreenBounds();
+                    LastSubmittedScreenBounds.X = std::min(LastSubmittedScreenBounds.X, batchBounds.X);
+                    LastSubmittedScreenBounds.Y = std::min(LastSubmittedScreenBounds.Y, batchBounds.Y);
+                    LastSubmittedScreenBounds.Z = std::max(LastSubmittedScreenBounds.Z, batchBounds.Z);
+                    LastSubmittedScreenBounds.W = std::max(LastSubmittedScreenBounds.W, batchBounds.W);
+                }
+            }
+            if (EnableVuDispatchBypassDiagnostics) {
+                LastVuPacketPhase = 100;
+            } else if (EnableVuDirectGifDispatchDiagnostics) {
+                packet2_t* gifPacket = nullptr;
+                std::size_t gifPacketByteCount = 0;
+                if (EnableVuDirectGifHelperTriangleDiagnostics) {
+                    gifPacket = packet2_create(32, P2_TYPE_NORMAL, P2_MODE_NORMAL, false);
+                    if (gifPacket != nullptr) {
+                        prim_t prim = {};
+                        prim.type = PRIM_TRIANGLE;
+                        prim.shading = PRIM_SHADE_FLAT;
+                        prim.mapping = 0;
+                        prim.fogging = 0;
+                        prim.blending = 0;
+                        prim.antialiasing = 0;
+                        prim.mapping_type = PRIM_MAP_ST;
+                        prim.colorfix = PRIM_UNFIXED;
+                        color_t diagnosticColor = {};
+                        diagnosticColor.r = 0xD0;
+                        diagnosticColor.g = 0x40;
+                        diagnosticColor.b = 0x40;
+                        diagnosticColor.a = 0x80;
+                        packet2_update(gifPacket, draw_prim_start(gifPacket->base, 0, &prim, &diagnosticColor));
+                        packet2_add_u64(gifPacket, BuildVuDirectGifDiagnosticPosition(VuDirectGifDiagnosticTriangleAX, VuDirectGifDiagnosticTriangleAY));
+                        packet2_add_u64(gifPacket, BuildVuDirectGifDiagnosticPosition(VuDirectGifDiagnosticTriangleBX, VuDirectGifDiagnosticTriangleBY));
+                        packet2_add_u64(gifPacket, BuildVuDirectGifDiagnosticPosition(VuDirectGifDiagnosticTriangleCX, VuDirectGifDiagnosticTriangleCY));
+                        packet2_pad128(gifPacket, 0);
+                        packet2_update(gifPacket, draw_prim_end(gifPacket->next, 1, static_cast<u64>(GIF_REG_XYZ2) << 0));
+                        packet2_update(gifPacket, draw_finish(gifPacket->next));
+                        gifPacketByteCount = static_cast<std::size_t>(packet2_get_qw_count(gifPacket)) * 16u;
+                    }
+                } else {
+                    const std::vector<std::uint8_t>& gifPacketBytes = VuVifPacketBuilder.GetGifPacketBytes();
+                    if (!gifPacketBytes.empty()) {
+                        gifPacket = packet2_create(static_cast<std::uint16_t>(gifPacketBytes.size() / 16u), P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
+                        if (gifPacket != nullptr) {
+                            std::memcpy(gifPacket->base, gifPacketBytes.data(), gifPacketBytes.size());
+                            packet2_advance_next(gifPacket, gifPacketBytes.size());
+                            gifPacketByteCount = gifPacketBytes.size();
+                        }
+                    }
+                }
+
+                if (gifPacket != nullptr) {
+                    LastVuPacketPhase = 101;
+                    LogVuDirectGifDiagnostics(
+                        "direct gif before wait phase="
+                        + std::to_string(LastVuPacketPhase)
+                        + " bytes="
+                        + std::to_string(gifPacketByteCount));
+                    dma_channel_wait(DMA_CHANNEL_GIF, 0);
+                    LogVuDirectGifDiagnostics("direct gif after first wait phase=101");
+                    dma_channel_send_packet2(gifPacket, DMA_CHANNEL_GIF, true);
+                    LogVuDirectGifDiagnostics("direct gif after send phase=101");
+                    dma_channel_wait(DMA_CHANNEL_GIF, 0);
+                    LogVuDirectGifDiagnostics("direct gif after second wait phase=101");
+                    LastVuPacketPhase = 102;
+                    packet2_free(gifPacket);
+                }
+            } else {
+                LastVuPacketPhase = 201;
+                dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);
+                LastVuPacketPhase = 202;
+                dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+                LastVuPacketPhase = 203;
+            }
+            (void)viewport;
+            (void)nearPlaneDistance;
+        }
+    }
+
+    ::float4x4 Ps2RenderManager3D::BuildWorldMatrix(const Ps2RenderProxy& proxy) const {
+        ::IDrawable3D* drawable = proxy.GetDrawable();
+        if (drawable == nullptr) {
+            return ::float4x4::get_Identity();
+        }
+
+        ::Entity* parent = drawable->get_Parent();
+        if (parent == nullptr) {
+            return ::float4x4::get_Identity();
+        }
+
+        ::float3 parentScale = parent->get_Scale();
+        ::float4 parentOrientation = parent->get_Orientation();
+        ::float3 parentPosition = parent->get_Position();
+        ::float4x4 scaleMatrix;
+        ::float4x4 scaleRotationMatrix;
+        ::float4x4 rotationMatrix;
+        ::float4x4 translationMatrix;
+        ::float4x4 worldMatrix;
+        ::float4x4::CreateScale(parentScale.X, parentScale.Y, parentScale.Z, scaleMatrix);
+        ::float4x4::CreateFromQuaternion(parentOrientation, rotationMatrix);
+        ::float4x4::CreateTranslation(parentPosition, translationMatrix);
+        ::float4x4::Multiply(scaleMatrix, rotationMatrix, scaleRotationMatrix);
+        ::float4x4::Multiply(scaleRotationMatrix, translationMatrix, worldMatrix);
+        return worldMatrix;
     }
 
     void Ps2RenderManager3D::SetGsGlobal(GSGLOBAL* gsGlobal) {
@@ -576,6 +770,34 @@ namespace helengine::ps2 {
 
     std::size_t Ps2RenderManager3D::GetLastSubmittedTriangleCount() const {
         return LastSubmittedTriangleCount;
+    }
+
+    std::size_t Ps2RenderManager3D::GetLastVuBatchDispatchCount() const {
+        return LastVuBatchDispatchCount;
+    }
+
+    std::size_t Ps2RenderManager3D::GetLastVuTriangleVertexCount() const {
+        return LastVuTriangleVertexCount;
+    }
+
+    std::size_t Ps2RenderManager3D::GetLastVuPacketByteCount() const {
+        return LastVuPacketByteCount;
+    }
+
+    std::size_t Ps2RenderManager3D::GetLastVuRejectedMissingMaterialCount() const {
+        return LastVuRejectedMissingMaterialCount;
+    }
+
+    std::size_t Ps2RenderManager3D::GetLastVuRejectedMissingModelCount() const {
+        return LastVuRejectedMissingModelCount;
+    }
+
+    std::size_t Ps2RenderManager3D::GetLastVuRejectedMissingPackedModelCount() const {
+        return LastVuRejectedMissingPackedModelCount;
+    }
+
+    std::uint32_t Ps2RenderManager3D::GetLastVuPacketPhase() const {
+        return LastVuPacketPhase;
     }
 
     ::float4 Ps2RenderManager3D::GetLastResolvedViewport() const {
@@ -838,6 +1060,10 @@ namespace helengine::ps2 {
         HdrEnabled = enabled;
     }
 
+    void Ps2RenderManager3D::DrawOpaqueProxyLegacy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {
+        DrawOpaqueProxy(proxy, view, projection, viewport, nearPlaneDistance);
+    }
+
     void Ps2RenderManager3D::DrawAlphaProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {
         DrawOpaqueProxy(proxy, view, projection, viewport, nearPlaneDistance);
     }
@@ -860,7 +1086,7 @@ namespace helengine::ps2 {
         if (EnableSingleProxyDiagnostics) {
             const Ps2RenderProxy* firstProxy = ResolveRenderableProxyByIndex(plan, SingleProxyDiagnosticIndex);
             if (firstProxy != nullptr) {
-                DrawOpaqueProxy(*firstProxy, view, projection, viewport, nearPlaneDistance);
+                DrawOpaqueProxyLegacy(*firstProxy, view, projection, viewport, nearPlaneDistance);
             }
 
             return;
@@ -873,7 +1099,7 @@ namespace helengine::ps2 {
                 continue;
             }
 
-            DrawOpaqueProxy(*proxy, view, projection, viewport, nearPlaneDistance);
+            DrawOpaqueProxyLegacy(*proxy, view, projection, viewport, nearPlaneDistance);
         }
     }
 

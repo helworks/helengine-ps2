@@ -18,4 +18,14 @@ public static class Ps2PackedMeshLayout {
     /// Size of one PS2 qword in bytes.
     /// </summary>
     public const int QwordSize = 16;
+
+    /// <summary>
+    /// Number of qwords reserved for the fixed packed-mesh header.
+    /// </summary>
+    public const int HeaderQwordCount = 2;
+
+    /// <summary>
+    /// Size in bytes of the fixed packed-mesh header.
+    /// </summary>
+    public const int HeaderSizeInBytes = HeaderQwordCount * QwordSize;
 }

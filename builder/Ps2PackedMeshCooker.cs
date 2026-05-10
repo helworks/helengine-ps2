@@ -23,7 +23,6 @@ public sealed class Ps2PackedMeshCooker {
         WritePackedPositions(writer, modelAsset);
         WritePackedNormals(writer, modelAsset);
         WritePackedTexCoords(writer, modelAsset);
-        WritePackedIndices(writer, modelAsset);
         PadToQwordBoundary(writer);
 
         return stream.ToArray();
@@ -41,23 +40,24 @@ public sealed class Ps2PackedMeshCooker {
             throw new ArgumentNullException(nameof(modelAsset));
         }
 
-        int vertexCount = modelAsset.Positions?.Length ?? 0;
-        int normalCount = modelAsset.Normals?.Length ?? 0;
-        int texCoordCount = modelAsset.TexCoords?.Length ?? 0;
-        int indexCount = ResolvePackedIndices(modelAsset).Length;
+        uint[] triangleIndices = ResolveTriangleIndices(modelAsset);
+        int triangleVertexCount = triangleIndices.Length;
+        int positionBlockQwordOffset = Ps2PackedMeshLayout.HeaderQwordCount;
+        int normalBlockQwordOffset = positionBlockQwordOffset + triangleVertexCount;
+        int texCoordBlockQwordOffset = normalBlockQwordOffset + triangleVertexCount;
 
-        writer.Write(Ps2PackedMeshLayout.Version);
-        writer.Write((byte)0);
-        writer.Write((byte)0);
-        writer.Write((byte)0);
-        writer.Write(vertexCount);
-        writer.Write(normalCount);
-        writer.Write(texCoordCount);
-        writer.Write(indexCount);
+        writer.Write((uint)Ps2PackedMeshLayout.Version);
+        writer.Write(triangleVertexCount);
+        writer.Write(positionBlockQwordOffset);
+        writer.Write(normalBlockQwordOffset);
+        writer.Write(texCoordBlockQwordOffset);
+        writer.Write(0);
+        writer.Write(0);
+        writer.Write(0);
     }
 
     /// <summary>
-    /// Writes packed position qwords where the fourth lane stores a homogeneous value of one.
+    /// Writes expanded packed position qwords where the fourth lane stores a homogeneous value of one.
     /// </summary>
     /// <param name="writer">Destination writer.</param>
     /// <param name="modelAsset">Model asset being serialized.</param>
@@ -69,16 +69,22 @@ public sealed class Ps2PackedMeshCooker {
         }
 
         float3[] positions = modelAsset.Positions ?? Array.Empty<float3>();
-        for (int index = 0; index < positions.Length; index++) {
-            writer.Write(positions[index].X);
-            writer.Write(positions[index].Y);
-            writer.Write(positions[index].Z);
+        uint[] triangleIndices = ResolveTriangleIndices(modelAsset);
+        for (int index = 0; index < triangleIndices.Length; index++) {
+            int sourceIndex = (int)triangleIndices[index];
+            if (sourceIndex < 0 || sourceIndex >= positions.Length) {
+                throw new InvalidOperationException($"Packed PS2 mesh position index '{sourceIndex}' is outside the available position array.");
+            }
+
+            writer.Write(positions[sourceIndex].X);
+            writer.Write(positions[sourceIndex].Y);
+            writer.Write(positions[sourceIndex].Z);
             writer.Write(1f);
         }
     }
 
     /// <summary>
-    /// Writes packed normal qwords where the fourth lane stores zero.
+    /// Writes expanded packed normal qwords where the fourth lane stores zero.
     /// </summary>
     /// <param name="writer">Destination writer.</param>
     /// <param name="modelAsset">Model asset being serialized.</param>
@@ -90,16 +96,25 @@ public sealed class Ps2PackedMeshCooker {
         }
 
         float3[] normals = modelAsset.Normals ?? Array.Empty<float3>();
-        for (int index = 0; index < normals.Length; index++) {
-            writer.Write(normals[index].X);
-            writer.Write(normals[index].Y);
-            writer.Write(normals[index].Z);
+        uint[] triangleIndices = ResolveTriangleIndices(modelAsset);
+        for (int index = 0; index < triangleIndices.Length; index++) {
+            int sourceIndex = (int)triangleIndices[index];
+            if (sourceIndex >= 0 && sourceIndex < normals.Length) {
+                writer.Write(normals[sourceIndex].X);
+                writer.Write(normals[sourceIndex].Y);
+                writer.Write(normals[sourceIndex].Z);
+            } else {
+                writer.Write(0f);
+                writer.Write(0f);
+                writer.Write(0f);
+            }
+
             writer.Write(0f);
         }
     }
 
     /// <summary>
-    /// Writes packed texture-coordinate qwords where the unused lanes store zero.
+    /// Writes expanded packed texture-coordinate qwords where the unused lanes store zero.
     /// </summary>
     /// <param name="writer">Destination writer.</param>
     /// <param name="modelAsset">Model asset being serialized.</param>
@@ -111,40 +126,28 @@ public sealed class Ps2PackedMeshCooker {
         }
 
         float2[] texCoords = modelAsset.TexCoords ?? Array.Empty<float2>();
-        for (int index = 0; index < texCoords.Length; index++) {
-            writer.Write(texCoords[index].X);
-            writer.Write(texCoords[index].Y);
+        uint[] triangleIndices = ResolveTriangleIndices(modelAsset);
+        for (int index = 0; index < triangleIndices.Length; index++) {
+            int sourceIndex = (int)triangleIndices[index];
+            if (sourceIndex >= 0 && sourceIndex < texCoords.Length) {
+                writer.Write(texCoords[sourceIndex].X);
+                writer.Write(texCoords[sourceIndex].Y);
+            } else {
+                writer.Write(0f);
+                writer.Write(0f);
+            }
+
             writer.Write(0f);
             writer.Write(0f);
         }
     }
 
     /// <summary>
-    /// Writes packed indices as 32-bit values and pads the block to the next qword boundary.
-    /// </summary>
-    /// <param name="writer">Destination writer.</param>
-    /// <param name="modelAsset">Model asset being serialized.</param>
-    void WritePackedIndices(BinaryWriter writer, ModelAsset modelAsset) {
-        if (writer == null) {
-            throw new ArgumentNullException(nameof(writer));
-        } else if (modelAsset == null) {
-            throw new ArgumentNullException(nameof(modelAsset));
-        }
-
-        uint[] packedIndices = ResolvePackedIndices(modelAsset);
-        for (int index = 0; index < packedIndices.Length; index++) {
-            writer.Write(packedIndices[index]);
-        }
-
-        PadToQwordBoundary(writer);
-    }
-
-    /// <summary>
-    /// Resolves the model index buffer into a unified 32-bit packed representation.
+    /// Resolves the model index buffer into a unified 32-bit triangle-stream expansion source.
     /// </summary>
     /// <param name="modelAsset">Model asset being serialized.</param>
     /// <returns>Packed index buffer.</returns>
-    uint[] ResolvePackedIndices(ModelAsset modelAsset) {
+    uint[] ResolveTriangleIndices(ModelAsset modelAsset) {
         if (modelAsset == null) {
             throw new ArgumentNullException(nameof(modelAsset));
         } else if (modelAsset.Indices32 != null && modelAsset.Indices32.Length > 0) {

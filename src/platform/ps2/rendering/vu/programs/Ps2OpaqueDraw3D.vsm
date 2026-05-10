@@ -1,0 +1,14 @@
+; Minimal opaque untextured VU1 microprogram for the first visible cube path.
+
+		.vu
+		.align 4
+		.global	Ps2OpaqueDraw3D_CodeStart
+		.global	Ps2OpaqueDraw3D_CodeEnd
+Ps2OpaqueDraw3D_CodeStart:
+__ps2_opaque_draw_3d:
+         NOP                                                        xtop          VI02
+         NOP                                                        xgkick        VI02
+         NOP[E]                                                     NOP
+         NOP                                                        NOP
+		.align 4
+Ps2OpaqueDraw3D_CodeEnd:

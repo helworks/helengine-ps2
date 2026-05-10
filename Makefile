@@ -27,9 +27,19 @@ PS2_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RenderManager3D.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RenderProxy.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RuntimeMaterial.cpp \
-	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RuntimeModel.cpp
+	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RuntimeModel.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuPackedModel.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuOpaqueBatchBuilder.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuProgramRegistry.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuGifStateEncoder.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp
+VU_PROGRAM_SOURCES := \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueDraw3D.vsm
+VU_PROGRAM_OBJECTS := \
+	$(BUILD_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueDraw3D.o
 OBJECTS := \
 	$(patsubst $(SOURCE_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(PS2_SOURCES)) \
+	$(VU_PROGRAM_OBJECTS) \
 	$(BUILD_DIR)/generated/runtime/runtime_startup_manifest.o \
 	$(BUILD_DIR)/generated/runtime/runtime_scene_catalog_manifest.o \
 	$(BUILD_DIR)/generated/runtime/runtime_code_module_manifest.o \
@@ -38,6 +48,7 @@ OBJECTS := \
 
 CXX := mips64r5900el-ps2-elf-g++
 STRIP := mips64r5900el-ps2-elf-strip
+EE_DVP := dvp-as
 
 CPPFLAGS := \
 	-D_EE \
@@ -70,6 +81,7 @@ LDLIBS := \
 	-lmath3d \
 	-ldraw \
 	-lpacket2 \
+	-ldma \
 	-lgraph
 
 .PHONY: all clean
@@ -91,6 +103,10 @@ $(TARGET): $(OBJECTS)
 $(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/platform/ps2/rendering/vu/programs/%.o: $(SOURCE_DIR)/platform/ps2/rendering/vu/programs/%.vsm
+	@mkdir -p $(dir $@)
+	$(EE_DVP) $< -o $@
 
 $(BUILD_DIR)/platform/ps2/Ps2BootHost.o: $(GENERATED_CORE_STAGE_STAMP)
 $(BUILD_DIR)/platform/ps2/Ps2InputBackend.o: $(GENERATED_CORE_STAGE_STAMP)

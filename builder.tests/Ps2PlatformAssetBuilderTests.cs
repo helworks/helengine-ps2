@@ -193,6 +193,45 @@ public class Ps2PlatformAssetBuilderTests {
         Assert.False(materialAsset.CastShadows);
     }
 
+    /// <summary>
+    /// Verifies that the packed PS2 VU mesh payload expands indexed cube geometry into one qword-aligned triangle stream with position, normal, and texture-coordinate blocks.
+    /// </summary>
+    [Fact]
+    public void CookPackedMesh_when_model_uses_indexed_cube_geometry_expands_triangle_stream_blocks() {
+        ModelAsset cubeModelAsset = ModelUtils.GenerateCubeMesh(
+            new float3(0f, 0f, 0f),
+            new float3(1f, 1f, 1f));
+        Ps2PackedMeshCooker cooker = new();
+
+        byte[] packedBytes = cooker.Cook(cubeModelAsset);
+        int expectedTriangleVertexCount;
+        if (cubeModelAsset.Indices32 != null && cubeModelAsset.Indices32.Length > 0) {
+            expectedTriangleVertexCount = cubeModelAsset.Indices32.Length;
+        } else if (cubeModelAsset.Indices16 != null && cubeModelAsset.Indices16.Length > 0) {
+            expectedTriangleVertexCount = cubeModelAsset.Indices16.Length;
+        } else {
+            expectedTriangleVertexCount = 0;
+        }
+
+        Assert.NotEmpty(packedBytes);
+        Assert.Equal(0, packedBytes.Length % Ps2PackedMeshLayout.QwordSize);
+        Assert.Equal(Ps2PackedMeshLayout.Version, BitConverter.ToUInt32(packedBytes, 0));
+
+        int triangleVertexCount = BitConverter.ToInt32(packedBytes, 4);
+        int positionBlockQwordOffset = BitConverter.ToInt32(packedBytes, 8);
+        int normalBlockQwordOffset = BitConverter.ToInt32(packedBytes, 12);
+        int texCoordBlockQwordOffset = BitConverter.ToInt32(packedBytes, 16);
+
+        Assert.Equal(expectedTriangleVertexCount, triangleVertexCount);
+        Assert.Equal(2, positionBlockQwordOffset);
+        Assert.Equal(
+            2 + triangleVertexCount,
+            normalBlockQwordOffset);
+        Assert.Equal(
+            2 + (triangleVertexCount * 2),
+            texCoordBlockQwordOffset);
+    }
+
     [Fact]
     public async Task BuildAsync_WhenGivenGeneratedCoreAndCookedArtifacts_ProducesElfAndCookedTree() {
         string workingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
@@ -431,6 +470,18 @@ public class Ps2PlatformAssetBuilderTests {
             Assert.NotNull(stagedModelAsset.Ps2PackedMeshBytes);
             Assert.NotEmpty(stagedModelAsset.Ps2PackedMeshBytes);
             Assert.Equal(0, stagedModelAsset.Ps2PackedMeshBytes.Length % 16);
+
+            string discModelPath = Path.Combine(outputRoot, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/engine/models/cube.hasset"));
+            Assert.True(File.Exists(discModelPath));
+
+            ModelAsset discModelAsset;
+            using (FileStream discModelStream = File.OpenRead(discModelPath)) {
+                discModelAsset = Assert.IsType<ModelAsset>(helengine.files.AssetSerializer.Deserialize(discModelStream));
+            }
+
+            Assert.NotNull(discModelAsset.Ps2PackedMeshBytes);
+            Assert.NotEmpty(discModelAsset.Ps2PackedMeshBytes);
+            Assert.Equal(0, discModelAsset.Ps2PackedMeshBytes.Length % 16);
         } finally {
             try {
                 Directory.SetCurrentDirectory(previousDirectory);

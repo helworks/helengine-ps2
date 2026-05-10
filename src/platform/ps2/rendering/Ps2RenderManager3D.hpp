@@ -6,6 +6,10 @@
 #include "RenderManager3D.hpp"
 #include "platform/ps2/rendering/Ps2FramePlanner.hpp"
 #include "platform/ps2/rendering/Ps2RenderProxy.hpp"
+#include "platform/ps2/rendering/vu/Ps2VuOpaqueBatchBuilder.hpp"
+#include "platform/ps2/rendering/vu/Ps2VuProgramRegistry.hpp"
+#include "platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.hpp"
+#include "platform/ps2/rendering/vu/Ps2VuGifStateEncoder.hpp"
 
 typedef struct gsGlobal GSGLOBAL;
 typedef struct gsTexture GSTEXTURE;
@@ -42,6 +46,13 @@ namespace helengine::ps2 {
         std::size_t GetLastProjectionRejectCount() const;
         std::size_t GetLastCullRejectCount() const;
         std::size_t GetLastSubmittedTriangleCount() const;
+        std::size_t GetLastVuBatchDispatchCount() const;
+        std::size_t GetLastVuTriangleVertexCount() const;
+        std::size_t GetLastVuPacketByteCount() const;
+        std::size_t GetLastVuRejectedMissingMaterialCount() const;
+        std::size_t GetLastVuRejectedMissingModelCount() const;
+        std::size_t GetLastVuRejectedMissingPackedModelCount() const;
+        std::uint32_t GetLastVuPacketPhase() const;
         ::float4 GetLastResolvedViewport() const;
         ::float4 GetLastSubmittedScreenBounds() const;
         ::float4 GetLastSubmittedTriangleBoundsA() const;
@@ -54,6 +65,9 @@ namespace helengine::ps2 {
         ::float4 GetLastSubmittedTriangleVertexB2() const;
 
     private:
+        void RenderOpaqueWithVuPath(const Ps2FramePlan& plan, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
+        ::float4x4 BuildWorldMatrix(const Ps2RenderProxy& proxy) const;
+        void DrawOpaqueProxyLegacy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
         void DrawOpaqueProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
         void DrawAlphaProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
         void DrawSoftwareDepthPass(
@@ -103,6 +117,11 @@ namespace helengine::ps2 {
         std::uint64_t ResolveVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection);
 
         Ps2FramePlanner FramePlanner;
+        Ps2VuOpaqueBatchBuilder VuOpaqueBatchBuilder;
+        Ps2VuProgramRegistry VuProgramRegistry;
+        Ps2VuVifPacketBuilder VuVifPacketBuilder;
+        Ps2VuGifStateEncoder VuGifStateEncoder;
+        bool UseLegacyCpuOpaquePath;
         bool HdrEnabled;
         GSGLOBAL* GsGlobal;
         std::vector<Ps2RenderProxy> Proxies;
@@ -115,6 +134,13 @@ namespace helengine::ps2 {
         std::size_t LastProjectionRejectCount;
         std::size_t LastCullRejectCount;
         std::size_t LastSubmittedTriangleCount;
+        std::size_t LastVuBatchDispatchCount;
+        std::size_t LastVuTriangleVertexCount;
+        std::size_t LastVuPacketByteCount;
+        std::size_t LastVuRejectedMissingMaterialCount;
+        std::size_t LastVuRejectedMissingModelCount;
+        std::size_t LastVuRejectedMissingPackedModelCount;
+        std::uint32_t LastVuPacketPhase;
         ::float4 LastResolvedViewport;
         ::float4 LastSubmittedScreenBounds;
         ::float4 LastSubmittedTriangleBoundsA;

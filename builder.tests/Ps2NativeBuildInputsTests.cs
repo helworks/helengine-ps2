@@ -20,6 +20,240 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("VuPackedModel = new Ps2VuPackedModel();", source, StringComparison.Ordinal);
         Assert.Contains("modelAsset->Ps2PackedMeshBytes", source, StringComparison.Ordinal);
         Assert.Contains("VuPackedModel->LoadFromPackedBytes(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("            return;\r\n        }\r\n\r\n        if (modelAsset->Indices32 != nullptr && modelAsset->Indices32->Length > 0) {", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the packed VU runtime model parses the embedded triangle-stream header and exposes section counts and qword-aligned section pointers for packet assembly.
+    /// </summary>
+    [Fact]
+    public void Ps2_vu_packed_model_parses_triangle_stream_header_and_exposes_section_accessors() {
+        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuPackedModel.hpp");
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuPackedModel.cpp");
+
+        Assert.Contains("std::uint32_t GetTriangleVertexCount() const;", header, StringComparison.Ordinal);
+        Assert.Contains("const std::uint8_t* GetPositionBlockBytes() const;", header, StringComparison.Ordinal);
+        Assert.Contains("const std::uint8_t* GetTexCoordBlockBytes() const;", header, StringComparison.Ordinal);
+        Assert.Contains("TriangleVertexCount = ReadUInt32(4);", source, StringComparison.Ordinal);
+        Assert.Contains("PositionBlockOffsetQwords = ReadUInt32(8);", source, StringComparison.Ordinal);
+        Assert.Contains("TexCoordBlockOffsetQwords = ReadUInt32(16);", source, StringComparison.Ordinal);
+        Assert.Contains("return PackedBytes.data() + (PositionBlockOffsetQwords * 16u);", source, StringComparison.Ordinal);
+        Assert.Contains("return PackedBytes.data() + (TexCoordBlockOffsetQwords * 16u);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 renderer header declares the VU opaque batch and packet infrastructure required by the fast path.
+    /// </summary>
+    [Fact]
+    public void Ps2_renderer3d_declares_vu_opaque_batch_and_packet_infrastructure() {
+        string rendererHeader = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.hpp");
+
+        Assert.Contains("#include \"platform/ps2/rendering/vu/Ps2VuOpaqueBatchBuilder.hpp\"", rendererHeader, StringComparison.Ordinal);
+        Assert.Contains("#include \"platform/ps2/rendering/vu/Ps2VuProgramRegistry.hpp\"", rendererHeader, StringComparison.Ordinal);
+        Assert.Contains("#include \"platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.hpp\"", rendererHeader, StringComparison.Ordinal);
+        Assert.Contains("#include \"platform/ps2/rendering/vu/Ps2VuGifStateEncoder.hpp\"", rendererHeader, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 renderer routes opaque draws through a VU path while retaining the current CPU path behind an explicit internal fallback gate.
+    /// </summary>
+    [Fact]
+    public void Ps2_renderer3d_routes_opaque_draws_through_vu_path_while_retaining_cpu_fallback() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+
+        Assert.Contains("RenderOpaqueWithVuPath(", source, StringComparison.Ordinal);
+        Assert.Contains("DrawOpaqueProxyLegacy(", source, StringComparison.Ordinal);
+        Assert.Contains("if (UseLegacyCpuOpaquePath)", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the VU opaque batch builder emits per-proxy batches from the opaque frame-plan lists only when a packed VU model and runtime material are available.
+    /// </summary>
+    [Fact]
+    public void Ps2_vu_opaque_batch_builder_emits_batches_for_opaque_proxies_with_packed_models() {
+        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuOpaqueBatchBuilder.hpp");
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuOpaqueBatchBuilder.cpp");
+
+        Assert.Contains("std::size_t GetLastRejectedMissingMaterialCount() const;", header, StringComparison.Ordinal);
+        Assert.Contains("std::size_t GetLastRejectedMissingModelCount() const;", header, StringComparison.Ordinal);
+        Assert.Contains("std::size_t GetLastRejectedMissingPackedModelCount() const;", header, StringComparison.Ordinal);
+        Assert.Contains("mutable std::size_t LastRejectedMissingMaterialCount = 0;", header, StringComparison.Ordinal);
+        Assert.Contains("mutable std::size_t LastRejectedMissingModelCount = 0;", header, StringComparison.Ordinal);
+        Assert.Contains("mutable std::size_t LastRejectedMissingPackedModelCount = 0;", header, StringComparison.Ordinal);
+        Assert.Contains("LastRejectedMissingMaterialCount = 0;", source, StringComparison.Ordinal);
+        Assert.Contains("LastRejectedMissingModelCount = 0;", source, StringComparison.Ordinal);
+        Assert.Contains("LastRejectedMissingPackedModelCount = 0;", source, StringComparison.Ordinal);
+        Assert.Contains("AppendProxyBatches(plan.OpaqueWorld, batches);", source, StringComparison.Ordinal);
+        Assert.Contains("AppendProxyBatches(plan.OpaqueDynamic, batches);", source, StringComparison.Ordinal);
+        Assert.Contains("proxy->GetMaterial()", source, StringComparison.Ordinal);
+        Assert.Contains("proxy->GetModel()", source, StringComparison.Ordinal);
+        Assert.Contains("LastRejectedMissingMaterialCount += 1;", source, StringComparison.Ordinal);
+        Assert.Contains("LastRejectedMissingModelCount += 1;", source, StringComparison.Ordinal);
+        Assert.Contains("LastRejectedMissingPackedModelCount += 1;", source, StringComparison.Ordinal);
+        Assert.Contains("runtimeModel->GetVuPackedModel()", source, StringComparison.Ordinal);
+        Assert.Contains("batch.Proxy = proxy;", source, StringComparison.Ordinal);
+        Assert.Contains("batch.Model = packedModel;", source, StringComparison.Ordinal);
+        Assert.Contains("batch.Material = runtimeMaterial;", source, StringComparison.Ordinal);
+        Assert.Contains("batch.Textured = !runtimeMaterial->GetTextureRelativePath().empty();", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 VU packet builder assembles a real VIF chain packet from the packed triangle stream and a
+    /// per-batch local-screen transform instead of remaining as a placeholder.
+    /// </summary>
+    [Fact]
+    public void Ps2_vu_vif_packet_builder_assembles_local_screen_and_triangle_stream_packet_data() {
+        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuVifPacketBuilder.hpp");
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuVifPacketBuilder.cpp");
+
+        Assert.Contains("std::uint32_t GetLastCompletedPhase() const;", header, StringComparison.Ordinal);
+        Assert.Contains("~Ps2VuVifPacketBuilder();", header, StringComparison.Ordinal);
+        Assert.Contains("packet2_t* GetPacket() const;", header, StringComparison.Ordinal);
+        Assert.Contains("std::size_t GetPacketByteCount() const;", header, StringComparison.Ordinal);
+        Assert.Contains("packet2_t* Packet = nullptr;", header, StringComparison.Ordinal);
+        Assert.Contains("std::uint32_t LastCompletedPhase = 0;", header, StringComparison.Ordinal);
+        Assert.Contains("const ::float4& viewport, GSGLOBAL* gsGlobal", header, StringComparison.Ordinal);
+        Assert.Contains("#include <packet2.h>", source, StringComparison.Ordinal);
+        Assert.Contains("#include <packet2_utils.h>", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::uint32_t EnableVuPacketPhaseDiagnostics = 0;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::uint32_t VuPacketDiagnosticCutoffPhase = 11;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::uint32_t XtopGifPacketAddress = 0;", source, StringComparison.Ordinal);
+        Assert.Contains("::float4x4::Multiply(worldCopy, viewProjectionCopy, worldViewProjection);", source, StringComparison.Ordinal);
+        Assert.Contains("LastCompletedPhase = 1;", source, StringComparison.Ordinal);
+        Assert.Contains("LastCompletedPhase = 2;", source, StringComparison.Ordinal);
+        Assert.Contains("LastCompletedPhase = 3;", source, StringComparison.Ordinal);
+        Assert.Contains("LastCompletedPhase = 4;", source, StringComparison.Ordinal);
+        Assert.Contains("LastCompletedPhase = 5;", source, StringComparison.Ordinal);
+        Assert.Contains("LastCompletedPhase = 6;", source, StringComparison.Ordinal);
+        Assert.Contains("LastCompletedPhase = 7;", source, StringComparison.Ordinal);
+        Assert.Contains("LastCompletedPhase = 8;", source, StringComparison.Ordinal);
+        Assert.Contains("LastCompletedPhase = 9;", source, StringComparison.Ordinal);
+        Assert.Contains("LastCompletedPhase = 10;", source, StringComparison.Ordinal);
+        Assert.Contains("LastCompletedPhase = 11;", source, StringComparison.Ordinal);
+        Assert.Contains("if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_create(", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_utils_vu_open_unpack(", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_utils_vu_close_unpack(", source, StringComparison.Ordinal);
+        Assert.Contains("batch.Model->GetTriangleVertexCount()", source, StringComparison.Ordinal);
+        Assert.Contains("batch.Model->GetPositionBlockBytes()", source, StringComparison.Ordinal);
+        Assert.Contains("struct alignas(16) GifReglistVertexQword", source, StringComparison.Ordinal);
+        Assert.Contains("std::vector<std::uint8_t> gifPacket", source, StringComparison.Ordinal);
+        Assert.Contains("BuildVertexPositionRegister(clipPosition, viewport, gsGlobal)", source, StringComparison.Ordinal);
+        Assert.Contains("GS_SETREG_RGBAQ(", source, StringComparison.Ordinal);
+        Assert.Contains("(static_cast<u64>(GIF_REG_RGBAQ) << 0) | (static_cast<u64>(GIF_REG_XYZ2) << 4)", source, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(gifPacket.data(), primPacket.get()->base, 16u);", source, StringComparison.Ordinal);
+        Assert.Contains("GifReglistVertexQword vertexQword = {", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetTexCoordBlockBytes()", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_utils_vu_add_start_program(", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_utils_vu_add_end_tag(", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_get_qw_count(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("PacketBytes.resize(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::memcpy(PacketBytes.data()", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 renderer computes a combined view-projection matrix once per frame and a per-proxy world matrix
+    /// before feeding opaque batches into the VU packet builder.
+    /// </summary>
+    [Fact]
+    public void Ps2_renderer3d_computes_view_projection_and_world_matrices_for_vu_batches() {
+        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.hpp");
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+
+        Assert.Contains("::float4x4 BuildWorldMatrix(const Ps2RenderProxy& proxy) const;", header, StringComparison.Ordinal);
+        Assert.Contains("::float4x4 viewProjection;", source, StringComparison.Ordinal);
+        Assert.Contains("::float4x4::Multiply(viewCopy, projectionCopy, viewProjection);", source, StringComparison.Ordinal);
+        Assert.Contains("::float4x4 world = BuildWorldMatrix(*batch.Proxy);", source, StringComparison.Ordinal);
+        Assert.Contains("VuVifPacketBuilder.AddOpaqueBatch(batch, world, viewProjection, viewport, GsGlobal);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 renderer stages the assembled VU packet into packet2 memory and dispatches it over VIF1 when
+    /// the fast opaque path is active.
+    /// </summary>
+    [Fact]
+    public void Ps2_renderer3d_dispatches_assembled_vu_packets_over_vif1() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.hpp");
+
+        Assert.Contains("#include <dma.h>", source, StringComparison.Ordinal);
+        Assert.Contains("VuVifPacketBuilder.GetPacket()", source, StringComparison.Ordinal);
+        Assert.Contains("VuVifPacketBuilder.GetPacketByteCount()", source, StringComparison.Ordinal);
+        Assert.Contains("std::size_t GetLastVuBatchDispatchCount() const;", header, StringComparison.Ordinal);
+        Assert.Contains("std::size_t GetLastVuTriangleVertexCount() const;", header, StringComparison.Ordinal);
+        Assert.Contains("std::size_t GetLastVuPacketByteCount() const;", header, StringComparison.Ordinal);
+        Assert.Contains("std::size_t GetLastVuRejectedMissingMaterialCount() const;", header, StringComparison.Ordinal);
+        Assert.Contains("std::size_t GetLastVuRejectedMissingModelCount() const;", header, StringComparison.Ordinal);
+        Assert.Contains("std::size_t GetLastVuRejectedMissingPackedModelCount() const;", header, StringComparison.Ordinal);
+        Assert.Contains("std::uint32_t GetLastVuPacketPhase() const;", header, StringComparison.Ordinal);
+        Assert.Contains("LastVuBatchDispatchCount = batches.size();", source, StringComparison.Ordinal);
+        Assert.Contains("LastVuTriangleVertexCount += static_cast<std::size_t>(batch.Model->GetTriangleVertexCount());", source, StringComparison.Ordinal);
+        Assert.Contains("LastVuPacketByteCount += VuVifPacketBuilder.GetPacketByteCount();", source, StringComparison.Ordinal);
+        Assert.Contains("LastVuRejectedMissingMaterialCount = VuOpaqueBatchBuilder.GetLastRejectedMissingMaterialCount();", source, StringComparison.Ordinal);
+        Assert.Contains("LastVuRejectedMissingModelCount = VuOpaqueBatchBuilder.GetLastRejectedMissingModelCount();", source, StringComparison.Ordinal);
+        Assert.Contains("LastVuRejectedMissingPackedModelCount = VuOpaqueBatchBuilder.GetLastRejectedMissingPackedModelCount();", source, StringComparison.Ordinal);
+        Assert.Contains("LastVuPacketPhase = VuVifPacketBuilder.GetLastCompletedPhase();", source, StringComparison.Ordinal);
+        Assert.Contains("dma_channel_wait(DMA_CHANNEL_VIF1, 0);", source, StringComparison.Ordinal);
+        Assert.Contains("dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::memcpy(vifPacket->base", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the first live VU runtime test routes opaque draws through the VU path by default instead of staying
+    /// pinned to the legacy CPU fallback.
+    /// </summary>
+    [Fact]
+    public void Ps2_renderer3d_defaults_opaque_runtime_path_to_vu() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+
+        Assert.Contains("UseLegacyCpuOpaquePath(false)", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 native build includes the new VU opaque renderer source files.
+    /// </summary>
+    [Fact]
+    public void Ps2_makefile_compiles_vu_opaque_renderer_units() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\Makefile");
+
+        Assert.Contains("$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuPackedModel.cpp", source, StringComparison.Ordinal);
+        Assert.Contains("$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuOpaqueBatchBuilder.cpp", source, StringComparison.Ordinal);
+        Assert.Contains("$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuProgramRegistry.cpp", source, StringComparison.Ordinal);
+        Assert.Contains("$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuGifStateEncoder.cpp", source, StringComparison.Ordinal);
+        Assert.Contains("$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 native build includes one assembled VU1 opaque microprogram source for the new renderer path.
+    /// </summary>
+    [Fact]
+    public void Ps2_makefile_builds_vu_opaque_microprogram_object() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\Makefile");
+        string microProgramPath = @"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\programs\Ps2OpaqueDraw3D.vsm";
+
+        Assert.True(File.Exists(microProgramPath));
+        Assert.Contains("EE_DVP := dvp-as", source, StringComparison.Ordinal);
+        Assert.Contains("$(BUILD_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueDraw3D.o", source, StringComparison.Ordinal);
+        Assert.Contains("$(BUILD_DIR)/platform/ps2/rendering/vu/programs/%.o: $(SOURCE_DIR)/platform/ps2/rendering/vu/programs/%.vsm", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 boot host uploads the VU opaque microprogram and configures VU1 double buffering before rendering begins.
+    /// </summary>
+    [Fact]
+    public void Boot_host_uploads_vu_opaque_microprogram_and_initializes_vif1_double_buffering() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+
+        Assert.Contains("#include <dma.h>", source, StringComparison.Ordinal);
+        Assert.Contains("#include <packet2.h>", source, StringComparison.Ordinal);
+        Assert.Contains("#include <packet2_utils.h>", source, StringComparison.Ordinal);
+        Assert.Contains("extern u32 Ps2OpaqueDraw3D_CodeStart", source, StringComparison.Ordinal);
+        Assert.Contains("extern u32 Ps2OpaqueDraw3D_CodeEnd", source, StringComparison.Ordinal);
+        Assert.Contains("dma_channel_initialize(DMA_CHANNEL_VIF1, NULL, 0);", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_vif_add_micro_program(", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_utils_vu_add_double_buffer(", source, StringComparison.Ordinal);
+        Assert.Contains("dma_channel_send_packet2(", source, StringComparison.Ordinal);
+        Assert.Contains("dma_channel_wait(DMA_CHANNEL_VIF1, 0);", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -165,9 +399,15 @@ public sealed class Ps2NativeBuildInputsTests {
     public void Boot_host_allows_cube_runtime_diagnostics_to_be_disabled_for_normal_scene_execution() {
         string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
 
-        Assert.Contains("constexpr bool EnableCubeRuntimeDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableCubeRuntimeDiagnostics = true;", source, StringComparison.Ordinal);
         Assert.Contains("if (EnableCubeRuntimeDiagnostics && !CubeDiagnosticsShown)", source, StringComparison.Ordinal);
         Assert.Contains("+ \" updateables=\"", source, StringComparison.Ordinal);
+        Assert.Contains("\"cube draw returned: drawables3d=\"", source, StringComparison.Ordinal);
+        Assert.Contains("\"cube draw returned: vuPhase=\"", source, StringComparison.Ordinal);
+        Assert.Contains("\"cube frame presented; halting\"", source, StringComparison.Ordinal);
+        Assert.Contains("GetLastVuBatchDispatchCount()", source, StringComparison.Ordinal);
+        Assert.Contains("GetLastVuPacketByteCount()", source, StringComparison.Ordinal);
+        Assert.Contains("GetLastVuPacketPhase()", source, StringComparison.Ordinal);
         Assert.Contains("get_Updateables()", source, StringComparison.Ordinal);
     }
 
@@ -179,8 +419,8 @@ public sealed class Ps2NativeBuildInputsTests {
         string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
 
         Assert.Contains("#include <ctime>", source, StringComparison.Ordinal);
-        Assert.Contains("constexpr bool EnableFrameTimingDiagnostics = true;", source, StringComparison.Ordinal);
-        Assert.Contains("constexpr bool EnableFrameTimingDiagnosticHalt = true;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableFrameTimingDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableFrameTimingDiagnosticHalt = false;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr int FrameTimingSampleFrameCount = 60;", source, StringComparison.Ordinal);
         Assert.Contains("double ResolveSecondsFromClockTicks(std::clock_t startTicks, std::clock_t endTicks)", source, StringComparison.Ordinal);
         Assert.Contains("void RecordFrameTimingSample(double updateSeconds, double drawSeconds, double presentSeconds)", source, StringComparison.Ordinal);

@@ -304,9 +304,10 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
 
         string repositoryRootPath = ResolveRepositoryRootPath();
         string nativeExecutablePath = Path.Combine(repositoryRootPath, "build", "helengine_ps2.elf");
+        string stagingRootPath = Path.Combine(request.WorkingRoot, "ps2-staging");
         return new Ps2BuildWorkspace(
             repositoryRootPath,
-            Directory.GetCurrentDirectory(),
+            stagingRootPath,
             request.GeneratedCoreCppRootPath,
             request.OutputRoot,
             nativeExecutablePath);

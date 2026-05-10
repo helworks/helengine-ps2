@@ -87,10 +87,7 @@ namespace helengine::ps2 {
             for (int32_t index = 0; index < modelAsset->Indices16->Length; index++) {
                 Indices.push_back(modelAsset->Indices16->Data[index]);
             }
-            return;
-        }
-
-        if (modelAsset->Indices32 != nullptr && modelAsset->Indices32->Length > 0) {
+        } else if (modelAsset->Indices32 != nullptr && modelAsset->Indices32->Length > 0) {
             Indices.reserve(static_cast<std::size_t>(modelAsset->Indices32->Length));
             for (int32_t index = 0; index < modelAsset->Indices32->Length; index++) {
                 std::uint32_t rawIndex = modelAsset->Indices32->Data[index];

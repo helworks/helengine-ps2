@@ -1,11 +1,15 @@
 #include "platform/ps2/Ps2BootHost.hpp"
 
+#include <dma.h>
 #include <dmaKit.h>
 #include <debug.h>
 #include <libcdvd.h>
 #include <malloc.h>
+#include <packet2.h>
+#include <packet2_utils.h>
 #include <gsKit.h>
 #include <algorithm>
+#include <ctime>
 #include <cstring>
 #include <cstdio>
 #include <cmath>
@@ -39,6 +43,11 @@
 #include "TextLayoutUtils.hpp"
 #include "TextureAsset.hpp"
 
+extern "C" {
+    extern u32 Ps2OpaqueDraw3D_CodeStart __attribute__((section(".vudata")));
+    extern u32 Ps2OpaqueDraw3D_CodeEnd __attribute__((section(".vudata")));
+}
+
 namespace {
     constexpr int Ps2DefaultFramebufferWidth = 640;
     constexpr int Ps2DefaultFramebufferHeight = 448;
@@ -48,7 +57,12 @@ namespace {
     constexpr bool EnableCubeSpriteDiagnostics = false;
     constexpr bool EnableCubeTriangle2dDiagnostics = false;
     constexpr bool EnableCubeTriangle3dDiagnostics = false;
-    constexpr bool EnableCubeRuntimeDiagnostics = false;
+    constexpr bool EnableCubeRuntimeDiagnostics = true;
+    constexpr bool EnableCubeRuntimeDiagnosticImmediateHalt = false;
+    constexpr double CubeRuntimeDiagnosticWatchSeconds = 5.0;
+    constexpr bool EnableFrameTimingDiagnostics = false;
+    constexpr bool EnableFrameTimingDiagnosticHalt = false;
+    constexpr int FrameTimingSampleFrameCount = 60;
     constexpr float CubeSpriteDiagnosticLeft = 211.843231f;
     constexpr float CubeSpriteDiagnosticTop = 115.843239f;
     constexpr float CubeSpriteDiagnosticRight = 428.156738f;
@@ -68,6 +82,62 @@ namespace {
     constexpr float CubeTriangle3dDiagnosticDepth = 1.0f;
     bool DebugConsoleReady = false;
     bool CubeDiagnosticsShown = false;
+    bool CubeRuntimeDiagnosticWatchActive = false;
+    std::clock_t CubeRuntimeDiagnosticWatchStartTicks = 0;
+    double FrameTimingUpdateSeconds = 0.0;
+    double FrameTimingDrawSeconds = 0.0;
+    double FrameTimingPresentSeconds = 0.0;
+    int FrameTimingFrameCount = 0;
+    bool FrameTimingSampleCompleted = false;
+
+    void BootLog(const char* message);
+
+    void BootLog(const std::string& message);
+
+    std::string FormatFloat4(const ::float4& value);
+
+    double ResolveSecondsFromClockTicks(std::clock_t startTicks, std::clock_t endTicks) {
+        if (endTicks <= startTicks) {
+            return 0.0;
+        }
+
+        return static_cast<double>(endTicks - startTicks) / static_cast<double>(CLOCKS_PER_SEC);
+    }
+
+    void RecordFrameTimingSample(double updateSeconds, double drawSeconds, double presentSeconds) {
+        if (!EnableFrameTimingDiagnostics) {
+            return;
+        }
+
+        FrameTimingUpdateSeconds += updateSeconds;
+        FrameTimingDrawSeconds += drawSeconds;
+        FrameTimingPresentSeconds += presentSeconds;
+        FrameTimingFrameCount += 1;
+        if (FrameTimingFrameCount < FrameTimingSampleFrameCount) {
+            return;
+        }
+
+        const double sampledFrameCount = static_cast<double>(FrameTimingFrameCount);
+        const double averageUpdateMilliseconds = (FrameTimingUpdateSeconds / sampledFrameCount) * 1000.0;
+        const double averageDrawMilliseconds = (FrameTimingDrawSeconds / sampledFrameCount) * 1000.0;
+        const double averagePresentMilliseconds = (FrameTimingPresentSeconds / sampledFrameCount) * 1000.0;
+        const double totalSeconds = FrameTimingUpdateSeconds + FrameTimingDrawSeconds + FrameTimingPresentSeconds;
+        const double averageFramesPerSecond = totalSeconds <= 0.0 ? 0.0 : sampledFrameCount / totalSeconds;
+        BootLog(
+            "frame timing avg updateMs="
+            + std::to_string(averageUpdateMilliseconds)
+            + " drawMs="
+            + std::to_string(averageDrawMilliseconds)
+            + " presentMs="
+            + std::to_string(averagePresentMilliseconds)
+            + " fps="
+            + std::to_string(averageFramesPerSecond));
+        FrameTimingSampleCompleted = true;
+        FrameTimingUpdateSeconds = 0.0;
+        FrameTimingDrawSeconds = 0.0;
+        FrameTimingPresentSeconds = 0.0;
+        FrameTimingFrameCount = 0;
+    }
 
     void EnsureDebugConsole() {
         if (DebugConsoleReady) {
@@ -89,6 +159,18 @@ namespace {
 
     void BootLog(const std::string& message) {
         BootLog(message.c_str());
+    }
+
+    std::string FormatFloat4(const ::float4& value) {
+        return "("
+            + std::to_string(value.X)
+            + ","
+            + std::to_string(value.Y)
+            + ","
+            + std::to_string(value.Z)
+            + ","
+            + std::to_string(value.W)
+            + ")";
     }
 
     void BootLogDiscProbe(const char* label, const char* path) {
@@ -223,6 +305,25 @@ namespace {
     };
 
     std::unordered_map<const ::RuntimeTexture*, Ps2TextureRecord> TextureRecords;
+
+    void UploadVuOpaqueMicroProgram() {
+        const u32 packetSize = packet2_utils_get_packet_size_for_program(&Ps2OpaqueDraw3D_CodeStart, &Ps2OpaqueDraw3D_CodeEnd) + 1;
+        packet2_t* packet2 = packet2_create(packetSize, P2_TYPE_NORMAL, P2_MODE_CHAIN, 1);
+        packet2_vif_add_micro_program(packet2, 0, &Ps2OpaqueDraw3D_CodeStart, &Ps2OpaqueDraw3D_CodeEnd);
+        packet2_utils_vu_add_end_tag(packet2);
+        dma_channel_send_packet2(packet2, DMA_CHANNEL_VIF1, 1);
+        dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+        packet2_free(packet2);
+    }
+
+    void InitializeVuOpaqueDoubleBuffer() {
+        packet2_t* packet2 = packet2_create(1, P2_TYPE_NORMAL, P2_MODE_CHAIN, 1);
+        packet2_utils_vu_add_double_buffer(packet2, 8, 496);
+        packet2_utils_vu_add_end_tag(packet2);
+        dma_channel_send_packet2(packet2, DMA_CHANNEL_VIF1, 1);
+        dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+        packet2_free(packet2);
+    }
 
     ::RuntimeSceneCatalog* BuildRuntimeSceneCatalogFromManifest() {
         std::size_t count = 0;
@@ -591,6 +692,10 @@ namespace helengine::ps2 {
             D_CTRL_RCYC_8,
             1 << DMA_CHANNEL_GIF);
         dmaKit_chan_init(DMA_CHANNEL_GIF);
+        dma_channel_initialize(DMA_CHANNEL_VIF1, NULL, 0);
+        dma_channel_fast_waits(DMA_CHANNEL_VIF1);
+        UploadVuOpaqueMicroProgram();
+        InitializeVuOpaqueDoubleBuffer();
 
         gsKit_init_screen(GsGlobal);
         EngineRenderManager3D->AddWindow(
@@ -655,6 +760,10 @@ namespace helengine::ps2 {
 
         while (true) {
             try {
+                const std::clock_t frameUpdateStartTicks = std::clock();
+                std::clock_t frameUpdateEndTicks = frameUpdateStartTicks;
+                std::clock_t frameDrawEndTicks = frameUpdateStartTicks;
+                std::clock_t framePresentEndTicks = frameUpdateStartTicks;
                 if (EngineCore != 0) {
                     try {
                         EngineCore->Update();
@@ -673,12 +782,14 @@ namespace helengine::ps2 {
                         }
                     }
                 }
+                frameUpdateEndTicks = std::clock();
 
                 const u64 clearColor = GS_SETREG_RGBAQ(0x10, 0x10, 0x10, 0x00, 0x00);
                 gsKit_clear(GsGlobal, clearColor);
                 gsKit_set_test(GsGlobal, GS_ATEST_OFF);
                 gsKit_set_primalpha(GsGlobal, GS_SETREG_ALPHA(0, 0, 0, 0, 0), 0);
                 GsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
+                gsKit_queue_exec(GsGlobal);
 
                 if (EnableCubeTriangle3dDiagnostics) {
                     DrawCubeTriangle3dDiagnosticsFrame(GsGlobal);
@@ -727,117 +838,39 @@ namespace helengine::ps2 {
 
                     if (EnableCubeRuntimeDiagnostics && !CubeDiagnosticsShown) {
                         CubeDiagnosticsShown = true;
-                        std::size_t drawableCount3D = 0;
-                        std::size_t updateableCount = 0;
-                        if (EngineCore->get_ObjectManager() != nullptr
-                            && EngineCore->get_ObjectManager()->get_Drawables3D() != nullptr) {
-                            drawableCount3D = static_cast<std::size_t>(EngineCore->get_ObjectManager()->get_Drawables3D()->Count());
-                        }
-                        if (EngineCore->get_ObjectManager() != nullptr
-                            && EngineCore->get_ObjectManager()->get_Updateables() != nullptr) {
-                            updateableCount = static_cast<std::size_t>(EngineCore->get_ObjectManager()->get_Updateables()->Count());
-                        }
-
-                        const ::float4 resolvedViewport = RenderManager3DBackend.GetLastResolvedViewport();
-                        const ::float4 submittedBounds = RenderManager3DBackend.GetLastSubmittedScreenBounds();
-                        const ::float4 triangleBoundsA = RenderManager3DBackend.GetLastSubmittedTriangleBoundsA();
-                        const ::float4 triangleBoundsB = RenderManager3DBackend.GetLastSubmittedTriangleBoundsB();
-                        const ::float4 triangleVertexA0 = RenderManager3DBackend.GetLastSubmittedTriangleVertexA0();
-                        const ::float4 triangleVertexA1 = RenderManager3DBackend.GetLastSubmittedTriangleVertexA1();
-                        const ::float4 triangleVertexA2 = RenderManager3DBackend.GetLastSubmittedTriangleVertexA2();
-                        const ::float4 triangleVertexB0 = RenderManager3DBackend.GetLastSubmittedTriangleVertexB0();
-                        const ::float4 triangleVertexB1 = RenderManager3DBackend.GetLastSubmittedTriangleVertexB1();
-                        const ::float4 triangleVertexB2 = RenderManager3DBackend.GetLastSubmittedTriangleVertexB2();
+                        scr_clear();
                         BootLog(
-                            "cube diagnostics: drawables3d="
-                            + std::to_string(drawableCount3D)
-                            + " updateables="
-                            + std::to_string(updateableCount)
-                            + " proxies="
-                            + std::to_string(RenderManager3DBackend.GetLastProxyCount())
+                            "cube runtime checkpoint: after draw phase="
+                            + std::to_string(RenderManager3DBackend.GetLastVuPacketPhase())
+                            + " packetBytes="
+                            + std::to_string(RenderManager3DBackend.GetLastVuPacketByteCount())
                             + " submitted="
-                            + std::to_string(RenderManager3DBackend.GetLastSubmittedTriangleCount())
-                            + " cullRejects="
-                            + std::to_string(RenderManager3DBackend.GetLastCullRejectCount())
-                            + " clipRejects="
-                            + std::to_string(RenderManager3DBackend.GetLastClipRejectCount())
-                            + " projectionRejects="
-                            + std::to_string(RenderManager3DBackend.GetLastProjectionRejectCount())
-                            + " zbuffer="
-                            + std::to_string(static_cast<int>(GsGlobal->ZBuffering)));
+                            + std::to_string(RenderManager3DBackend.GetLastSubmittedTriangleCount()));
                         BootLog(
-                            "cube diagnostics viewport="
-                            + std::to_string(resolvedViewport.X)
-                            + ","
-                            + std::to_string(resolvedViewport.Y)
-                            + ","
-                            + std::to_string(resolvedViewport.Z)
-                            + ","
-                            + std::to_string(resolvedViewport.W)
-                            + " bounds="
-                            + std::to_string(submittedBounds.X)
-                            + ","
-                            + std::to_string(submittedBounds.Y)
-                            + ","
-                            + std::to_string(submittedBounds.Z)
-                            + ","
-                            + std::to_string(submittedBounds.W));
-                        BootLog(
-                            "cube diagnostics triA="
-                            + std::to_string(triangleBoundsA.X)
-                            + ","
-                            + std::to_string(triangleBoundsA.Y)
-                            + ","
-                            + std::to_string(triangleBoundsA.Z)
-                            + ","
-                            + std::to_string(triangleBoundsA.W)
+                            "cube draw returned: screenBounds="
+                            + FormatFloat4(RenderManager3DBackend.GetLastSubmittedScreenBounds())
+                            + " triA="
+                            + FormatFloat4(RenderManager3DBackend.GetLastSubmittedTriangleBoundsA())
                             + " triB="
-                            + std::to_string(triangleBoundsB.X)
-                            + ","
-                            + std::to_string(triangleBoundsB.Y)
-                            + ","
-                            + std::to_string(triangleBoundsB.Z)
-                            + ","
-                            + std::to_string(triangleBoundsB.W));
+                            + FormatFloat4(RenderManager3DBackend.GetLastSubmittedTriangleBoundsB()));
                         BootLog(
-                            "cube diagnostics vA0="
-                            + std::to_string(triangleVertexA0.X)
-                            + ","
-                            + std::to_string(triangleVertexA0.Y)
-                            + ","
-                            + std::to_string(triangleVertexA0.Z)
-                            + " vA1="
-                            + std::to_string(triangleVertexA1.X)
-                            + ","
-                            + std::to_string(triangleVertexA1.Y)
-                            + ","
-                            + std::to_string(triangleVertexA1.Z)
-                            + " vA2="
-                            + std::to_string(triangleVertexA2.X)
-                            + ","
-                            + std::to_string(triangleVertexA2.Y)
-                            + ","
-                            + std::to_string(triangleVertexA2.Z));
+                            "cube draw returned: triA0="
+                            + FormatFloat4(RenderManager3DBackend.GetLastSubmittedTriangleVertexA0())
+                            + " triA1="
+                            + FormatFloat4(RenderManager3DBackend.GetLastSubmittedTriangleVertexA1())
+                            + " triA2="
+                            + FormatFloat4(RenderManager3DBackend.GetLastSubmittedTriangleVertexA2()));
                         BootLog(
-                            "cube diagnostics vB0="
-                            + std::to_string(triangleVertexB0.X)
-                            + ","
-                            + std::to_string(triangleVertexB0.Y)
-                            + ","
-                            + std::to_string(triangleVertexB0.Z)
-                            + " vB1="
-                            + std::to_string(triangleVertexB1.X)
-                            + ","
-                            + std::to_string(triangleVertexB1.Y)
-                            + ","
-                            + std::to_string(triangleVertexB1.Z)
-                            + " vB2="
-                            + std::to_string(triangleVertexB2.X)
-                            + ","
-                            + std::to_string(triangleVertexB2.Y)
-                            + ","
-                            + std::to_string(triangleVertexB2.Z));
-                        while (true) {
+                            "cube draw returned: triB0="
+                            + FormatFloat4(RenderManager3DBackend.GetLastSubmittedTriangleVertexB0())
+                            + " triB1="
+                            + FormatFloat4(RenderManager3DBackend.GetLastSubmittedTriangleVertexB1())
+                            + " triB2="
+                            + FormatFloat4(RenderManager3DBackend.GetLastSubmittedTriangleVertexB2()));
+                        if (EnableCubeRuntimeDiagnosticImmediateHalt) {
+                            BootLog("cube runtime checkpoint: diagnostic halt after draw");
+                            while (true) {
+                            }
                         }
                     }
 
@@ -882,6 +915,7 @@ namespace helengine::ps2 {
                         }
                     }
                 }
+                frameDrawEndTicks = std::clock();
 
                 try {
                     gsKit_queue_exec(GsGlobal);
@@ -897,6 +931,26 @@ namespace helengine::ps2 {
                     }
                 } catch (...) {
                     BootLog("frame present exception: unknown");
+                    while (true) {
+                    }
+                }
+                framePresentEndTicks = std::clock();
+                RecordFrameTimingSample(
+                    ResolveSecondsFromClockTicks(frameUpdateStartTicks, frameUpdateEndTicks),
+                    ResolveSecondsFromClockTicks(frameUpdateEndTicks, frameDrawEndTicks),
+                    ResolveSecondsFromClockTicks(frameDrawEndTicks, framePresentEndTicks));
+                if (EnableCubeRuntimeDiagnostics && CubeDiagnosticsShown) {
+                    if (!CubeRuntimeDiagnosticWatchActive) {
+                        CubeRuntimeDiagnosticWatchActive = true;
+                        CubeRuntimeDiagnosticWatchStartTicks = framePresentEndTicks;
+                        BootLog("cube frame presented; watching for 5 seconds");
+                    } else if (ResolveSecondsFromClockTicks(CubeRuntimeDiagnosticWatchStartTicks, framePresentEndTicks) >= CubeRuntimeDiagnosticWatchSeconds) {
+                        BootLog("cube frame presented; watch window complete; halting");
+                        while (true) {
+                        }
+                    }
+                }
+                if (EnableFrameTimingDiagnostics && EnableFrameTimingDiagnosticHalt && FrameTimingSampleCompleted) {
                     while (true) {
                     }
                 }
