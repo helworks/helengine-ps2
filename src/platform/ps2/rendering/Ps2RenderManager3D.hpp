@@ -33,6 +33,25 @@ namespace helengine::ps2 {
         void Draw() override;
         void SetHdrEnabled(bool enabled);
         void SetGsGlobal(GSGLOBAL* gsGlobal);
+        std::size_t GetLastProxyCount() const;
+        std::size_t GetLastOpaqueWorldCount() const;
+        std::size_t GetLastOpaqueDynamicCount() const;
+        std::size_t GetLastAlphaWorldCount() const;
+        std::size_t GetLastAlphaDynamicCount() const;
+        std::size_t GetLastClipRejectCount() const;
+        std::size_t GetLastProjectionRejectCount() const;
+        std::size_t GetLastCullRejectCount() const;
+        std::size_t GetLastSubmittedTriangleCount() const;
+        ::float4 GetLastResolvedViewport() const;
+        ::float4 GetLastSubmittedScreenBounds() const;
+        ::float4 GetLastSubmittedTriangleBoundsA() const;
+        ::float4 GetLastSubmittedTriangleBoundsB() const;
+        ::float4 GetLastSubmittedTriangleVertexA0() const;
+        ::float4 GetLastSubmittedTriangleVertexA1() const;
+        ::float4 GetLastSubmittedTriangleVertexA2() const;
+        ::float4 GetLastSubmittedTriangleVertexB0() const;
+        ::float4 GetLastSubmittedTriangleVertexB1() const;
+        ::float4 GetLastSubmittedTriangleVertexB2() const;
 
     private:
         void DrawOpaqueProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
@@ -86,5 +105,24 @@ namespace helengine::ps2 {
         bool HdrEnabled;
         GSGLOBAL* GsGlobal;
         std::vector<Ps2RenderProxy> Proxies;
+        std::size_t LastProxyCount;
+        std::size_t LastOpaqueWorldCount;
+        std::size_t LastOpaqueDynamicCount;
+        std::size_t LastAlphaWorldCount;
+        std::size_t LastAlphaDynamicCount;
+        std::size_t LastClipRejectCount;
+        std::size_t LastProjectionRejectCount;
+        std::size_t LastCullRejectCount;
+        std::size_t LastSubmittedTriangleCount;
+        ::float4 LastResolvedViewport;
+        ::float4 LastSubmittedScreenBounds;
+        ::float4 LastSubmittedTriangleBoundsA;
+        ::float4 LastSubmittedTriangleBoundsB;
+        ::float4 LastSubmittedTriangleVertexA0;
+        ::float4 LastSubmittedTriangleVertexA1;
+        ::float4 LastSubmittedTriangleVertexA2;
+        ::float4 LastSubmittedTriangleVertexB0;
+        ::float4 LastSubmittedTriangleVertexB1;
+        ::float4 LastSubmittedTriangleVertexB2;
     };
 }

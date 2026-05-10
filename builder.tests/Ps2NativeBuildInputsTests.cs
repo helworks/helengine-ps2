@@ -36,6 +36,59 @@ public sealed class Ps2NativeBuildInputsTests {
     }
 
     /// <summary>
+    /// Ensures the current cube display-path diagnostic can bypass 3D submission and draw a plain 2D sprite test rectangle.
+    /// </summary>
+    [Fact]
+    public void Boot_host_supports_cube_sprite_display_diagnostic_frame() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+
+        Assert.Contains("constexpr bool EnableCubeSpriteDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr float CubeSpriteDiagnosticLeft = 211.843231f;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr float CubeSpriteDiagnosticTop = 115.843239f;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr float CubeSpriteDiagnosticRight = 428.156738f;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr float CubeSpriteDiagnosticBottom = 332.156738f;", source, StringComparison.Ordinal);
+        Assert.Contains("void DrawCubeSpriteDiagnosticsFrame(GSGLOBAL* gsGlobal)", source, StringComparison.Ordinal);
+        Assert.Contains("gsKit_prim_sprite(", source, StringComparison.Ordinal);
+        Assert.Contains("cube sprite diagnostic halt", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the current cube display-path diagnostic can draw the measured cube face as two plain 2D triangles.
+    /// </summary>
+    [Fact]
+    public void Boot_host_supports_cube_two_triangle_2d_diagnostic_frame() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+
+        Assert.Contains("constexpr bool EnableCubeTriangle2dDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.Contains("void DrawCubeTriangle2dDiagnosticsFrame(GSGLOBAL* gsGlobal)", source, StringComparison.Ordinal);
+        Assert.Contains("gsKit_prim_triangle_gouraud(", source, StringComparison.Ordinal);
+        Assert.Contains("CubeTriangle2dVertexA0X", source, StringComparison.Ordinal);
+        Assert.Contains("CubeTriangle2dVertexB2Y", source, StringComparison.Ordinal);
+        Assert.Contains("cube triangle 2d diagnostic halt", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the current cube diagnostic can submit the measured cube face through the 3D triangle API with fixed screen-space coordinates and depth.
+    /// </summary>
+    [Fact]
+    public void Boot_host_supports_cube_two_triangle_3d_diagnostic_frame() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+        int callPosition = source.IndexOf("gsKit_prim_triangle_gouraud_3d(", StringComparison.Ordinal);
+        int firstVertexPosition = source.IndexOf("CubeTriangle2dVertexA0X, CubeTriangle2dVertexA0Y, CubeTriangle3dDiagnosticDepth,", callPosition, StringComparison.Ordinal);
+        int lastVertexPosition = source.IndexOf("CubeTriangle2dVertexA2X, CubeTriangle2dVertexA2Y, CubeTriangle3dDiagnosticDepth,", callPosition, StringComparison.Ordinal);
+        int firstColorPosition = source.IndexOf("darkerRed);", lastVertexPosition, StringComparison.Ordinal);
+
+        Assert.Contains("constexpr bool EnableCubeTriangle3dDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr float CubeTriangle3dDiagnosticDepth = 1.0f;", source, StringComparison.Ordinal);
+        Assert.Contains("void DrawCubeTriangle3dDiagnosticsFrame(GSGLOBAL* gsGlobal)", source, StringComparison.Ordinal);
+        Assert.True(callPosition >= 0);
+        Assert.True(firstVertexPosition >= 0);
+        Assert.True(lastVertexPosition >= 0);
+        Assert.True(firstColorPosition > lastVertexPosition);
+        Assert.Contains("cube triangle 3d diagnostic halt", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 3D renderer resolves authored camera viewports into pixel bounds before projection and rasterization.
     /// </summary>
     [Fact]
@@ -45,6 +98,38 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("ResolvePixelViewport(camera, windowSize)", source, StringComparison.Ordinal);
         Assert.Contains("int2* windowSize = get_MainWindowSize();", source, StringComparison.Ordinal);
         Assert.DoesNotContain("::float4 viewport = camera->get_Viewport();", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 renderer submits untextured 3D triangles using gsKit's required vertex-first, color-last argument order.
+    /// </summary>
+    [Fact]
+    public void Ps2_renderer3d_submits_untextured_triangles_with_vertex_first_color_last_argument_order() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        int screenVertexPosition = source.IndexOf("screenAX, screenAY, screenAZ,", StringComparison.Ordinal);
+        int screenColorPosition = source.IndexOf("clippedColorA, clippedColorB, clippedColorC);", StringComparison.Ordinal);
+        int glowVertexPosition = source.IndexOf("glowAX, glowAY, glowAZ,", StringComparison.Ordinal);
+        int glowColorPosition = source.IndexOf("glowColorA, glowColorB, glowColorC);", StringComparison.Ordinal);
+
+        Assert.True(screenVertexPosition >= 0);
+        Assert.True(screenColorPosition > screenVertexPosition);
+        Assert.True(glowVertexPosition >= 0);
+        Assert.True(glowColorPosition > glowVertexPosition);
+        Assert.DoesNotContain("screenAX, screenAY, screenAZ, clippedColorA,", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("glowAX, glowAY, glowAZ, glowColorA,", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures temporary cube runtime diagnostics can be disabled so the cube scene runs normally on the fixed renderer path.
+    /// </summary>
+    [Fact]
+    public void Boot_host_allows_cube_runtime_diagnostics_to_be_disabled_for_normal_scene_execution() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+
+        Assert.Contains("constexpr bool EnableCubeRuntimeDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.Contains("if (EnableCubeRuntimeDiagnostics && !CubeDiagnosticsShown)", source, StringComparison.Ordinal);
+        Assert.Contains("+ \" updateables=\"", source, StringComparison.Ordinal);
+        Assert.Contains("get_Updateables()", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -100,6 +185,14 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("std::size_t GetLastCullRejectCount() const;", rendererHeaderSource, StringComparison.Ordinal);
         Assert.Contains("std::size_t GetLastSubmittedTriangleCount() const;", rendererHeaderSource, StringComparison.Ordinal);
         Assert.Contains("::float4 GetLastSubmittedScreenBounds() const;", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("::float4 GetLastSubmittedTriangleBoundsA() const;", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("::float4 GetLastSubmittedTriangleBoundsB() const;", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("::float4 GetLastSubmittedTriangleVertexA0() const;", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("::float4 GetLastSubmittedTriangleVertexA1() const;", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("::float4 GetLastSubmittedTriangleVertexA2() const;", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("::float4 GetLastSubmittedTriangleVertexB0() const;", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("::float4 GetLastSubmittedTriangleVertexB1() const;", rendererHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("::float4 GetLastSubmittedTriangleVertexB2() const;", rendererHeaderSource, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -122,5 +215,21 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("if (!useDiagnosticFlatColor && !ShouldDrawAlphaTestTriangle(", source, StringComparison.Ordinal);
         Assert.Contains("if (!useDiagnosticFlatColor && HdrEnabled && ShouldEmitHdrGlow(*material, clippedColorA, clippedColorB, clippedColorC)) {", source, StringComparison.Ordinal);
         Assert.Contains("gsKit_prim_triangle_gouraud_3d(", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 renderer does not leave the single-proxy diagnostic clamp enabled for normal exports.
+    /// </summary>
+    [Fact]
+    public void Ps2_renderer3d_disables_single_proxy_diagnostic_submission_mode_for_normal_exports() {
+        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+
+        Assert.Contains("constexpr bool EnableSingleProxyDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::size_t SingleProxyDiagnosticIndex = 1;", source, StringComparison.Ordinal);
+        Assert.Contains("ResolveRenderableProxyByIndex(const helengine::ps2::Ps2FramePlan& plan, std::size_t proxyIndex)", source, StringComparison.Ordinal);
+        Assert.Contains("const Ps2RenderProxy* firstProxy = ResolveRenderableProxyByIndex(plan, SingleProxyDiagnosticIndex);", source, StringComparison.Ordinal);
+        Assert.Contains("if (EnableSingleProxyDiagnostics) {", source, StringComparison.Ordinal);
+        Assert.Contains("DrawOpaqueProxy(*firstProxy, view, projection, viewport, camera->get_NearPlaneDistance());", source, StringComparison.Ordinal);
+        Assert.Contains("DrawOpaqueProxy(*firstProxy, view, projection, viewport, nearPlaneDistance);", source, StringComparison.Ordinal);
     }
 }

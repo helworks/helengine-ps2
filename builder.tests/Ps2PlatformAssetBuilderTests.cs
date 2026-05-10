@@ -235,10 +235,16 @@ public class Ps2PlatformAssetBuilderTests {
             Assert.True(File.Exists(Path.Combine(outputRoot, "game.iso")));
             Assert.True(File.Exists(Path.Combine(generatedCoreRoot, "runtime", "runtime_ps2_asset_path_manifest.hpp")));
             Assert.True(File.Exists(Path.Combine(generatedCoreRoot, "runtime", "runtime_ps2_asset_path_manifest.cpp")));
+            Assert.True(File.Exists(Path.Combine(generatedCoreRoot, "runtime", "runtime_scene_catalog_manifest.hpp")));
+            Assert.True(File.Exists(Path.Combine(generatedCoreRoot, "runtime", "runtime_scene_catalog_manifest.cpp")));
             Assert.False(File.Exists(Path.Combine(workingRoot, "tmp", "ps2-build-manifest.json")));
             string runtimeManifestSource = File.ReadAllText(Path.Combine(generatedCoreRoot, "runtime", "runtime_ps2_asset_path_manifest.cpp"));
+            string runtimeSceneCatalogSource = File.ReadAllText(Path.Combine(generatedCoreRoot, "runtime", "runtime_scene_catalog_manifest.cpp"));
             Assert.Contains("he_get_runtime_ps2_startup_scene_path", runtimeManifestSource, StringComparison.Ordinal);
             Assert.Contains("cdrom0:\\\\COOKED\\\\SCENES\\\\MAIN.HAS;1", runtimeManifestSource, StringComparison.Ordinal);
+            Assert.Contains("he_runtime_scene_catalog_entries", runtimeSceneCatalogSource, StringComparison.Ordinal);
+            Assert.Contains("\"Scenes/Rendering/DirectionalShadowPlaza.helen\"", runtimeSceneCatalogSource, StringComparison.Ordinal);
+            Assert.Contains("cdrom0:\\\\COOKED\\\\SCENES\\\\REFF7C42\\\\DIA886D3.HAS;1", runtimeSceneCatalogSource, StringComparison.Ordinal);
             Assert.DoesNotContain("he_get_runtime_ps2_asset_physical_path", runtimeManifestSource, StringComparison.Ordinal);
             Assert.Equal(generatedCoreRoot, nativeBuildExecutor.LastWorkspace.GeneratedCoreRootPath);
             Assert.True(nativeBuildExecutor.PackageIsoCalled);

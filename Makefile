@@ -31,6 +31,7 @@ PS2_SOURCES := \
 OBJECTS := \
 	$(patsubst $(SOURCE_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(PS2_SOURCES)) \
 	$(BUILD_DIR)/generated/runtime/runtime_startup_manifest.o \
+	$(BUILD_DIR)/generated/runtime/runtime_scene_catalog_manifest.o \
 	$(BUILD_DIR)/generated/runtime/runtime_code_module_manifest.o \
 	$(BUILD_DIR)/generated/runtime/runtime_ps2_asset_path_manifest.o \
 	$(BUILD_DIR)/generated/helengine_core_amalgamated.o
@@ -100,6 +101,10 @@ $(BUILD_DIR)/generated/helengine_core_amalgamated.o: $(GENERATED_CORE_STAGE_ROOT
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/generated/runtime/runtime_startup_manifest.o: $(GENERATED_CORE_STAGE_ROOT)/runtime/runtime_startup_manifest.cpp $(GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/generated/runtime/runtime_scene_catalog_manifest.o: $(GENERATED_CORE_STAGE_ROOT)/runtime/runtime_scene_catalog_manifest.cpp $(GENERATED_CORE_STAGE_STAMP)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 

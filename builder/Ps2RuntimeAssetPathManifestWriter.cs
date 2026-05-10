@@ -39,6 +39,10 @@ public sealed class Ps2RuntimeAssetPathManifestWriter {
         File.WriteAllText(
             Path.Combine(runtimeRootPath, "runtime_ps2_asset_path_manifest.cpp"),
             BuildSourceContents(BuildRuntimePhysicalPath(startupPhysicalPath)));
+        File.WriteAllText(Path.Combine(runtimeRootPath, "runtime_scene_catalog_manifest.hpp"), BuildSceneCatalogHeaderContents());
+        File.WriteAllText(
+            Path.Combine(runtimeRootPath, "runtime_scene_catalog_manifest.cpp"),
+            BuildSceneCatalogSourceContents(manifest, logicalToPhysicalPaths));
     }
 
     /// <summary>
@@ -101,6 +105,98 @@ public sealed class Ps2RuntimeAssetPathManifestWriter {
     }
 
     /// <summary>
+    /// Builds the generated runtime scene-catalog manifest header that the shared core bootstrap consumes.
+    /// </summary>
+    /// <returns>Header contents for the generated runtime scene-catalog manifest.</returns>
+    static string BuildSceneCatalogHeaderContents() {
+        StringBuilder builder = new();
+        builder.AppendLine("#pragma once");
+        builder.AppendLine();
+        builder.AppendLine("#include <cstddef>");
+        builder.AppendLine();
+        builder.AppendLine("struct HERuntimeSceneCatalogEntry {");
+        builder.AppendLine("    const char* SceneId;");
+        builder.AppendLine("    const char* CookedRelativePath;");
+        builder.AppendLine("};");
+        builder.AppendLine();
+        builder.AppendLine("const HERuntimeSceneCatalogEntry* he_runtime_scene_catalog_entries(std::size_t* count);");
+        builder.AppendLine("const char* he_runtime_scene_cooked_relative_path(const char* sceneId);");
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// Builds the generated runtime scene-catalog manifest implementation using rooted PS2 disc paths.
+    /// </summary>
+    /// <param name="manifest">Cooked platform build manifest that defines the staged scenes.</param>
+    /// <param name="logicalToPhysicalPaths">Logical-to-physical staged PS2 disc path mappings.</param>
+    /// <returns>Generated source contents for the PS2 runtime scene-catalog manifest.</returns>
+    static string BuildSceneCatalogSourceContents(
+        PlatformBuildManifest manifest,
+        IReadOnlyDictionary<string, string> logicalToPhysicalPaths) {
+        if (manifest == null) {
+            throw new ArgumentNullException(nameof(manifest));
+        }
+        if (logicalToPhysicalPaths == null) {
+            throw new ArgumentNullException(nameof(logicalToPhysicalPaths));
+        }
+
+        StringBuilder builder = new();
+        builder.AppendLine("#include \"runtime/runtime_scene_catalog_manifest.hpp\"");
+        builder.AppendLine();
+        builder.AppendLine("#include <cstring>");
+        builder.AppendLine("#include <stdexcept>");
+        builder.AppendLine();
+
+        if (manifest.Scenes == null || manifest.Scenes.Length == 0) {
+            builder.AppendLine("static const HERuntimeSceneCatalogEntry* kRuntimeSceneCatalogEntries = nullptr;");
+            builder.AppendLine("static const std::size_t kRuntimeSceneCatalogEntryCount = 0;");
+        } else {
+            builder.AppendLine("static const HERuntimeSceneCatalogEntry kRuntimeSceneCatalogEntries[] = {");
+            for (int index = 0; index < manifest.Scenes.Length; index++) {
+                PlatformBuildScene scene = manifest.Scenes[index];
+                string logicalScenePath = ResolveSceneLogicalPath(scene);
+                if (!logicalToPhysicalPaths.TryGetValue(logicalScenePath, out string physicalScenePath)) {
+                    throw new InvalidOperationException($"The scene '{scene.SceneId}' did not resolve to a staged PS2 physical disc path.");
+                }
+
+                builder.Append("    { \"");
+                builder.Append(EscapeCpp(scene.SceneId));
+                builder.Append("\", \"");
+                builder.Append(EscapeCpp(BuildRuntimePhysicalPath(physicalScenePath)));
+                builder.AppendLine("\" },");
+            }
+
+            builder.AppendLine("};");
+            builder.AppendLine("static const std::size_t kRuntimeSceneCatalogEntryCount = sizeof(kRuntimeSceneCatalogEntries) / sizeof(kRuntimeSceneCatalogEntries[0]);");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("const HERuntimeSceneCatalogEntry* he_runtime_scene_catalog_entries(std::size_t* count) {");
+        builder.AppendLine("    if (count != nullptr) {");
+        builder.AppendLine("        *count = kRuntimeSceneCatalogEntryCount;");
+        builder.AppendLine("    }");
+        builder.AppendLine();
+        builder.AppendLine("    return kRuntimeSceneCatalogEntries;");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("const char* he_runtime_scene_cooked_relative_path(const char* sceneId) {");
+        builder.AppendLine("    if (sceneId == nullptr || sceneId[0] == '\\0') {");
+        builder.AppendLine("        throw std::invalid_argument(\"Runtime scene id is required.\");");
+        builder.AppendLine("    }");
+        builder.AppendLine();
+        builder.AppendLine("    for (std::size_t index = 0; index < kRuntimeSceneCatalogEntryCount; index++) {");
+        builder.AppendLine("        const HERuntimeSceneCatalogEntry& entry = kRuntimeSceneCatalogEntries[index];");
+        builder.AppendLine("        if (std::strcmp(entry.SceneId, sceneId) == 0) {");
+        builder.AppendLine("            return entry.CookedRelativePath;");
+        builder.AppendLine("        }");
+        builder.AppendLine("    }");
+        builder.AppendLine();
+        builder.AppendLine("    throw std::runtime_error(\"Runtime scene id was not found in the scene catalog manifest.\");");
+        builder.AppendLine("}");
+        return builder.ToString();
+    }
+
+    /// <summary>
     /// Builds the rooted PS2 runtime path for one staged physical disc path.
     /// </summary>
     /// <param name="physicalDiscPath">Physical staged PS2 disc path.</param>
@@ -129,5 +225,29 @@ public sealed class Ps2RuntimeAssetPathManifestWriter {
     /// <returns>Escaped C++ string literal contents.</returns>
     static string EscapeCpp(string value) {
         return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+    }
+
+    /// <summary>
+    /// Resolves the logical cooked scene path for one runtime scene entry.
+    /// </summary>
+    /// <param name="scene">Resolved scene whose cooked relative path should be inspected.</param>
+    /// <returns>Normalized logical cooked path for the supplied scene.</returns>
+    static string ResolveSceneLogicalPath(PlatformBuildScene scene) {
+        if (scene == null) {
+            throw new ArgumentNullException(nameof(scene));
+        }
+        if (scene.ResolvedMetadata == null) {
+            throw new InvalidOperationException($"The scene '{scene.SceneId}' did not define resolved metadata.");
+        }
+
+        for (int metadataIndex = 0; metadataIndex < scene.ResolvedMetadata.Length; metadataIndex++) {
+            KeyValuePair<string, string> entry = scene.ResolvedMetadata[metadataIndex];
+            if (string.Equals(entry.Key, PlatformBuildSceneMetadataKeys.CookedRelativePath, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(entry.Value)) {
+                return entry.Value.Replace('\\', '/');
+            }
+        }
+
+        throw new InvalidOperationException($"The scene '{scene.SceneId}' did not define a cooked-relative-path metadata entry.");
     }
 }

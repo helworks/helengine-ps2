@@ -42,6 +42,8 @@ namespace helengine::ps2 {
         constexpr double LightingScale = 191.0;
         constexpr double LightingBias = 64.0;
         constexpr bool EnableFlatColorDiagnostics = true;
+        constexpr bool EnableSingleProxyDiagnostics = false;
+        constexpr std::size_t SingleProxyDiagnosticIndex = 1;
         constexpr float HdrGlowScale = 1.08f;
         constexpr float HdrGlowScaleVariance = 0.08f;
         constexpr float HdrGlowDepthBias = 0.0005f;
@@ -90,6 +92,30 @@ namespace helengine::ps2 {
 
         std::unordered_map<std::string, GSTEXTURE*> TextureRecords;
         std::vector<Ps2HdrGlowTriangle> DeferredHdrGlowTriangles;
+
+        const helengine::ps2::Ps2RenderProxy* ResolveRenderableProxyByIndex(const helengine::ps2::Ps2FramePlan& plan, std::size_t proxyIndex) {
+            const std::vector<const helengine::ps2::Ps2RenderProxy*>* lists[] = {
+                &plan.OpaqueWorld,
+                &plan.OpaqueDynamic,
+                &plan.AlphaWorld,
+                &plan.AlphaDynamic
+            };
+
+            std::size_t currentIndex = 0;
+            for (const std::vector<const helengine::ps2::Ps2RenderProxy*>* list : lists) {
+                if (list == nullptr) {
+                    continue;
+                }
+
+                for (const helengine::ps2::Ps2RenderProxy* proxy : *list) {
+                    if (proxy != nullptr && currentIndex++ == proxyIndex) {
+                        return proxy;
+                    }
+                }
+            }
+
+            return nullptr;
+        }
 
         std::uint64_t ResolveDiagnosticProxyColor(const helengine::ps2::Ps2RenderProxy& proxy) {
             static constexpr std::uint64_t DiagnosticPalette[] = {
@@ -314,9 +340,10 @@ namespace helengine::ps2 {
                 } else {
                     gsKit_prim_triangle_gouraud_3d(
                         gsGlobal,
-                        glowAX, glowAY, glowAZ, glowColorA,
-                        glowBX, glowBY, glowBZ, glowColorB,
-                        glowCX, glowCY, glowCZ, glowColorC);
+                        glowAX, glowAY, glowAZ,
+                        glowBX, glowBY, glowBZ,
+                        glowCX, glowCY, glowCZ,
+                        glowColorA, glowColorB, glowColorC);
                 }
             }
 
@@ -345,7 +372,15 @@ namespace helengine::ps2 {
           LastCullRejectCount(0),
           LastSubmittedTriangleCount(0),
           LastResolvedViewport(),
-          LastSubmittedScreenBounds() {
+          LastSubmittedScreenBounds(),
+          LastSubmittedTriangleBoundsA(),
+          LastSubmittedTriangleBoundsB(),
+          LastSubmittedTriangleVertexA0(),
+          LastSubmittedTriangleVertexA1(),
+          LastSubmittedTriangleVertexA2(),
+          LastSubmittedTriangleVertexB0(),
+          LastSubmittedTriangleVertexB1(),
+          LastSubmittedTriangleVertexB2() {
     }
 
     ::RuntimeMaterial* Ps2RenderManager3D::BuildMaterialFromCooked(::Ps2MaterialAsset* materialAsset) {
@@ -380,6 +415,14 @@ namespace helengine::ps2 {
         LastSubmittedTriangleCount = 0;
         LastResolvedViewport = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastSubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastSubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastSubmittedTriangleBoundsB = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastSubmittedTriangleVertexA0 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastSubmittedTriangleVertexA1 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastSubmittedTriangleVertexA2 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastSubmittedTriangleVertexB0 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastSubmittedTriangleVertexB1 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastSubmittedTriangleVertexB2 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
 
         if (GsGlobal == nullptr) {
             return;
@@ -430,6 +473,16 @@ namespace helengine::ps2 {
         if (GsGlobal->ZBuffering == GS_SETTING_ON) {
             SortAlphaProxies(plan.AlphaWorld, cameraPosition, cameraForward);
             SortAlphaProxies(plan.AlphaDynamic, cameraPosition, cameraForward);
+
+            if (EnableSingleProxyDiagnostics) {
+                const Ps2RenderProxy* firstProxy = ResolveRenderableProxyByIndex(plan, SingleProxyDiagnosticIndex);
+                if (firstProxy != nullptr) {
+                    DrawOpaqueProxy(*firstProxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                }
+
+                DrawHdrGlowPass(GsGlobal);
+                return;
+            }
 
             for (const Ps2RenderProxy* proxy : plan.OpaqueWorld) {
                 if (proxy != nullptr) {
@@ -516,6 +569,38 @@ namespace helengine::ps2 {
 
     ::float4 Ps2RenderManager3D::GetLastSubmittedScreenBounds() const {
         return LastSubmittedScreenBounds;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastSubmittedTriangleBoundsA() const {
+        return LastSubmittedTriangleBoundsA;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastSubmittedTriangleBoundsB() const {
+        return LastSubmittedTriangleBoundsB;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastSubmittedTriangleVertexA0() const {
+        return LastSubmittedTriangleVertexA0;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastSubmittedTriangleVertexA1() const {
+        return LastSubmittedTriangleVertexA1;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastSubmittedTriangleVertexA2() const {
+        return LastSubmittedTriangleVertexA2;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastSubmittedTriangleVertexB0() const {
+        return LastSubmittedTriangleVertexB0;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastSubmittedTriangleVertexB1() const {
+        return LastSubmittedTriangleVertexB1;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastSubmittedTriangleVertexB2() const {
+        return LastSubmittedTriangleVertexB2;
     }
 
     void Ps2RenderManager3D::DrawOpaqueProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {
@@ -660,17 +745,26 @@ namespace helengine::ps2 {
                 const std::uint64_t clippedColorA = PackColor(clippedA.Red, clippedA.Green, clippedA.Blue, clippedA.Alpha);
                 const std::uint64_t clippedColorB = PackColor(clippedB.Red, clippedB.Green, clippedB.Blue, clippedB.Alpha);
                 const std::uint64_t clippedColorC = PackColor(clippedC.Red, clippedC.Green, clippedC.Blue, clippedC.Alpha);
+                const float minX = std::min({ screenAX, screenBX, screenCX });
+                const float minY = std::min({ screenAY, screenBY, screenCY });
+                const float maxX = std::max({ screenAX, screenBX, screenCX });
+                const float maxY = std::max({ screenAY, screenBY, screenCY });
                 if (LastSubmittedTriangleCount == 0) {
-                    const float minX = std::min({ screenAX, screenBX, screenCX });
-                    const float minY = std::min({ screenAY, screenBY, screenCY });
-                    const float maxX = std::max({ screenAX, screenBX, screenCX });
-                    const float maxY = std::max({ screenAY, screenBY, screenCY });
                     LastSubmittedScreenBounds = ::float4(minX, minY, maxX, maxY);
+                    LastSubmittedTriangleBoundsA = ::float4(minX, minY, maxX, maxY);
+                    LastSubmittedTriangleVertexA0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
+                    LastSubmittedTriangleVertexA1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
+                    LastSubmittedTriangleVertexA2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
+                } else if (LastSubmittedTriangleCount == 1) {
+                    LastSubmittedTriangleBoundsB = ::float4(minX, minY, maxX, maxY);
+                    LastSubmittedTriangleVertexB0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
+                    LastSubmittedTriangleVertexB1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
+                    LastSubmittedTriangleVertexB2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
                 } else {
-                    LastSubmittedScreenBounds.X = std::min(LastSubmittedScreenBounds.X, std::min({ screenAX, screenBX, screenCX }));
-                    LastSubmittedScreenBounds.Y = std::min(LastSubmittedScreenBounds.Y, std::min({ screenAY, screenBY, screenCY }));
-                    LastSubmittedScreenBounds.Z = std::max(LastSubmittedScreenBounds.Z, std::max({ screenAX, screenBX, screenCX }));
-                    LastSubmittedScreenBounds.W = std::max(LastSubmittedScreenBounds.W, std::max({ screenAY, screenBY, screenCY }));
+                    LastSubmittedScreenBounds.X = std::min(LastSubmittedScreenBounds.X, minX);
+                    LastSubmittedScreenBounds.Y = std::min(LastSubmittedScreenBounds.Y, minY);
+                    LastSubmittedScreenBounds.Z = std::max(LastSubmittedScreenBounds.Z, maxX);
+                    LastSubmittedScreenBounds.W = std::max(LastSubmittedScreenBounds.W, maxY);
                 }
                 LastSubmittedTriangleCount++;
 
@@ -685,9 +779,10 @@ namespace helengine::ps2 {
                 } else {
                     gsKit_prim_triangle_gouraud_3d(
                         GsGlobal,
-                        screenAX, screenAY, screenAZ, clippedColorA,
-                        screenBX, screenBY, screenBZ, clippedColorB,
-                        screenCX, screenCY, screenCZ, clippedColorC);
+                        screenAX, screenAY, screenAZ,
+                        screenBX, screenBY, screenBZ,
+                        screenCX, screenCY, screenCZ,
+                        clippedColorA, clippedColorB, clippedColorC);
                 }
 
                 if (!useDiagnosticFlatColor && HdrEnabled && ShouldEmitHdrGlow(*material, clippedColorA, clippedColorB, clippedColorC)) {
@@ -739,6 +834,15 @@ namespace helengine::ps2 {
         sortedProxies.insert(sortedProxies.end(), plan.OpaqueDynamic.begin(), plan.OpaqueDynamic.end());
         sortedProxies.insert(sortedProxies.end(), plan.AlphaWorld.begin(), plan.AlphaWorld.end());
         sortedProxies.insert(sortedProxies.end(), plan.AlphaDynamic.begin(), plan.AlphaDynamic.end());
+
+        if (EnableSingleProxyDiagnostics) {
+            const Ps2RenderProxy* firstProxy = ResolveRenderableProxyByIndex(plan, SingleProxyDiagnosticIndex);
+            if (firstProxy != nullptr) {
+                DrawOpaqueProxy(*firstProxy, view, projection, viewport, nearPlaneDistance);
+            }
+
+            return;
+        }
 
         SortAlphaProxies(sortedProxies, cameraPosition, cameraForward);
 
