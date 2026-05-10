@@ -211,10 +211,23 @@ namespace helengine::ps2 {
         } else {
             std::vector<::float3> clippedVertices;
             clippedVertices.reserve(4u);
+            const float* packedPositionWords = reinterpret_cast<const float*>(batch.Model->GetPositionBlockBytes());
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
-                const ::float3 packedPositionA = batch.Model->GetPosition(vertexIndex + 0u);
-                const ::float3 packedPositionB = batch.Model->GetPosition(vertexIndex + 1u);
-                const ::float3 packedPositionC = batch.Model->GetPosition(vertexIndex + 2u);
+                const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
+                const std::size_t positionWordIndexB = static_cast<std::size_t>(vertexIndex + 1u) * 4u;
+                const std::size_t positionWordIndexC = static_cast<std::size_t>(vertexIndex + 2u) * 4u;
+                const ::float3 packedPositionA(
+                    packedPositionWords[positionWordIndexA + 0u],
+                    packedPositionWords[positionWordIndexA + 1u],
+                    packedPositionWords[positionWordIndexA + 2u]);
+                const ::float3 packedPositionB(
+                    packedPositionWords[positionWordIndexB + 0u],
+                    packedPositionWords[positionWordIndexB + 1u],
+                    packedPositionWords[positionWordIndexB + 2u]);
+                const ::float3 packedPositionC(
+                    packedPositionWords[positionWordIndexC + 0u],
+                    packedPositionWords[positionWordIndexC + 1u],
+                    packedPositionWords[positionWordIndexC + 2u]);
                 const ::float4 positionA(packedPositionA.X, packedPositionA.Y, packedPositionA.Z, 1.0f);
                 const ::float4 positionB(packedPositionB.X, packedPositionB.Y, packedPositionB.Z, 1.0f);
                 const ::float4 positionC(packedPositionC.X, packedPositionC.Y, packedPositionC.Z, 1.0f);
