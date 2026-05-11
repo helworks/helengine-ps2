@@ -37,7 +37,7 @@ public sealed class Ps2CookedAssetPathRewriter {
             throw new DirectoryNotFoundException($"Staging root '{stagingRootPath}' was not found.");
         }
 
-        string[] filePaths = Directory.GetFiles(stagingRootPath, "*.hasset", SearchOption.AllDirectories);
+        string[] filePaths = Directory.GetFiles(stagingRootPath, "*", SearchOption.AllDirectories);
         for (int fileIndex = 0; fileIndex < filePaths.Length; fileIndex++) {
             string filePath = filePaths[fileIndex];
             string logicalRelativePath = Path.GetRelativePath(stagingRootPath, filePath).Replace('\\', '/');
@@ -59,9 +59,7 @@ public sealed class Ps2CookedAssetPathRewriter {
             return false;
         }
 
-        return logicalRelativePath.StartsWith("cooked/scenes/", StringComparison.OrdinalIgnoreCase)
-            || logicalRelativePath.Contains("/materials/", StringComparison.OrdinalIgnoreCase)
-            || logicalRelativePath.Contains("/mat/", StringComparison.OrdinalIgnoreCase);
+        return logicalRelativePath.StartsWith("cooked/", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -74,6 +72,9 @@ public sealed class Ps2CookedAssetPathRewriter {
         bool changed = false;
         using (FileStream readStream = File.OpenRead(filePath)) {
             asset = AssetSerializer.Deserialize(readStream);
+            if (filePath.Contains("imported", StringComparison.OrdinalIgnoreCase) || filePath.Contains("material", StringComparison.OrdinalIgnoreCase)) {
+                Console.WriteLine($"[helengine-ps2] path rewriter inspect path={filePath} type={asset?.GetType().Name ?? "<null>"}");
+            }
             if (asset is SceneAsset sceneAsset) {
                 changed = RewriteSceneAsset(sceneAsset, logicalToPhysicalPaths);
             } else if (asset is Ps2MaterialAsset ps2MaterialAsset) {
@@ -292,14 +293,18 @@ public sealed class Ps2CookedAssetPathRewriter {
             throw new ArgumentNullException(nameof(materialAsset));
         }
         if (string.IsNullOrWhiteSpace(materialAsset.TextureRelativePath)) {
+            Console.WriteLine($"[helengine-ps2] path rewriter material id={materialAsset.Id} texture=<empty>");
             return false;
         }
+
+        Console.WriteLine($"[helengine-ps2] path rewriter material id={materialAsset.Id} texture-before={materialAsset.TextureRelativePath}");
 
         if (!TryResolvePhysicalRuntimePath(materialAsset.TextureRelativePath, logicalToPhysicalPaths, out string physicalRuntimePath)) {
             throw new InvalidOperationException($"The staged PS2 material texture path '{materialAsset.TextureRelativePath}' did not resolve to a physical disc path.");
         }
 
         materialAsset.TextureRelativePath = physicalRuntimePath;
+        Console.WriteLine($"[helengine-ps2] path rewriter material id={materialAsset.Id} texture-after={materialAsset.TextureRelativePath}");
         return true;
     }
 

@@ -54,10 +54,15 @@ namespace {
     constexpr const char* CubeModelDiagnosticPath = "cdrom0:\\COOKED\\ENGINE\\MODELS\\CUBE.HAS;1";
     constexpr const char* CubeMaterialEarlyDiagnosticPath = "cdrom0:\\COOKED\\ENGINE\\MAT\\CUBE00\\CUBE00.HAS;1";
     constexpr const char* CubeMaterialLateDiagnosticPath = "cdrom0:\\COOKED\\ENGINE\\MAT\\CUBE14\\CUBE14.HAS;1";
+    constexpr const char* SceneLocalMaterialCookedDiagnosticPath = "cdrom0:\\COOKED\\MAD3CCDB\\REFF7C42\\CO5CB17F\\CUBE14.HEL;1";
+    constexpr const char* SceneLocalMaterialRootDiagnosticPath = "cdrom0:\\MAD3CCDB\\REFF7C42\\CO5CB17F\\CUBE14.HEL;1";
+    constexpr const char* AliasedCookedHasDiagnosticPath = "cdrom0:\\COOKED\\L\\3A76DDE8.HAS;1";
+    constexpr const char* AliasedCookedStartupHardcodedDiagnosticPath = "cdrom0:\\COOKED\\L\\D79F205B.HAS;1";
+    constexpr const char* H1ProbeRuntimeFailureDiagnosticPath = "cdrom0:\\COOKED\\H\\D\\H1DE3294.HEL;1";
     constexpr bool EnableCubeSpriteDiagnostics = false;
     constexpr bool EnableCubeTriangle2dDiagnostics = false;
     constexpr bool EnableCubeTriangle3dDiagnostics = false;
-    constexpr bool EnableCubeRuntimeDiagnostics = true;
+    constexpr bool EnableCubeRuntimeDiagnostics = false;
     constexpr bool EnableCubeRuntimeDiagnosticImmediateHalt = false;
     constexpr double CubeRuntimeDiagnosticWatchSeconds = 5.0;
     constexpr bool EnableFrameTimingDiagnostics = false;
@@ -202,6 +207,40 @@ namespace {
         } catch (...) {
             BootLog(std::string(label) + ": open unknown exception");
         }
+    }
+
+    void BootLogCompactDiscProbe(const char* label, const char* path) {
+        bool exists = File::Exists(path);
+        std::FILE* directFile = std::fopen(path, "rb");
+        bool fopenSucceeded = directFile != nullptr;
+        if (directFile != nullptr) {
+            std::fclose(directFile);
+        }
+
+        std::string openResult = "not-attempted";
+        try {
+            FileStream* stream = File::OpenRead(path);
+            if (stream == nullptr) {
+                openResult = "null";
+            } else {
+                openResult = std::to_string(stream->Length());
+                delete stream;
+            }
+        } catch (Exception* exception) {
+            openResult = std::string("ex:") + (exception != nullptr ? exception->what() : "null");
+            delete exception;
+        } catch (const std::exception& exception) {
+            openResult = std::string("std:") + exception.what();
+        } catch (...) {
+            openResult = "unknown";
+        }
+
+        BootLog(label);
+        BootLog(
+            std::string("probe exists=")
+            + (exists ? "true" : "false")
+            + " fopen=" + (fopenSucceeded ? "true" : "false"));
+        BootLog(std::string("probe open=") + openResult);
     }
 
     void DrawCubeSpriteDiagnosticsFrame(GSGLOBAL* gsGlobal) {
@@ -607,6 +646,11 @@ namespace helengine::ps2 {
         BootLogDiscProbe("disc probe cube model", CubeModelDiagnosticPath);
         BootLogDiscProbe("disc probe cube material early", CubeMaterialEarlyDiagnosticPath);
         BootLogDiscProbe("disc probe cube material late", CubeMaterialLateDiagnosticPath);
+        BootLogDiscProbe("disc probe scene local material cooked", SceneLocalMaterialCookedDiagnosticPath);
+        BootLogDiscProbe("disc probe scene local material root", SceneLocalMaterialRootDiagnosticPath);
+        BootLogDiscProbe("disc probe aliased cooked has", AliasedCookedHasDiagnosticPath);
+        BootLogDiscProbe("disc probe startup scene hardcoded", AliasedCookedStartupHardcodedDiagnosticPath);
+        BootLogDiscProbe("disc probe startup scene runtime", he_get_runtime_ps2_startup_scene_path());
         EngineCore = new Core();
         EngineOptions = EngineCore->get_InitializationOptions();
         EngineOptions->set_ContentRootPath(ResolveApplicationDirectoryPath());
@@ -615,7 +659,7 @@ namespace helengine::ps2 {
         EngineOptions->set_UpdateListInitialCapacity(4);
         EngineOptions->set_RenderList2DInitialCapacity(4);
         EngineOptions->set_RenderList3DInitialCapacity(4);
-        EngineOptions->set_RuntimeSceneCatalog(BuildRuntimeSceneCatalogFromManifest());
+        EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalogFromManifest());
 
         BootLog("input bridge init");
         EngineInputBackend = new Ps2InputBackend();
@@ -636,6 +680,10 @@ namespace helengine::ps2 {
             EngineOptions);
         BootLog("core initialized");
 
+        scr_clear();
+        BootLog("startup scene diagnostics reset");
+        BootLog("startup scene probe spacer");
+        BootLogCompactDiscProbe("disc probe h1 runtime fail", H1ProbeRuntimeFailureDiagnosticPath);
         BootLog("startup scene load begin");
         StartupSceneLoaded = LoadPackagedStartupScene();
         BootLog(StartupSceneLoaded ? "startup scene load succeeded" : "startup scene load failed");
@@ -669,7 +717,7 @@ namespace helengine::ps2 {
         GsGlobal->Width = Ps2DefaultFramebufferWidth;
         GsGlobal->Height = Ps2DefaultFramebufferHeight;
         GsGlobal->PSM = GS_PSM_CT32;
-        GsGlobal->DoubleBuffering = GS_SETTING_OFF;
+        GsGlobal->DoubleBuffering = GS_SETTING_ON;
         const HERuntimeGraphicsRendererManifest* graphicsRendererManifest = he_get_runtime_graphics_renderer_manifest();
         if (graphicsRendererManifest == 0) {
             BootLog("graphics renderer manifest missing");
@@ -720,10 +768,13 @@ namespace helengine::ps2 {
                 BootLog("startup scene asset load returned null");
                 return false;
             }
+            BootLog("startup scene asset deserialized");
 
             SceneAsset* startupScene = static_cast<SceneAsset*>(startupAsset);
             if (EngineCore != nullptr && EngineCore->get_SceneLoadService() != nullptr) {
+                BootLog("startup scene runtime load begin");
                 EngineCore->get_SceneLoadService()->Load(startupScene);
+                BootLog("startup scene runtime load complete");
                 BootLog(std::string("startup scene loaded: ") + startupScenePhysicalPath);
                 return true;
             }
@@ -745,7 +796,8 @@ namespace helengine::ps2 {
 
     Asset* Ps2BootHost::LoadPackagedPhysicalAsset(const std::string& physicalPath) {
         if (!File::Exists(physicalPath)) {
-            BootLog(std::string("packaged asset missing: ") + physicalPath);
+            BootLog("packaged asset missing");
+            BootLog(physicalPath);
             return nullptr;
         }
 

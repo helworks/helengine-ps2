@@ -49,7 +49,7 @@ namespace helengine::ps2 {
         constexpr double LightingScale = 191.0;
         constexpr double LightingBias = 64.0;
         constexpr bool EnableFlatColorDiagnostics = false;
-        constexpr bool EnableLightingOnlyDiagnostics = true;
+        constexpr bool EnableLightingOnlyDiagnostics = false;
         constexpr bool EnableSingleProxyDiagnostics = false;
         constexpr std::size_t SingleProxyDiagnosticIndex = 1;
         constexpr float HdrGlowScale = 1.08f;
@@ -77,6 +77,33 @@ namespace helengine::ps2 {
         constexpr std::uint32_t VuDirectGifDiagnosticTriangleZ = 0x007FFFFFu;
         const ::float3 DefaultForward(0.0f, 0.0f, -1.0f);
         const ::float3 DefaultUp(0.0f, 1.0f, 0.0f);
+
+        ::float4 ResolvePixelViewport(::CameraComponent* camera, const int2* windowSize) {
+            if (camera == nullptr) {
+                throw std::invalid_argument("Camera must be provided.");
+            }
+            if (windowSize == nullptr || windowSize->X <= 0 || windowSize->Y <= 0) {
+                throw std::invalid_argument("Window size must be greater than zero.");
+            }
+
+            const ::float4 viewport = camera->get_Viewport();
+            double offsetX = viewport.X;
+            double offsetY = viewport.Y;
+            double width = viewport.Z;
+            double height = viewport.W;
+            if (width <= 1.0 && height <= 1.0) {
+                offsetX *= static_cast<double>(windowSize->X);
+                offsetY *= static_cast<double>(windowSize->Y);
+                width *= static_cast<double>(windowSize->X);
+                height *= static_cast<double>(windowSize->Y);
+            }
+
+            return ::float4(
+                static_cast<float>(offsetX),
+                static_cast<float>(offsetY),
+                static_cast<float>(width),
+                static_cast<float>(height));
+        }
 
         void LogVuDirectGifDiagnostics(const std::string& message) {
             scr_printf("[helengine-ps2] %s\n", message.c_str());
@@ -591,6 +618,8 @@ namespace helengine::ps2 {
 
     void Ps2RenderManager3D::RenderOpaqueWithVuPath(const Ps2FramePlan& plan, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {
         std::vector<Ps2VuOpaqueBatch> batches = VuOpaqueBatchBuilder.Build(plan);
+        ::float3 lightDirection = DefaultForward;
+        TryResolveDirectionalLightDirection(lightDirection);
         LastVuBatchDispatchCount = batches.size();
         LastVuRejectedMissingMaterialCount = VuOpaqueBatchBuilder.GetLastRejectedMissingMaterialCount();
         LastVuRejectedMissingModelCount = VuOpaqueBatchBuilder.GetLastRejectedMissingModelCount();
@@ -600,11 +629,16 @@ namespace helengine::ps2 {
                 continue;
             }
 
+            if (batch.Textured) {
+                DrawOpaqueProxyLegacy(*batch.Proxy, view, projection, viewport, nearPlaneDistance);
+                continue;
+            }
+
             dma_channel_wait(DMA_CHANNEL_VIF1, 0);
             ::float4x4 world = BuildWorldMatrix(*batch.Proxy);
             VuGifStateEncoder.EncodeOpaqueState(batch, GsGlobal);
             VuVifPacketBuilder.Reset();
-            VuVifPacketBuilder.AddOpaqueBatch(batch, world, view, projection, viewport, nearPlaneDistance, GsGlobal);
+            VuVifPacketBuilder.AddOpaqueBatch(batch, world, view, projection, viewport, nearPlaneDistance, lightDirection, GsGlobal);
             (void)VuProgramRegistry.ResolveOpaqueProgram(batch);
             packet2_t* packet = VuVifPacketBuilder.GetPacket();
             if (packet == nullptr) {

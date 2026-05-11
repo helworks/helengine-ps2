@@ -92,6 +92,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
 
         Directory.CreateDirectory(request.OutputRoot);
         Directory.CreateDirectory(request.WorkingRoot);
+        string phaseMarkerPath = Path.Combine(request.OutputRoot, "ps2-build-phase.txt");
 
         List<PlatformBuildDiagnostic> diagnostics = [];
         List<PlatformBuildItemOutcome> sceneOutcomes = BuildSceneOutcomes(request.Manifest.Scenes);
@@ -99,14 +100,27 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         StageCookedArtifacts(request, diagnostics, diagnosticReporter, progressReporter, cancellationToken);
 
         if (diagnostics.Count == 0) {
-            Ps2BuildWorkspace workspace = CreateWorkspace(request);
-            IReadOnlyDictionary<string, string> logicalToPhysicalPaths = DiscLayoutWriter.BuildLogicalToPhysicalPathMap(workspace);
-            CookedAssetPathRewriter.Rewrite(workspace.StagingRootPath, logicalToPhysicalPaths);
-            RuntimeAssetPathManifestWriter.Write(workspace.GeneratedCoreRootPath, request.Manifest, logicalToPhysicalPaths);
-            NativeBuildExecutor.Build(workspace, cancellationToken);
-            DiscLayoutWriter.Write(workspace);
-            NativeBuildExecutor.PackageIso(workspace, cancellationToken);
-            VerifyPackagedOutputs(workspace);
+            try {
+                Ps2BuildWorkspace workspace = CreateWorkspace(request);
+                WritePhaseMarker(phaseMarkerPath, "workspace created");
+                IReadOnlyDictionary<string, string> logicalToPhysicalPaths = DiscLayoutWriter.BuildLogicalToPhysicalPathMap(workspace);
+                WritePhaseMarker(phaseMarkerPath, "logical path map built");
+                CookedAssetPathRewriter.Rewrite(workspace.StagingRootPath, logicalToPhysicalPaths);
+                WritePhaseMarker(phaseMarkerPath, "cooked asset paths rewritten");
+                RuntimeAssetPathManifestWriter.Write(workspace.GeneratedCoreRootPath, request.Manifest, logicalToPhysicalPaths);
+                WritePhaseMarker(phaseMarkerPath, "runtime asset path manifest written");
+                NativeBuildExecutor.Build(workspace, cancellationToken);
+                WritePhaseMarker(phaseMarkerPath, "native build completed");
+                DiscLayoutWriter.Write(workspace);
+                WritePhaseMarker(phaseMarkerPath, "disc layout written");
+                NativeBuildExecutor.PackageIso(workspace, cancellationToken);
+                WritePhaseMarker(phaseMarkerPath, "iso packaged");
+                VerifyPackagedOutputs(workspace);
+                WritePhaseMarker(phaseMarkerPath, "packaged outputs verified");
+            } catch (Exception exception) {
+                WritePhaseMarker(phaseMarkerPath, "exception: " + exception);
+                throw;
+            }
         }
 
         bool succeeded = diagnostics.Count == 0;
@@ -221,8 +235,15 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             throw new InvalidOperationException($"Cooked model artifact '{artifact.RelativePath}' did not deserialize as a model asset.");
         }
 
-        modelAsset.Ps2PackedMeshBytes = PackedMeshCooker.Cook(modelAsset);
+        byte[] packedMeshBytes = PackedMeshCooker.Cook(modelAsset);
+        Console.WriteLine($"[helengine-ps2] embed packed mesh begin path={artifact.RelativePath} bytes={packedMeshBytes.Length}");
+        modelAsset.Ps2PackedMeshBytes = packedMeshBytes;
         File.WriteAllBytes(destinationPath, helengine.files.AssetSerializer.SerializeToBytes(modelAsset));
+        using (FileStream verifyStream = File.OpenRead(destinationPath)) {
+            ModelAsset verifiedModelAsset = AssetSerializer.Deserialize(verifyStream) as ModelAsset;
+            int verifiedLength = verifiedModelAsset?.Ps2PackedMeshBytes?.Length ?? -1;
+            Console.WriteLine($"[helengine-ps2] embed packed mesh verify path={artifact.RelativePath} bytes={verifiedLength}");
+        }
     }
 
     static void AddDiagnostic(
@@ -242,6 +263,23 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     static string ResolveStagedArtifactSourcePath(string relativePath) {
         string normalizedRelativePath = NormalizeRelativePath(relativePath);
         return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), normalizedRelativePath));
+    }
+
+    /// <summary>
+    /// Appends one diagnostic phase marker into the current PS2 output root so export failures can be recovered after the host process exits.
+    /// </summary>
+    /// <param name="phaseMarkerPath">Absolute phase-marker file path inside the active output root.</param>
+    /// <param name="message">Human-readable phase message to append.</param>
+    static void WritePhaseMarker(string phaseMarkerPath, string message) {
+        if (string.IsNullOrWhiteSpace(phaseMarkerPath)) {
+            throw new ArgumentException("Phase marker path must be provided.", nameof(phaseMarkerPath));
+        }
+        if (string.IsNullOrWhiteSpace(message)) {
+            throw new ArgumentException("Phase marker message must be provided.", nameof(message));
+        }
+
+        File.AppendAllText(phaseMarkerPath, message + Environment.NewLine);
+        Console.WriteLine("[helengine-ps2] " + message);
     }
 
     static void VerifyPackagedOutputs(Ps2BuildWorkspace workspace) {
