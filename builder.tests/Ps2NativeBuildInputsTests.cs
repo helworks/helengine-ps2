@@ -659,6 +659,11 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("payload.LightConstants[0] = LightingDiffuseScale;", source, StringComparison.Ordinal);
         Assert.Contains("payload.LightConstants[1] = LightingAmbientBias;", source, StringComparison.Ordinal);
         Assert.Contains("payload.LightConstants[2] = LightingPaletteScale;", source, StringComparison.Ordinal);
+        Assert.Contains("const std::uint8_t baseColorR = batch.Material->GetBaseColorR();", source, StringComparison.Ordinal);
+        Assert.Contains("const std::uint8_t baseColorG = batch.Material->GetBaseColorG();", source, StringComparison.Ordinal);
+        Assert.Contains("const std::uint8_t baseColorB = batch.Material->GetBaseColorB();", source, StringComparison.Ordinal);
+        Assert.Contains("payload.LightingPalette[paletteIndex].Low = GS_SETREG_RGBAQ(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("payload.LightingPalette[paletteIndex].Low = GS_SETREG_RGBAQ(shade, shade, shade, 0x80, 0x00);", source, StringComparison.Ordinal);
         Assert.Contains("std::memcpy(packet.get()->next, &trianglePayload, sizeof(Ps2VuLitTrianglePayload));", source, StringComparison.Ordinal);
     }
 

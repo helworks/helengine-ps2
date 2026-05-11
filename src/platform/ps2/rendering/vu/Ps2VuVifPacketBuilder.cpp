@@ -1,5 +1,6 @@
 #include "platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <cmath>
@@ -217,11 +218,19 @@ namespace helengine::ps2 {
             return formatted;
         }
 
-        void PopulateLightingPalette(Ps2VuLitTrianglePayload& payload) {
+        void PopulateLightingPalette(
+            Ps2VuLitTrianglePayload& payload,
+            std::uint8_t baseColorR,
+            std::uint8_t baseColorG,
+            std::uint8_t baseColorB,
+            std::uint8_t baseColorA) {
             for (std::size_t paletteIndex = 0; paletteIndex < LightingPaletteEntryCount; paletteIndex++) {
                 const float normalizedShade = static_cast<float>(paletteIndex) / LightingPaletteScale;
-                const std::uint8_t shade = static_cast<std::uint8_t>(std::lround(normalizedShade * 255.0f));
-                payload.LightingPalette[paletteIndex].Low = GS_SETREG_RGBAQ(shade, shade, shade, 0x80, 0x00);
+                const float intensity = LightingAmbientBias + (normalizedShade * LightingDiffuseScale);
+                const std::uint8_t litColorR = static_cast<std::uint8_t>(std::clamp(std::lround(static_cast<double>(baseColorR) * static_cast<double>(intensity)), 0l, 255l));
+                const std::uint8_t litColorG = static_cast<std::uint8_t>(std::clamp(std::lround(static_cast<double>(baseColorG) * static_cast<double>(intensity)), 0l, 255l));
+                const std::uint8_t litColorB = static_cast<std::uint8_t>(std::clamp(std::lround(static_cast<double>(baseColorB) * static_cast<double>(intensity)), 0l, 255l));
+                payload.LightingPalette[paletteIndex].Low = GS_SETREG_RGBAQ(litColorR, litColorG, litColorB, baseColorA, 0x00);
                 payload.LightingPalette[paletteIndex].High = static_cast<std::uint64_t>(GIF_REG_RGBAQ);
             }
         }
@@ -242,11 +251,15 @@ namespace helengine::ps2 {
             prim.antialiasing = 0;
             prim.mapping_type = PRIM_MAP_ST;
             prim.colorfix = PRIM_UNFIXED;
+            const std::uint8_t baseColorR = batch.Material->GetBaseColorR();
+            const std::uint8_t baseColorG = batch.Material->GetBaseColorG();
+            const std::uint8_t baseColorB = batch.Material->GetBaseColorB();
+            const std::uint8_t baseColorA = batch.Material->GetBaseColorA();
             color_t flatColor = {};
-            flatColor.r = batch.Material->GetBaseColorR();
-            flatColor.g = batch.Material->GetBaseColorG();
-            flatColor.b = batch.Material->GetBaseColorB();
-            flatColor.a = batch.Material->GetBaseColorA();
+            flatColor.r = baseColorR;
+            flatColor.g = baseColorG;
+            flatColor.b = baseColorB;
+            flatColor.a = baseColorA;
             packet2_update(gifPacket.get(), draw_prim_start(gifPacket.get()->base, 0, &prim, &flatColor));
             packet2_add_u64(gifPacket.get(), positionARegister);
             packet2_add_u64(gifPacket.get(), positionBRegister);
@@ -263,7 +276,7 @@ namespace helengine::ps2 {
             }
 
             std::memset(&payload, 0, sizeof(Ps2VuLitTrianglePayload));
-            PopulateLightingPalette(payload);
+            PopulateLightingPalette(payload, baseColorR, baseColorG, baseColorB, baseColorA);
             std::memcpy(payload.GifPacketTemplate, gifPacket.get()->base, TriangleGifPacketTemplateByteCount);
             if (EnableVuGifTemplateLayoutDiagnostics) {
                 throw std::runtime_error(
