@@ -25,12 +25,12 @@ public class Ps2PlatformAssetBuilderTests {
         Assert.Contains(builder.Definition.StorageProfiles, profile =>
             profile.ProfileId == "disc-layout" &&
             profile.RuntimeSpecializationId == "ps2-disc-layout");
-        Assert.Contains(builder.Definition.ComponentCompatibilities, compatibility =>
-            compatibility.ComponentTypeId == "helengine.fpscomponent" &&
-            compatibility.CompatibilityKind == PlatformComponentCompatibilityKind.Transform);
-        Assert.Contains(builder.Definition.ComponentCompatibilities, compatibility =>
-            compatibility.ComponentTypeId == "helengine.meshcomponent" &&
-            compatibility.CompatibilityKind == PlatformComponentCompatibilityKind.Transform);
+        Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
+            supportRule.ComponentTypeId == "helengine.fpscomponent" &&
+            supportRule.SupportKind == PlatformComponentSupportKind.Transform);
+        Assert.Contains(builder.Definition.ComponentSupportRules, supportRule =>
+            supportRule.ComponentTypeId == "helengine.meshcomponent" &&
+            supportRule.SupportKind == PlatformComponentSupportKind.Transform);
         Assert.Contains(builder.Definition.GraphicsProfiles, profile => profile.ProfileId == "ps2-standard-forward");
         Assert.Contains(builder.Definition.GraphicsProfiles, profile => profile.ProfileId == "ps2-showcase-forward");
         Assert.Contains(builder.Definition.MaterialSchemas, schema => schema.SchemaId == "ps2-unlit-textured");
