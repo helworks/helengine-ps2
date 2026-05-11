@@ -7,12 +7,67 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2NativeBuildInputsTests {
     /// <summary>
+    /// Legacy absolute worktree root embedded by the original source-contract tests.
+    /// </summary>
+    const string LegacyRepositoryRoot = @"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\";
+
+    /// <summary>
+    /// Absolute repository root for the currently executing checkout.
+    /// </summary>
+    static readonly string RepositoryRoot = ResolveRepositoryRoot();
+
+    /// <summary>
+    /// Reads one repository file by mapping the legacy absolute test path into the current checkout root.
+    /// </summary>
+    /// <param name="legacyAbsolutePath">Legacy absolute path embedded in the source-contract tests.</param>
+    /// <returns>Current repository file contents.</returns>
+    static string ReadRepositoryFile(string legacyAbsolutePath) {
+        return File.ReadAllText(GetRepositoryPath(legacyAbsolutePath));
+    }
+
+    /// <summary>
+    /// Resolves one legacy absolute repository file path into the current checkout root.
+    /// </summary>
+    /// <param name="legacyAbsolutePath">Legacy absolute path embedded in the source-contract tests.</param>
+    /// <returns>Absolute path in the current checkout.</returns>
+    static string GetRepositoryPath(string legacyAbsolutePath) {
+        if (string.IsNullOrWhiteSpace(legacyAbsolutePath)) {
+            throw new ArgumentException("A repository file path is required.", nameof(legacyAbsolutePath));
+        } else if (!legacyAbsolutePath.StartsWith(LegacyRepositoryRoot, StringComparison.OrdinalIgnoreCase)) {
+            throw new InvalidOperationException($"Repository test path '{legacyAbsolutePath}' does not start with the expected legacy root.");
+        }
+
+        string relativePath = legacyAbsolutePath.Substring(LegacyRepositoryRoot.Length).Replace('\\', Path.DirectorySeparatorChar);
+        return Path.Combine(RepositoryRoot, relativePath);
+    }
+
+    /// <summary>
+    /// Resolves the current repository root by walking upward from the compiled test assembly output.
+    /// </summary>
+    /// <returns>Absolute repository root for the active checkout.</returns>
+    static string ResolveRepositoryRoot() {
+        DirectoryInfo current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current != null) {
+            string builderTestsDirectory = Path.Combine(current.FullName, "builder.tests");
+            string sourceDirectory = Path.Combine(current.FullName, "src");
+            string agentsPath = Path.Combine(current.FullName, "AGENTS.md");
+            if (Directory.Exists(builderTestsDirectory) && Directory.Exists(sourceDirectory) && File.Exists(agentsPath)) {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        throw new InvalidOperationException("Unable to resolve the helengine-ps2 repository root for source-contract tests.");
+    }
+
+    /// <summary>
     /// Ensures the PS2 runtime model exposes embedded VU packed geometry loaded directly from the cooked model asset payload.
     /// </summary>
     [Fact]
     public void Ps2_runtime_model_exposes_vu_packed_geometry_for_fast_path_loading() {
-        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RuntimeModel.hpp");
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RuntimeModel.cpp");
+        string header = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RuntimeModel.hpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RuntimeModel.cpp");
 
         Assert.Contains("#include \"platform/ps2/rendering/vu/Ps2VuPackedModel.hpp\"", header, StringComparison.Ordinal);
         Assert.Contains("const Ps2VuPackedModel* GetVuPackedModel() const;", header, StringComparison.Ordinal);
@@ -28,8 +83,8 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_vu_packed_model_parses_triangle_stream_header_and_exposes_section_accessors() {
-        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuPackedModel.hpp");
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuPackedModel.cpp");
+        string header = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuPackedModel.hpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuPackedModel.cpp");
 
         Assert.Contains("std::uint32_t GetTriangleVertexCount() const;", header, StringComparison.Ordinal);
         Assert.Contains("const std::uint8_t* GetPositionBlockBytes() const;", header, StringComparison.Ordinal);
@@ -46,7 +101,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_declares_vu_opaque_batch_and_packet_infrastructure() {
-        string rendererHeader = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.hpp");
+        string rendererHeader = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.hpp");
 
         Assert.Contains("#include \"platform/ps2/rendering/vu/Ps2VuOpaqueBatchBuilder.hpp\"", rendererHeader, StringComparison.Ordinal);
         Assert.Contains("#include \"platform/ps2/rendering/vu/Ps2VuProgramRegistry.hpp\"", rendererHeader, StringComparison.Ordinal);
@@ -59,7 +114,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_routes_opaque_draws_through_vu_path_while_retaining_cpu_fallback() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
 
         Assert.Contains("RenderOpaqueWithVuPath(", source, StringComparison.Ordinal);
         Assert.Contains("DrawOpaqueProxyLegacy(", source, StringComparison.Ordinal);
@@ -71,8 +126,8 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_vu_opaque_batch_builder_emits_batches_for_opaque_proxies_with_packed_models() {
-        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuOpaqueBatchBuilder.hpp");
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuOpaqueBatchBuilder.cpp");
+        string header = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuOpaqueBatchBuilder.hpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuOpaqueBatchBuilder.cpp");
 
         Assert.Contains("std::size_t GetLastRejectedMissingMaterialCount() const;", header, StringComparison.Ordinal);
         Assert.Contains("std::size_t GetLastRejectedMissingModelCount() const;", header, StringComparison.Ordinal);
@@ -103,8 +158,8 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_vu_vif_packet_builder_assembles_local_screen_and_triangle_stream_packet_data() {
-        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuVifPacketBuilder.hpp");
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuVifPacketBuilder.cpp");
+        string header = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuVifPacketBuilder.hpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuVifPacketBuilder.cpp");
 
         Assert.Contains("std::uint32_t GetLastCompletedPhase() const;", header, StringComparison.Ordinal);
         Assert.Contains("~Ps2VuVifPacketBuilder();", header, StringComparison.Ordinal);
@@ -157,8 +212,8 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_computes_view_projection_and_world_matrices_for_vu_batches() {
-        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.hpp");
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string header = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.hpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
 
         Assert.Contains("::float4x4 BuildWorldMatrix(const Ps2RenderProxy& proxy) const;", header, StringComparison.Ordinal);
         Assert.Contains("::float4x4 viewProjection;", source, StringComparison.Ordinal);
@@ -173,8 +228,8 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_dispatches_assembled_vu_packets_over_vif1() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
-        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.hpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string header = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.hpp");
 
         Assert.Contains("#include <dma.h>", source, StringComparison.Ordinal);
         Assert.Contains("VuVifPacketBuilder.GetPacket()", source, StringComparison.Ordinal);
@@ -204,7 +259,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_defaults_opaque_runtime_path_to_vu() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
 
         Assert.Contains("UseLegacyCpuOpaquePath(false)", source, StringComparison.Ordinal);
     }
@@ -214,7 +269,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_makefile_compiles_vu_opaque_renderer_units() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\Makefile");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\Makefile");
 
         Assert.Contains("$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuPackedModel.cpp", source, StringComparison.Ordinal);
         Assert.Contains("$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuOpaqueBatchBuilder.cpp", source, StringComparison.Ordinal);
@@ -228,8 +283,8 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_makefile_builds_vu_opaque_microprogram_object() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\Makefile");
-        string microProgramPath = @"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\programs\Ps2OpaqueDraw3D.vsm";
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\Makefile");
+        string microProgramPath = GetRepositoryPath(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\programs\Ps2OpaqueDraw3D.vsm");
 
         Assert.True(File.Exists(microProgramPath));
         Assert.Contains("EE_DVP := dvp-as", source, StringComparison.Ordinal);
@@ -242,7 +297,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Boot_host_uploads_vu_opaque_microprogram_and_initializes_vif1_double_buffering() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
 
         Assert.Contains("#include <dma.h>", source, StringComparison.Ordinal);
         Assert.Contains("#include <packet2.h>", source, StringComparison.Ordinal);
@@ -261,7 +316,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Boot_host_initializes_cdvd_before_runtime_asset_loading() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
 
         Assert.Contains("#include <libcdvd.h>", source, StringComparison.Ordinal);
         Assert.Contains("constexpr const char* CubeModelDiagnosticPath = \"cdrom0:\\\\COOKED\\\\ENGINE\\\\MODELS\\\\CUBE.HAS;1\";", source, StringComparison.Ordinal);
@@ -284,7 +339,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Boot_host_when_graphics_initialize_applies_ps2_framebuffer_defaults_before_screen_init() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
 
         Assert.Contains("constexpr int Ps2DefaultFramebufferWidth = 640;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr int Ps2DefaultFramebufferHeight = 448;", source, StringComparison.Ordinal);
@@ -301,7 +356,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Boot_host_when_graphics_initialize_publishes_gs_backbuffer_size_to_render_manager() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
 
         Assert.Contains("EngineRenderManager3D->AddWindow(", source, StringComparison.Ordinal);
         Assert.Contains("static_cast<int32_t>(GsGlobal->Width)", source, StringComparison.Ordinal);
@@ -313,7 +368,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Boot_host_supports_cube_sprite_display_diagnostic_frame() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
 
         Assert.Contains("constexpr bool EnableCubeSpriteDiagnostics = false;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr float CubeSpriteDiagnosticLeft = 211.843231f;", source, StringComparison.Ordinal);
@@ -330,7 +385,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Boot_host_supports_cube_two_triangle_2d_diagnostic_frame() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
 
         Assert.Contains("constexpr bool EnableCubeTriangle2dDiagnostics = false;", source, StringComparison.Ordinal);
         Assert.Contains("void DrawCubeTriangle2dDiagnosticsFrame(GSGLOBAL* gsGlobal)", source, StringComparison.Ordinal);
@@ -345,7 +400,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Boot_host_supports_cube_two_triangle_3d_diagnostic_frame() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
         int callPosition = source.IndexOf("gsKit_prim_triangle_gouraud_3d(", StringComparison.Ordinal);
         int firstVertexPosition = source.IndexOf("CubeTriangle2dVertexA0X, CubeTriangle2dVertexA0Y, CubeTriangle3dDiagnosticDepth,", callPosition, StringComparison.Ordinal);
         int lastVertexPosition = source.IndexOf("CubeTriangle2dVertexA2X, CubeTriangle2dVertexA2Y, CubeTriangle3dDiagnosticDepth,", callPosition, StringComparison.Ordinal);
@@ -366,7 +421,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_resolves_camera_viewport_to_pixels_before_rendering() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
 
         Assert.Contains("ResolvePixelViewport(camera, windowSize)", source, StringComparison.Ordinal);
         Assert.Contains("int2* windowSize = get_MainWindowSize();", source, StringComparison.Ordinal);
@@ -378,7 +433,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_submits_untextured_triangles_with_vertex_first_color_last_argument_order() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
         int screenVertexPosition = source.IndexOf("screenAX, screenAY, screenAZ,", StringComparison.Ordinal);
         int screenColorPosition = source.IndexOf("clippedColorA, clippedColorB, clippedColorC);", StringComparison.Ordinal);
         int glowVertexPosition = source.IndexOf("glowAX, glowAY, glowAZ,", StringComparison.Ordinal);
@@ -397,7 +452,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Boot_host_allows_cube_runtime_diagnostics_to_be_disabled_for_normal_scene_execution() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
 
         Assert.Contains("constexpr bool EnableCubeRuntimeDiagnostics = true;", source, StringComparison.Ordinal);
         Assert.Contains("if (EnableCubeRuntimeDiagnostics && !CubeDiagnosticsShown)", source, StringComparison.Ordinal);
@@ -416,7 +471,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Boot_host_supports_frame_timing_diagnostics_for_update_draw_and_present() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
 
         Assert.Contains("#include <ctime>", source, StringComparison.Ordinal);
         Assert.Contains("constexpr bool EnableFrameTimingDiagnostics = false;", source, StringComparison.Ordinal);
@@ -439,7 +494,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_treats_negative_screen_space_signed_area_as_front_facing() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
 
         Assert.Contains("return signedArea < 0.0f;", source, StringComparison.Ordinal);
         Assert.DoesNotContain("return signedArea > 0.0f;", source, StringComparison.Ordinal);
@@ -450,7 +505,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_clips_against_negative_view_space_near_plane() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
 
         Assert.Contains("const float nearPlaneZ = -nearPlaneDistance;", source, StringComparison.Ordinal);
         Assert.Contains("bool previousInside = previous.ViewPosition.Z <= nearPlaneZ;", source, StringComparison.Ordinal);
@@ -465,7 +520,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_applies_parent_scale_and_orientation_to_model_vertices() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
 
         Assert.Contains("::float4 parentOrientation = parent->get_Orientation();", source, StringComparison.Ordinal);
         Assert.Contains("::float3 parentScale = parent->get_Scale();", source, StringComparison.Ordinal);
@@ -480,7 +535,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_runtime_renderer_exposes_triangle_stage_diagnostics_for_3d_submission() {
-        string rendererHeaderSource = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.hpp");
+        string rendererHeaderSource = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.hpp");
 
         Assert.Contains("std::size_t GetLastClipRejectCount() const;", rendererHeaderSource, StringComparison.Ordinal);
         Assert.Contains("std::size_t GetLastProjectionRejectCount() const;", rendererHeaderSource, StringComparison.Ordinal);
@@ -502,7 +557,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_supports_flat_color_diagnostic_submission_mode() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
 
         Assert.Contains("constexpr bool EnableFlatColorDiagnostics = false;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr bool EnableLightingOnlyDiagnostics = false;", source, StringComparison.Ordinal);
@@ -527,7 +582,7 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_scales_normalized_uvs_into_gskit_texel_space() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
 
         Assert.Contains("::float2 ResolveGsTextureCoordinate(const ::float2& normalizedTexCoord, const GSTEXTURE* texture)", source, StringComparison.Ordinal);
         Assert.Contains("normalizedTexCoord.X * static_cast<float>(texture->Width)", source, StringComparison.Ordinal);
@@ -543,8 +598,8 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_uses_scene_directional_light_for_vertex_lighting() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
-        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.hpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string header = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.hpp");
 
         Assert.Contains("#include \"DirectionalLightComponent.hpp\"", source, StringComparison.Ordinal);
         Assert.Contains("TryResolveDirectionalLightDirection(lightDirection);", source, StringComparison.Ordinal);
@@ -558,8 +613,8 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_modulates_lighting_by_cooked_base_color() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
-        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RuntimeMaterial.hpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string header = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RuntimeMaterial.hpp");
 
         Assert.Contains("material.GetBaseColorR()", source, StringComparison.Ordinal);
         Assert.Contains("material.GetBaseColorG()", source, StringComparison.Ordinal);
@@ -572,11 +627,65 @@ public sealed class Ps2NativeBuildInputsTests {
     }
 
     /// <summary>
+    /// Ensures the real VU opaque path resolves one directional light vector and passes it into the VU packet builder.
+    /// </summary>
+    [Fact]
+    public void Ps2_renderer3d_passes_directional_light_into_vu_opaque_packet_builder() {
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string packetHeader = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuVifPacketBuilder.hpp");
+
+        Assert.Contains("::float3 lightDirection = DefaultForward;", source, StringComparison.Ordinal);
+        Assert.Contains("TryResolveDirectionalLightDirection(lightDirection);", source, StringComparison.Ordinal);
+        Assert.Contains("const ::float3& lightDirection, GSGLOBAL* gsGlobal);", packetHeader, StringComparison.Ordinal);
+        Assert.Contains("lightDirection, GsGlobal);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the VU packet builder reads packed normals and emits a lit flat triangle payload for the VU program.
+    /// </summary>
+    [Fact]
+    public void Ps2_vu_vif_packet_builder_packs_normals_light_direction_and_rgbaq_for_flat_diffuse_lighting() {
+        string header = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuVifPacketBuilder.hpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuVifPacketBuilder.cpp");
+
+        Assert.Contains("const ::float3& lightDirection, GSGLOBAL* gsGlobal);", header, StringComparison.Ordinal);
+        Assert.Contains("const float* packedNormalWords = reinterpret_cast<const float*>(batch.Model->GetNormalBlockBytes());", source, StringComparison.Ordinal);
+        Assert.Contains("struct alignas(16) Ps2VuLitTrianglePayload final {", source, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuGifQword LightingPalette[LightingPaletteEntryCount];", source, StringComparison.Ordinal);
+        Assert.Contains("std::uint8_t GifPacketTemplate[TriangleGifPacketTemplateByteCount];", source, StringComparison.Ordinal);
+        Assert.Contains("PopulateTriangleGifPacketTemplate(batch, positionARegister, positionBRegister, positionCRegister, payload);", source, StringComparison.Ordinal);
+        Assert.Contains("const ::float3 worldFaceNormal = NormalizeOrFallback(", source, StringComparison.Ordinal);
+        Assert.Contains("payload.LightDirection[0] = normalizedLightDirection.X;", source, StringComparison.Ordinal);
+        Assert.Contains("payload.LightConstants[0] = LightingDiffuseScale;", source, StringComparison.Ordinal);
+        Assert.Contains("payload.LightConstants[1] = LightingAmbientBias;", source, StringComparison.Ordinal);
+        Assert.Contains("payload.LightConstants[2] = LightingPaletteScale;", source, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(packet.get()->next, &trianglePayload, sizeof(Ps2VuLitTrianglePayload));", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the VU1 opaque draw microprogram computes flat diffuse lighting from face-normal and light-direction payload qwords.
+    /// </summary>
+    [Fact]
+    public void Ps2_opaque_draw_vu_program_computes_flat_diffuse_lighting_before_xgkick() {
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\programs\Ps2OpaqueDraw3D.vsm");
+
+        Assert.Contains("lq.xyzw", source, StringComparison.Ordinal);
+        Assert.Contains("mulax.x", source, StringComparison.Ordinal);
+        Assert.Contains("madday.x", source, StringComparison.Ordinal);
+        Assert.Contains("maddz.x", source, StringComparison.Ordinal);
+        Assert.Contains("maxx.x", source, StringComparison.Ordinal);
+        Assert.Contains("mtir VI04", source, StringComparison.Ordinal);
+        Assert.Contains("ftoi0.x", source, StringComparison.Ordinal);
+        Assert.Contains("sq.xyzw", source, StringComparison.Ordinal);
+        Assert.Contains("xgkick", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 renderer does not leave the single-proxy diagnostic clamp enabled for normal exports.
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_disables_single_proxy_diagnostic_submission_mode_for_normal_exports() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
+        string source = ReadRepositoryFile(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
 
         Assert.Contains("constexpr bool EnableSingleProxyDiagnostics = false;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr std::size_t SingleProxyDiagnosticIndex = 1;", source, StringComparison.Ordinal);

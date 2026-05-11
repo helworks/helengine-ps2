@@ -57,7 +57,7 @@ namespace {
     constexpr bool EnableCubeSpriteDiagnostics = false;
     constexpr bool EnableCubeTriangle2dDiagnostics = false;
     constexpr bool EnableCubeTriangle3dDiagnostics = false;
-    constexpr bool EnableCubeRuntimeDiagnostics = true;
+    constexpr bool EnableCubeRuntimeDiagnostics = false;
     constexpr bool EnableCubeRuntimeDiagnosticImmediateHalt = false;
     constexpr double CubeRuntimeDiagnosticWatchSeconds = 5.0;
     constexpr bool EnableFrameTimingDiagnostics = false;

@@ -1,4 +1,4 @@
-; Minimal opaque untextured VU1 microprogram for the first visible cube path.
+; Flat diffuse-lit opaque VU1 microprogram for the spinning cube lighting milestone.
 
 		.vu
 		.align 4
@@ -6,8 +6,24 @@
 		.global	Ps2OpaqueDraw3D_CodeEnd
 Ps2OpaqueDraw3D_CodeStart:
 __ps2_opaque_draw_3d:
-         NOP                                                        xtop          VI02
-         NOP                                                        xgkick        VI02
+         NOP                                                        xtop VI02
+         NOP                                                        iaddiu VI03, VI02, 0x00000010
+         NOP                                                        lq.xyzw VF04xyzw, 22(VI02)
+         NOP                                                        lq.xyzw VF05xyzw, 23(VI02)
+         NOP                                                        lq.xyzw VF06xyzw, 24(VI02)
+         mulax.x        ACC, VF04, VF05                             NOP
+         madday.x       ACC, VF04, VF05                             NOP
+         maddz.x        VF07, VF04, VF05                            NOP
+         maxx.x         VF07, VF07, VF00                            NOP
+         mulx.x         VF07, VF07, VF06                            NOP
+         addy.x         VF07, VF07, VF06                            NOP
+         mulz.x         VF07, VF07, VF06                            NOP
+         ftoi0.x        VF07, VF07                                  NOP
+         NOP                                                        mtir VI04, VF07x
+         NOP                                                        iadd VI04, VI02, VI04
+         NOP                                                        lq.xyzw VF08xyzw, 0(VI04)
+         NOP                                                        sq.xyzw VF08xyzw, 18(VI02)
+         NOP                                                        xgkick VI03
          NOP[E]                                                     NOP
          NOP                                                        NOP
 		.align 4

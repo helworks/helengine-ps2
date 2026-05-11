@@ -591,6 +591,8 @@ namespace helengine::ps2 {
 
     void Ps2RenderManager3D::RenderOpaqueWithVuPath(const Ps2FramePlan& plan, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {
         std::vector<Ps2VuOpaqueBatch> batches = VuOpaqueBatchBuilder.Build(plan);
+        ::float3 lightDirection = DefaultForward;
+        TryResolveDirectionalLightDirection(lightDirection);
         LastVuBatchDispatchCount = batches.size();
         LastVuRejectedMissingMaterialCount = VuOpaqueBatchBuilder.GetLastRejectedMissingMaterialCount();
         LastVuRejectedMissingModelCount = VuOpaqueBatchBuilder.GetLastRejectedMissingModelCount();
@@ -604,7 +606,7 @@ namespace helengine::ps2 {
             ::float4x4 world = BuildWorldMatrix(*batch.Proxy);
             VuGifStateEncoder.EncodeOpaqueState(batch, GsGlobal);
             VuVifPacketBuilder.Reset();
-            VuVifPacketBuilder.AddOpaqueBatch(batch, world, view, projection, viewport, nearPlaneDistance, GsGlobal);
+            VuVifPacketBuilder.AddOpaqueBatch(batch, world, view, projection, viewport, nearPlaneDistance, lightDirection, GsGlobal);
             (void)VuProgramRegistry.ResolveOpaqueProgram(batch);
             packet2_t* packet = VuVifPacketBuilder.GetPacket();
             if (packet == nullptr) {
