@@ -18,7 +18,7 @@ namespace helengine::ps2 {
     public:
         ~Ps2VuVifPacketBuilder();
         void Reset();
-        void AddOpaqueBatch(const Ps2VuOpaqueBatch& batch, const ::float4x4& world, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance, GSGLOBAL* gsGlobal);
+        void AddOpaqueBatch(const Ps2VuOpaqueBatch& batch, const ::float4x4& world, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance, const ::float3& lightDirection, GSGLOBAL* gsGlobal);
         packet2_t* GetPacket() const;
         std::size_t GetPacketByteCount() const;
         const std::vector<std::uint8_t>& GetGifPacketBytes() const;

@@ -634,6 +634,11 @@ namespace helengine::ps2 {
                 continue;
             }
 
+            ApplyDepthState(GsGlobal->ZBuffering == GS_SETTING_ON);
+            ApplyMaterialAlphaState(*batch.Material);
+            gsKit_queue_exec(GsGlobal);
+            dma_channel_wait(DMA_CHANNEL_GIF, 0);
+
             dma_channel_wait(DMA_CHANNEL_VIF1, 0);
             ::float4x4 world = BuildWorldMatrix(*batch.Proxy);
             VuGifStateEncoder.EncodeOpaqueState(batch, GsGlobal);

@@ -21,6 +21,8 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             throw new ArgumentNullException(nameof(workspace));
         }
 
+        NormalizeGeneratedCoreSources(workspace.GeneratedCoreRootPath);
+
         RunProcess(
             "docker",
             [
@@ -50,6 +52,63 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             ],
             workspace.RepositoryRootPath,
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Applies PS2-native generated-core source normalization before the Docker toolchain compiles the translated runtime.
+    /// </summary>
+    /// <param name="generatedCoreRootPath">Absolute generated-core root produced by the editor build graph.</param>
+    static void NormalizeGeneratedCoreSources(string generatedCoreRootPath) {
+        if (string.IsNullOrWhiteSpace(generatedCoreRootPath)) {
+            throw new ArgumentException("Generated core root path must be provided.", nameof(generatedCoreRootPath));
+        }
+
+        if (!Directory.Exists(generatedCoreRootPath)) {
+            return;
+        }
+
+        string[] sourceFiles = Directory.GetFiles(generatedCoreRootPath, "*.*", SearchOption.AllDirectories);
+        Array.Sort(sourceFiles, StringComparer.OrdinalIgnoreCase);
+        for (int index = 0; index < sourceFiles.Length; index++) {
+            string sourceFilePath = sourceFiles[index];
+            string extension = Path.GetExtension(sourceFilePath);
+            if (!string.Equals(extension, ".cpp", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(extension, ".hpp", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(extension, ".tpp", StringComparison.OrdinalIgnoreCase)) {
+                continue;
+            }
+
+            string fileName = Path.GetFileName(sourceFilePath);
+            string contents = File.ReadAllText(sourceFilePath);
+            string updatedContents = NormalizeGeneratedCoreSource(fileName, contents);
+            if (!string.Equals(contents, updatedContents, StringComparison.Ordinal)) {
+                File.WriteAllText(sourceFilePath, updatedContents);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Rewrites known light-component native generation defects so the PS2 toolchain receives valid C++ source.
+    /// </summary>
+    /// <param name="fileName">Generated source file name being normalized.</param>
+    /// <param name="contents">Current generated source contents.</param>
+    /// <returns>Normalized generated source contents for PS2 native compilation.</returns>
+    static string NormalizeGeneratedCoreSource(string fileName, string contents) {
+        if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrEmpty(contents)) {
+            return contents;
+        }
+
+        if (string.Equals(fileName, "AmbientLightComponent.cpp", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fileName, "DirectionalLightComponent.cpp", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fileName, "PointLightComponent.cpp", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fileName, "SpotLightComponent.cpp", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fileName, "LightComponent.cpp", StringComparison.OrdinalIgnoreCase)) {
+            string updatedContents = contents.Replace("LightType.", "LightType::", StringComparison.Ordinal);
+            updatedContents = updatedContents.Replace("this->ShadowMapMode::Auto", "::ShadowMapMode::Auto", StringComparison.Ordinal);
+            return updatedContents;
+        }
+
+        return contents;
     }
 
     /// <summary>
