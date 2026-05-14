@@ -62,8 +62,8 @@ namespace {
     constexpr bool EnableCubeRuntimeDiagnostics = false;
     constexpr bool EnableCubeRuntimeDiagnosticImmediateHalt = false;
     constexpr double CubeRuntimeDiagnosticWatchSeconds = 5.0;
-    constexpr bool EnableFrameTimingDiagnostics = false;
-    constexpr bool EnableFrameTimingDiagnosticHalt = false;
+    constexpr bool EnableFrameTimingDiagnostics = true;
+    constexpr bool EnableFrameTimingDiagnosticHalt = true;
     constexpr int FrameTimingSampleFrameCount = 60;
     constexpr float CubeSpriteDiagnosticLeft = 211.843231f;
     constexpr float CubeSpriteDiagnosticTop = 115.843239f;
@@ -87,10 +87,17 @@ namespace {
     bool CubeRuntimeDiagnosticWatchActive = false;
     std::clock_t CubeRuntimeDiagnosticWatchStartTicks = 0;
     double FrameTimingUpdateSeconds = 0.0;
+    double FrameTimingDraw3dSeconds = 0.0;
+    double FrameTimingGifWaitSeconds = 0.0;
+    double FrameTimingDraw2dSeconds = 0.0;
     double FrameTimingDrawSeconds = 0.0;
     double FrameTimingPresentSeconds = 0.0;
     int FrameTimingFrameCount = 0;
     bool FrameTimingSampleCompleted = false;
+    bool FrameTimingOverlayPending = false;
+    bool FrameTimingOverlayPresented = false;
+    std::string FrameTimingOverlayLine1;
+    std::string FrameTimingOverlayLine2;
 
     void BootLog(const char* message);
 
@@ -106,12 +113,21 @@ namespace {
         return static_cast<double>(endTicks - startTicks) / static_cast<double>(CLOCKS_PER_SEC);
     }
 
-    void RecordFrameTimingSample(double updateSeconds, double drawSeconds, double presentSeconds) {
+    void RecordFrameTimingSample(
+        double updateSeconds,
+        double draw3dSeconds,
+        double gifWaitSeconds,
+        double draw2dSeconds,
+        double drawSeconds,
+        double presentSeconds) {
         if (!EnableFrameTimingDiagnostics) {
             return;
         }
 
         FrameTimingUpdateSeconds += updateSeconds;
+        FrameTimingDraw3dSeconds += draw3dSeconds;
+        FrameTimingGifWaitSeconds += gifWaitSeconds;
+        FrameTimingDraw2dSeconds += draw2dSeconds;
         FrameTimingDrawSeconds += drawSeconds;
         FrameTimingPresentSeconds += presentSeconds;
         FrameTimingFrameCount += 1;
@@ -121,6 +137,9 @@ namespace {
 
         const double sampledFrameCount = static_cast<double>(FrameTimingFrameCount);
         const double averageUpdateMilliseconds = (FrameTimingUpdateSeconds / sampledFrameCount) * 1000.0;
+        const double averageDraw3dMilliseconds = (FrameTimingDraw3dSeconds / sampledFrameCount) * 1000.0;
+        const double averageGifWaitMilliseconds = (FrameTimingGifWaitSeconds / sampledFrameCount) * 1000.0;
+        const double averageDraw2dMilliseconds = (FrameTimingDraw2dSeconds / sampledFrameCount) * 1000.0;
         const double averageDrawMilliseconds = (FrameTimingDrawSeconds / sampledFrameCount) * 1000.0;
         const double averagePresentMilliseconds = (FrameTimingPresentSeconds / sampledFrameCount) * 1000.0;
         const double totalSeconds = FrameTimingUpdateSeconds + FrameTimingDrawSeconds + FrameTimingPresentSeconds;
@@ -128,14 +147,41 @@ namespace {
         BootLog(
             "frame timing avg updateMs="
             + std::to_string(averageUpdateMilliseconds)
+            + " draw3dMs="
+            + std::to_string(averageDraw3dMilliseconds)
+            + " gifWaitMs="
+            + std::to_string(averageGifWaitMilliseconds)
+            + " draw2dMs="
+            + std::to_string(averageDraw2dMilliseconds)
             + " drawMs="
             + std::to_string(averageDrawMilliseconds)
             + " presentMs="
             + std::to_string(averagePresentMilliseconds)
             + " fps="
             + std::to_string(averageFramesPerSecond));
+        FrameTimingOverlayLine1 =
+            "Upd: "
+            + std::to_string(averageUpdateMilliseconds)
+            + " 3D: "
+            + std::to_string(averageDraw3dMilliseconds)
+            + " GIF: "
+            + std::to_string(averageGifWaitMilliseconds);
+        FrameTimingOverlayLine2 =
+            "2D: "
+            + std::to_string(averageDraw2dMilliseconds)
+            + " Drw: "
+            + std::to_string(averageDrawMilliseconds)
+            + " Pre: "
+            + std::to_string(averagePresentMilliseconds)
+            + " FPS: "
+            + std::to_string(averageFramesPerSecond);
+        FrameTimingOverlayPending = true;
+        FrameTimingOverlayPresented = false;
         FrameTimingSampleCompleted = true;
         FrameTimingUpdateSeconds = 0.0;
+        FrameTimingDraw3dSeconds = 0.0;
+        FrameTimingGifWaitSeconds = 0.0;
+        FrameTimingDraw2dSeconds = 0.0;
         FrameTimingDrawSeconds = 0.0;
         FrameTimingPresentSeconds = 0.0;
         FrameTimingFrameCount = 0;
@@ -769,6 +815,8 @@ namespace helengine::ps2 {
             try {
                 const std::clock_t frameUpdateStartTicks = std::clock();
                 std::clock_t frameUpdateEndTicks = frameUpdateStartTicks;
+                std::clock_t frameDraw3dEndTicks = frameUpdateStartTicks;
+                std::clock_t frameGifWaitEndTicks = frameUpdateStartTicks;
                 std::clock_t frameDrawEndTicks = frameUpdateStartTicks;
                 std::clock_t framePresentEndTicks = frameUpdateStartTicks;
                 if (EngineCore != 0) {
@@ -842,10 +890,12 @@ namespace helengine::ps2 {
                         while (true) {
                         }
                     }
+                    frameDraw3dEndTicks = std::clock();
 
                     // VU opaque rendering emits GIF work asynchronously through VIF1. Wait for the
                     // GIF channel to drain before 2D overlays and the frame submit reuse GS state.
                     dma_channel_wait(DMA_CHANNEL_GIF, 0);
+                    frameGifWaitEndTicks = std::clock();
 
                     if (EnableCubeRuntimeDiagnostics && !CubeDiagnosticsShown) {
                         CubeDiagnosticsShown = true;
@@ -936,6 +986,17 @@ namespace helengine::ps2 {
                             ::IDrawable2D* drawable = orderedDrawables[i];
                             if (drawable != nullptr) {
                                 try {
+                                    if (FrameTimingOverlayPending) {
+                                        ::ITextDrawable2D* textDrawable = dynamic_cast<::ITextDrawable2D*>(drawable);
+                                        if (textDrawable != nullptr) {
+                                            std::string currentText = textDrawable->get_Text();
+                                            if (currentText.rfind("Update FPS:", 0) == 0) {
+                                                textDrawable->set_Text(FrameTimingOverlayLine1);
+                                            } else if (currentText.rfind("Render FPS:", 0) == 0) {
+                                                textDrawable->set_Text(FrameTimingOverlayLine2);
+                                            }
+                                        }
+                                    }
                                     drawable->Draw();
                                 } catch (Exception* exception) {
                                     BootLog(std::string("frame draw2d exception: ") + (exception != nullptr ? exception->what() : "null"));
@@ -954,6 +1015,9 @@ namespace helengine::ps2 {
                             }
                         }
                     }
+                }
+                if (frameGifWaitEndTicks == frameUpdateStartTicks) {
+                    frameGifWaitEndTicks = std::clock();
                 }
                 frameDrawEndTicks = std::clock();
 
@@ -975,10 +1039,37 @@ namespace helengine::ps2 {
                     }
                 }
                 framePresentEndTicks = std::clock();
+                if (FrameTimingOverlayPending) {
+                    FrameTimingOverlayPresented = true;
+                }
                 RecordFrameTimingSample(
                     ResolveSecondsFromClockTicks(frameUpdateStartTicks, frameUpdateEndTicks),
+                    ResolveSecondsFromClockTicks(frameUpdateEndTicks, frameDraw3dEndTicks),
+                    ResolveSecondsFromClockTicks(frameDraw3dEndTicks, frameGifWaitEndTicks),
+                    ResolveSecondsFromClockTicks(frameGifWaitEndTicks, frameDrawEndTicks),
                     ResolveSecondsFromClockTicks(frameUpdateEndTicks, frameDrawEndTicks),
                     ResolveSecondsFromClockTicks(frameDrawEndTicks, framePresentEndTicks));
+                if (FrameTimingSampleCompleted) {
+                    FrameTimingOverlayLine1 =
+                        std::string(RenderManager3DBackend.IsUsingLegacyCpuOpaquePath() ? "OpaqueCPU " : "OpaqueVU2 ")
+                        + "Prx: "
+                        + std::to_string(RenderManager3DBackend.GetLastProxySyncMilliseconds())
+                        + " Pln: "
+                        + std::to_string(RenderManager3DBackend.GetLastFramePlanMilliseconds())
+                        + " Prep: "
+                        + std::to_string(RenderManager3DBackend.GetLastVuTrianglePrepMilliseconds());
+                    FrameTimingOverlayLine2 =
+                        "Emit: "
+                        + std::to_string(RenderManager3DBackend.GetLastVuTriangleEmitMilliseconds())
+                        + " Asm: "
+                        + std::to_string(RenderManager3DBackend.GetLastVuPacketAssemblyMilliseconds())
+                        + " Pkt: "
+                        + std::to_string(RenderManager3DBackend.GetLastVuPacketEncodeMilliseconds())
+                        + " 3D: "
+                        + std::to_string(ResolveSecondsFromClockTicks(frameUpdateEndTicks, frameDrawEndTicks) * 1000.0)
+                        + " Pre: "
+                        + std::to_string(ResolveSecondsFromClockTicks(frameDrawEndTicks, framePresentEndTicks) * 1000.0);
+                }
                 if (EnableCubeRuntimeDiagnostics && CubeDiagnosticsShown) {
                     if (!CubeRuntimeDiagnosticWatchActive) {
                         CubeRuntimeDiagnosticWatchActive = true;
@@ -990,7 +1081,11 @@ namespace helengine::ps2 {
                         }
                     }
                 }
-                if (EnableFrameTimingDiagnostics && EnableFrameTimingDiagnosticHalt && FrameTimingSampleCompleted) {
+                if (EnableFrameTimingDiagnostics &&
+                    EnableFrameTimingDiagnosticHalt &&
+                    FrameTimingSampleCompleted &&
+                    FrameTimingOverlayPresented) {
+                    FrameTimingOverlayPending = false;
                     while (true) {
                     }
                 }
