@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <ctime>
 #include <cstdio>
 #include <cmath>
 #include <cstring>
@@ -49,7 +50,6 @@ namespace helengine::ps2 {
         constexpr std::size_t TriangleGifPacketTemplateQwordCount = 6u;
         constexpr std::size_t TriangleGifPacketTemplateByteCount = TriangleGifPacketTemplateQwordCount * 16u;
         constexpr std::size_t LitTrianglePaletteQwordCount = LightingPaletteEntryCount;
-        constexpr std::size_t LitTrianglePayloadQwordCount = LitTrianglePaletteQwordCount + TriangleGifPacketTemplateQwordCount + 3u;
         constexpr std::size_t LitTriangleGifPacketQwordOffset = LitTrianglePaletteQwordCount;
         constexpr std::size_t LitTriangleFaceNormalQwordOffset = LitTriangleGifPacketQwordOffset + TriangleGifPacketTemplateQwordCount;
         constexpr std::size_t LitTriangleLightDirectionQwordOffset = LitTriangleFaceNormalQwordOffset + 1u;
@@ -68,9 +68,26 @@ namespace helengine::ps2 {
             std::uint64_t High = 0;
         };
 
+        struct alignas(16) Ps2VuOpaqueSourceTriangle final {
+            float PositionA[4];
+            float PositionB[4];
+            float PositionC[4];
+            float NormalA[4];
+            float NormalB[4];
+            float NormalC[4];
+            float TexCoordA[4];
+            float TexCoordB[4];
+            float TexCoordC[4];
+        };
+
         struct alignas(16) Ps2VuLitTrianglePayload final {
             Ps2VuGifQword LightingPalette[LightingPaletteEntryCount];
             std::uint8_t GifPacketTemplate[TriangleGifPacketTemplateByteCount];
+            float WorldMatrix[16];
+            float ViewMatrix[16];
+            float ProjectionMatrix[16];
+            float Viewport[4];
+            Ps2VuOpaqueSourceTriangle SourceTriangle;
             float FaceNormal[4];
             float LightDirection[4];
             float LightConstants[4];
@@ -81,7 +98,8 @@ namespace helengine::ps2 {
             ::float2 TexCoord = ::float2(0.0f, 0.0f);
         };
 
-        static_assert(sizeof(Ps2VuLitTrianglePayload) == (LitTrianglePayloadQwordCount * 16u));
+        static_assert((sizeof(Ps2VuLitTrianglePayload) % 16u) == 0u);
+        constexpr std::size_t LitTrianglePayloadQwordCount = sizeof(Ps2VuLitTrianglePayload) / 16u;
 
         std::uint32_t BuildVifCode(std::uint16_t immediate, std::uint8_t number, std::uint8_t command, bool irq) {
             return static_cast<std::uint32_t>(immediate)
@@ -101,6 +119,14 @@ namespace helengine::ps2 {
 
         std::uint32_t ResolveMaximumDepth([[maybe_unused]] GSGLOBAL* gsGlobal) {
             return 1u << 23;
+        }
+
+        double ResolveMillisecondsFromClockTicks(std::clock_t startTicks, std::clock_t endTicks) {
+            if (endTicks <= startTicks) {
+                return 0.0;
+            }
+
+            return (static_cast<double>(endTicks - startTicks) / static_cast<double>(CLOCKS_PER_SEC)) * 1000.0;
         }
 
         ::float3 TransformPosition(const ::float4& position, const ::float4x4& matrix) {
@@ -467,6 +493,10 @@ namespace helengine::ps2 {
 
         GifPacketBytes.clear();
         LastCompletedPhase = 0;
+        LastTriangleSetupMilliseconds = 0.0;
+        LastPacketAssemblyMilliseconds = 0.0;
+        LastTrianglePrepMilliseconds = 0.0;
+        LastTriangleEmitMilliseconds = 0.0;
         SubmittedTriangleCount = 0;
         SubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         SubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -484,6 +514,10 @@ namespace helengine::ps2 {
             return;
         }
 
+        // Opaque VU path invariant:
+        // - no CPU near-plane clipping
+        // - no CPU projection to XYZ2
+        // - no CPU screen-space front-face rejection
         std::uint32_t triangleVertexCount = batch.Model->GetTriangleVertexCount();
         if (triangleVertexCount == 0) {
             return;
@@ -500,6 +534,7 @@ namespace helengine::ps2 {
         trianglePayloads.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);
         std::vector<std::vector<std::uint8_t>> texturedTrianglePackets;
         texturedTrianglePackets.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);
+        const std::clock_t triangleSetupStartTicks = std::clock();
         if (EnableVuFixedTriangleDiagnostics) {
             Ps2VuLitTrianglePayload payload {};
             PopulateTriangleGifPacketTemplate(
@@ -528,8 +563,6 @@ namespace helengine::ps2 {
             SubmittedTriangleVertexA1 = ::float4(FixedTriangleBX, FixedTriangleBY, FixedTriangleZ, 0.0f);
             SubmittedTriangleVertexA2 = ::float4(FixedTriangleCX, FixedTriangleCY, FixedTriangleZ, 0.0f);
         } else {
-            std::vector<::float3> clippedVertices;
-            clippedVertices.reserve(4u);
             std::vector<Ps2VuTexturedClipVertex> clippedTexturedVertices;
             clippedTexturedVertices.reserve(4u);
             const Ps2RuntimeModel* runtimeModel = batch.Proxy != nullptr ? batch.Proxy->GetModel() : nullptr;
@@ -540,6 +573,7 @@ namespace helengine::ps2 {
             const float* packedNormalWords = reinterpret_cast<const float*>(batch.Model->GetNormalBlockBytes());
             const float* packedTexCoordWords = textured ? reinterpret_cast<const float*>(batch.Model->GetTexCoordBlockBytes()) : nullptr;
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
+                const std::clock_t trianglePrepStartTicks = std::clock();
                 const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
                 const std::size_t positionWordIndexB = static_cast<std::size_t>(vertexIndex + 1u) * 4u;
                 const std::size_t positionWordIndexC = static_cast<std::size_t>(vertexIndex + 2u) * 4u;
@@ -591,32 +625,35 @@ namespace helengine::ps2 {
                 const ::float3 sourceNormalC = runtimeNormals != nullptr && sourceIndexC < runtimeNormals->size()
                     ? (*runtimeNormals)[sourceIndexC]
                     : packedNormalC;
-                const ::float4 positionA(packedPositionA.X, packedPositionA.Y, packedPositionA.Z, 1.0f);
-                const ::float4 positionB(packedPositionB.X, packedPositionB.Y, packedPositionB.Z, 1.0f);
-                const ::float4 positionC(packedPositionC.X, packedPositionC.Y, packedPositionC.Z, 1.0f);
-                const ::float3 worldPositionA = TransformPosition(positionA, world);
-                const ::float3 worldPositionB = TransformPosition(positionB, world);
-                const ::float3 worldPositionC = TransformPosition(positionC, world);
-                const ::float4 worldPositionA4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
-                const ::float4 worldPositionB4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
-                const ::float4 worldPositionC4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
-                const ::float4 faceNormal4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f);
-                const ::float3 worldFaceNormal = NormalizeOrFallback(
-                    TransformPosition(faceNormal4, world),
-                    ::float3(0.0f, 0.0f, -1.0f));
-                const ::float3 worldNormalA = NormalizeOrFallback(
-                    TransformPosition(::float4(sourceNormalA.X, sourceNormalA.Y, sourceNormalA.Z, 0.0f), world),
-                    ::float3(0.0f, 0.0f, -1.0f));
-                const ::float3 worldNormalB = NormalizeOrFallback(
-                    TransformPosition(::float4(sourceNormalB.X, sourceNormalB.Y, sourceNormalB.Z, 0.0f), world),
-                    ::float3(0.0f, 0.0f, -1.0f));
-                const ::float3 worldNormalC = NormalizeOrFallback(
-                    TransformPosition(::float4(sourceNormalC.X, sourceNormalC.Y, sourceNormalC.Z, 0.0f), world),
-                    ::float3(0.0f, 0.0f, -1.0f));
-                const ::float3 viewPositionA = TransformPosition(worldPositionA4, view);
-                const ::float3 viewPositionB = TransformPosition(worldPositionB4, view);
-                const ::float3 viewPositionC = TransformPosition(worldPositionC4, view);
+                const std::clock_t trianglePrepEndTicks = std::clock();
+                LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
+                const std::clock_t triangleEmitStartTicks = std::clock();
                 if (textured) {
+                    const ::float4 positionA(packedPositionA.X, packedPositionA.Y, packedPositionA.Z, 1.0f);
+                    const ::float4 positionB(packedPositionB.X, packedPositionB.Y, packedPositionB.Z, 1.0f);
+                    const ::float4 positionC(packedPositionC.X, packedPositionC.Y, packedPositionC.Z, 1.0f);
+                    const ::float3 worldPositionA = TransformPosition(positionA, world);
+                    const ::float3 worldPositionB = TransformPosition(positionB, world);
+                    const ::float3 worldPositionC = TransformPosition(positionC, world);
+                    const ::float4 worldPositionA4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
+                    const ::float4 worldPositionB4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
+                    const ::float4 worldPositionC4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
+                    const ::float4 faceNormal4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f);
+                    const ::float3 worldFaceNormal = NormalizeOrFallback(
+                        TransformPosition(faceNormal4, world),
+                        ::float3(0.0f, 0.0f, -1.0f));
+                    const ::float3 worldNormalA = NormalizeOrFallback(
+                        TransformPosition(::float4(sourceNormalA.X, sourceNormalA.Y, sourceNormalA.Z, 0.0f), world),
+                        ::float3(0.0f, 0.0f, -1.0f));
+                    const ::float3 worldNormalB = NormalizeOrFallback(
+                        TransformPosition(::float4(sourceNormalB.X, sourceNormalB.Y, sourceNormalB.Z, 0.0f), world),
+                        ::float3(0.0f, 0.0f, -1.0f));
+                    const ::float3 worldNormalC = NormalizeOrFallback(
+                        TransformPosition(::float4(sourceNormalC.X, sourceNormalC.Y, sourceNormalC.Z, 0.0f), world),
+                        ::float3(0.0f, 0.0f, -1.0f));
+                    const ::float3 viewPositionA = TransformPosition(worldPositionA4, view);
+                    const ::float3 viewPositionB = TransformPosition(worldPositionB4, view);
+                    const ::float3 viewPositionC = TransformPosition(worldPositionC4, view);
                     const ::float2 sourceTexCoordA = runtimeTexCoords != nullptr && sourceIndexA < runtimeTexCoords->size()
                         ? (*runtimeTexCoords)[sourceIndexA]
                         : ::float2(packedTexCoordWords[positionWordIndexA + 0u], packedTexCoordWords[positionWordIndexA + 1u]);
@@ -692,18 +729,128 @@ namespace helengine::ps2 {
                                 textureWidth,
                                 textureHeight,
                                 triangleColor,
-                                clippedTexturedVertices[0],
-                                clippedTexturedVertices[clippedIndex],
-                                clippedTexturedVertices[clippedIndex + 1u],
-                                positionARegister,
-                                positionBRegister,
-                                positionCRegister));
+                        clippedTexturedVertices[0],
+                        clippedTexturedVertices[clippedIndex],
+                        clippedTexturedVertices[clippedIndex + 1u],
+                        positionARegister,
+                        positionBRegister,
+                        positionCRegister));
+                        const float minX = std::min({ screenAX, screenBX, screenCX });
+                        const float minY = std::min({ screenAY, screenBY, screenCY });
+                        const float maxX = std::max({ screenAX, screenBX, screenCX });
+                        const float maxY = std::max({ screenAY, screenBY, screenCY });
+                        if (SubmittedTriangleCount == 0u) {
+                            SubmittedScreenBounds = ::float4(minX, minY, maxX, maxY);
+                            SubmittedTriangleBoundsA = ::float4(minX, minY, maxX, maxY);
+                            SubmittedTriangleVertexA0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
+                            SubmittedTriangleVertexA1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
+                            SubmittedTriangleVertexA2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
+                        } else {
+                            SubmittedScreenBounds.X = std::min(SubmittedScreenBounds.X, minX);
+                            SubmittedScreenBounds.Y = std::min(SubmittedScreenBounds.Y, minY);
+                            SubmittedScreenBounds.Z = std::max(SubmittedScreenBounds.Z, maxX);
+                            SubmittedScreenBounds.W = std::max(SubmittedScreenBounds.W, maxY);
+                            if (SubmittedTriangleCount == 1u) {
+                                SubmittedTriangleBoundsB = ::float4(minX, minY, maxX, maxY);
+                                SubmittedTriangleVertexB0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
+                                SubmittedTriangleVertexB1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
+                                SubmittedTriangleVertexB2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
+                            }
+                        }
                     } else {
                         Ps2VuLitTrianglePayload payload {};
-                        PopulateTriangleGifPacketTemplate(batch, positionARegister, positionBRegister, positionCRegister, payload);
-                        payload.FaceNormal[0] = worldFaceNormal.X;
-                        payload.FaceNormal[1] = worldFaceNormal.Y;
-                        payload.FaceNormal[2] = worldFaceNormal.Z;
+                        PopulateLightingPalette(batch, payload);
+                        payload.WorldMatrix[0] = world.M11;
+                        payload.WorldMatrix[1] = world.M12;
+                        payload.WorldMatrix[2] = world.M13;
+                        payload.WorldMatrix[3] = world.M14;
+                        payload.WorldMatrix[4] = world.M21;
+                        payload.WorldMatrix[5] = world.M22;
+                        payload.WorldMatrix[6] = world.M23;
+                        payload.WorldMatrix[7] = world.M24;
+                        payload.WorldMatrix[8] = world.M31;
+                        payload.WorldMatrix[9] = world.M32;
+                        payload.WorldMatrix[10] = world.M33;
+                        payload.WorldMatrix[11] = world.M34;
+                        payload.WorldMatrix[12] = world.M41;
+                        payload.WorldMatrix[13] = world.M42;
+                        payload.WorldMatrix[14] = world.M43;
+                        payload.WorldMatrix[15] = world.M44;
+                        payload.ViewMatrix[0] = view.M11;
+                        payload.ViewMatrix[1] = view.M12;
+                        payload.ViewMatrix[2] = view.M13;
+                        payload.ViewMatrix[3] = view.M14;
+                        payload.ViewMatrix[4] = view.M21;
+                        payload.ViewMatrix[5] = view.M22;
+                        payload.ViewMatrix[6] = view.M23;
+                        payload.ViewMatrix[7] = view.M24;
+                        payload.ViewMatrix[8] = view.M31;
+                        payload.ViewMatrix[9] = view.M32;
+                        payload.ViewMatrix[10] = view.M33;
+                        payload.ViewMatrix[11] = view.M34;
+                        payload.ViewMatrix[12] = view.M41;
+                        payload.ViewMatrix[13] = view.M42;
+                        payload.ViewMatrix[14] = view.M43;
+                        payload.ViewMatrix[15] = view.M44;
+                        payload.ProjectionMatrix[0] = projection.M11;
+                        payload.ProjectionMatrix[1] = projection.M12;
+                        payload.ProjectionMatrix[2] = projection.M13;
+                        payload.ProjectionMatrix[3] = projection.M14;
+                        payload.ProjectionMatrix[4] = projection.M21;
+                        payload.ProjectionMatrix[5] = projection.M22;
+                        payload.ProjectionMatrix[6] = projection.M23;
+                        payload.ProjectionMatrix[7] = projection.M24;
+                        payload.ProjectionMatrix[8] = projection.M31;
+                        payload.ProjectionMatrix[9] = projection.M32;
+                        payload.ProjectionMatrix[10] = projection.M33;
+                        payload.ProjectionMatrix[11] = projection.M34;
+                        payload.ProjectionMatrix[12] = projection.M41;
+                        payload.ProjectionMatrix[13] = projection.M42;
+                        payload.ProjectionMatrix[14] = projection.M43;
+                        payload.ProjectionMatrix[15] = projection.M44;
+                        payload.Viewport[0] = viewport.X;
+                        payload.Viewport[1] = viewport.Y;
+                        payload.Viewport[2] = viewport.Z;
+                        payload.Viewport[3] = viewport.W;
+                        payload.SourceTriangle.PositionA[0] = packedPositionA.X;
+                        payload.SourceTriangle.PositionA[1] = packedPositionA.Y;
+                        payload.SourceTriangle.PositionA[2] = packedPositionA.Z;
+                        payload.SourceTriangle.PositionA[3] = 1.0f;
+                        payload.SourceTriangle.PositionB[0] = packedPositionB.X;
+                        payload.SourceTriangle.PositionB[1] = packedPositionB.Y;
+                        payload.SourceTriangle.PositionB[2] = packedPositionB.Z;
+                        payload.SourceTriangle.PositionB[3] = 1.0f;
+                        payload.SourceTriangle.PositionC[0] = packedPositionC.X;
+                        payload.SourceTriangle.PositionC[1] = packedPositionC.Y;
+                        payload.SourceTriangle.PositionC[2] = packedPositionC.Z;
+                        payload.SourceTriangle.PositionC[3] = 1.0f;
+                        payload.SourceTriangle.NormalA[0] = sourceNormalA.X;
+                        payload.SourceTriangle.NormalA[1] = sourceNormalA.Y;
+                        payload.SourceTriangle.NormalA[2] = sourceNormalA.Z;
+                        payload.SourceTriangle.NormalA[3] = 0.0f;
+                        payload.SourceTriangle.NormalB[0] = sourceNormalB.X;
+                        payload.SourceTriangle.NormalB[1] = sourceNormalB.Y;
+                        payload.SourceTriangle.NormalB[2] = sourceNormalB.Z;
+                        payload.SourceTriangle.NormalB[3] = 0.0f;
+                        payload.SourceTriangle.NormalC[0] = sourceNormalC.X;
+                        payload.SourceTriangle.NormalC[1] = sourceNormalC.Y;
+                        payload.SourceTriangle.NormalC[2] = sourceNormalC.Z;
+                        payload.SourceTriangle.NormalC[3] = 0.0f;
+                        payload.SourceTriangle.TexCoordA[0] = 0.0f;
+                        payload.SourceTriangle.TexCoordA[1] = 0.0f;
+                        payload.SourceTriangle.TexCoordA[2] = 0.0f;
+                        payload.SourceTriangle.TexCoordA[3] = 0.0f;
+                        payload.SourceTriangle.TexCoordB[0] = 0.0f;
+                        payload.SourceTriangle.TexCoordB[1] = 0.0f;
+                        payload.SourceTriangle.TexCoordB[2] = 0.0f;
+                        payload.SourceTriangle.TexCoordB[3] = 0.0f;
+                        payload.SourceTriangle.TexCoordC[0] = 0.0f;
+                        payload.SourceTriangle.TexCoordC[1] = 0.0f;
+                        payload.SourceTriangle.TexCoordC[2] = 0.0f;
+                        payload.SourceTriangle.TexCoordC[3] = 0.0f;
+                        payload.FaceNormal[0] = faceNormal.X;
+                        payload.FaceNormal[1] = faceNormal.Y;
+                        payload.FaceNormal[2] = faceNormal.Z;
                         payload.FaceNormal[3] = 0.0f;
                         payload.LightDirection[0] = normalizedLightDirection.X;
                         payload.LightDirection[1] = normalizedLightDirection.Y;
@@ -714,33 +861,24 @@ namespace helengine::ps2 {
                         payload.LightConstants[2] = LightingPaletteScale;
                         payload.LightConstants[3] = 0.0f;
                         trianglePayloads.push_back(payload);
-                    }
-                    const float minX = std::min({ screenAX, screenBX, screenCX });
-                    const float minY = std::min({ screenAY, screenBY, screenCY });
-                    const float maxX = std::max({ screenAX, screenBX, screenCX });
-                    const float maxY = std::max({ screenAY, screenBY, screenCY });
-                    if (SubmittedTriangleCount == 0u) {
-                        SubmittedScreenBounds = ::float4(minX, minY, maxX, maxY);
-                        SubmittedTriangleBoundsA = ::float4(minX, minY, maxX, maxY);
-                        SubmittedTriangleVertexA0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
-                        SubmittedTriangleVertexA1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
-                        SubmittedTriangleVertexA2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
-                    } else {
-                        SubmittedScreenBounds.X = std::min(SubmittedScreenBounds.X, minX);
-                        SubmittedScreenBounds.Y = std::min(SubmittedScreenBounds.Y, minY);
-                        SubmittedScreenBounds.Z = std::max(SubmittedScreenBounds.Z, maxX);
-                        SubmittedScreenBounds.W = std::max(SubmittedScreenBounds.W, maxY);
-                        if (SubmittedTriangleCount == 1u) {
-                            SubmittedTriangleBoundsB = ::float4(minX, minY, maxX, maxY);
-                            SubmittedTriangleVertexB0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
-                            SubmittedTriangleVertexB1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
-                            SubmittedTriangleVertexB2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
-                        }
+                        SubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+                        SubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+                        SubmittedTriangleBoundsB = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+                        SubmittedTriangleVertexA0 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+                        SubmittedTriangleVertexA1 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+                        SubmittedTriangleVertexA2 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+                        SubmittedTriangleVertexB0 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+                        SubmittedTriangleVertexB1 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+                        SubmittedTriangleVertexB2 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
                     }
                     SubmittedTriangleCount++;
                 }
+                const std::clock_t triangleEmitEndTicks = std::clock();
+                LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
             }
         }
+        const std::clock_t triangleSetupEndTicks = std::clock();
+        LastTriangleSetupMilliseconds = ResolveMillisecondsFromClockTicks(triangleSetupStartTicks, triangleSetupEndTicks);
 
         if (!textured && trianglePayloads.empty()) {
             return;
@@ -779,6 +917,7 @@ namespace helengine::ps2 {
             return;
         }
 
+        const std::clock_t packetAssemblyStartTicks = std::clock();
         if (textured) {
             for (const std::vector<std::uint8_t>& trianglePacketBytes : texturedTrianglePackets) {
                 packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
@@ -840,6 +979,8 @@ namespace helengine::ps2 {
         }
 
         Packet = packet.release();
+        const std::clock_t packetAssemblyEndTicks = std::clock();
+        LastPacketAssemblyMilliseconds = ResolveMillisecondsFromClockTicks(packetAssemblyStartTicks, packetAssemblyEndTicks);
         std::uint32_t packetQwordCount = packet2_get_qw_count(Packet);
         (void)packetQwordCount;
         LastCompletedPhase = 11;
@@ -863,6 +1004,22 @@ namespace helengine::ps2 {
 
     std::uint32_t Ps2VuVifPacketBuilder::GetLastCompletedPhase() const {
         return LastCompletedPhase;
+    }
+
+    double Ps2VuVifPacketBuilder::GetLastTriangleSetupMilliseconds() const {
+        return LastTriangleSetupMilliseconds;
+    }
+
+    double Ps2VuVifPacketBuilder::GetLastPacketAssemblyMilliseconds() const {
+        return LastPacketAssemblyMilliseconds;
+    }
+
+    double Ps2VuVifPacketBuilder::GetLastTrianglePrepMilliseconds() const {
+        return LastTrianglePrepMilliseconds;
+    }
+
+    double Ps2VuVifPacketBuilder::GetLastTriangleEmitMilliseconds() const {
+        return LastTriangleEmitMilliseconds;
     }
 
     std::size_t Ps2VuVifPacketBuilder::GetSubmittedTriangleCount() const {
