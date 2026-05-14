@@ -139,6 +139,34 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             }
         }
 
+        string coreSourcePath = Path.Combine(generatedCoreRootPath, "Core.cpp");
+        if (File.Exists(coreSourcePath)) {
+            string coreContents = File.ReadAllText(coreSourcePath).Replace("\r\n", "\n", StringComparison.Ordinal);
+            string updatedCoreContents = coreContents.Replace(
+                "Console::WriteLine(std::string(\"[SceneTrace] \") + message + std::string(\" sceneManager=null\"));",
+                "Console::WriteLine(String::GetCString(std::string(\"[SceneTrace] \") + message + std::string(\" sceneManager=null\")));",
+                StringComparison.Ordinal);
+            updatedCoreContents = updatedCoreContents.Replace(
+                "Console::WriteLine(std::string(\"[SceneTrace] \") + message + std::string(\" loadedSceneCount=\") + std::to_string(loadedScenes->get_Count()) + std::string(\" primarySceneId=\") + primarySceneId);",
+                "Console::WriteLine(String::GetCString(std::string(\"[SceneTrace] \") + message + std::string(\" loadedSceneCount=\") + std::to_string(loadedScenes->get_Count()) + std::string(\" primarySceneId=\") + primarySceneId));",
+                StringComparison.Ordinal);
+            if (!string.Equals(coreContents, updatedCoreContents, StringComparison.Ordinal)) {
+                File.WriteAllText(coreSourcePath, updatedCoreContents);
+            }
+        }
+
+        string sceneManagerSourcePath = Path.Combine(generatedCoreRootPath, "SceneManager.cpp");
+        if (File.Exists(sceneManagerSourcePath)) {
+            string sceneManagerContents = File.ReadAllText(sceneManagerSourcePath).Replace("\r\n", "\n", StringComparison.Ordinal);
+            string updatedSceneManagerContents = sceneManagerContents.Replace(
+                "Console::WriteLine(std::string(\"[SceneTrace] \") + message + std::string(\" loadedSceneCount=\") + std::to_string(LoadedSceneRecords->get_Count()) + std::string(\" primarySceneId=\") + primarySceneId);",
+                "Console::WriteLine(String::GetCString(std::string(\"[SceneTrace] \") + message + std::string(\" loadedSceneCount=\") + std::to_string(LoadedSceneRecords->get_Count()) + std::string(\" primarySceneId=\") + primarySceneId));",
+                StringComparison.Ordinal);
+            if (!string.Equals(sceneManagerContents, updatedSceneManagerContents, StringComparison.Ordinal)) {
+                File.WriteAllText(sceneManagerSourcePath, updatedSceneManagerContents);
+            }
+        }
+
         string renderManagerHeaderPath = Path.Combine(generatedCoreRootPath, "RenderManager3D.hpp");
         File.AppendAllText(DebugLogPath, $"renderManagerHeaderPath={renderManagerHeaderPath} exists={File.Exists(renderManagerHeaderPath)}{Environment.NewLine}");
         if (File.Exists(renderManagerHeaderPath)) {

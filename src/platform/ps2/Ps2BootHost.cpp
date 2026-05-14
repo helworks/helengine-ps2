@@ -676,7 +676,7 @@ namespace helengine::ps2 {
         GsGlobal->Width = Ps2DefaultFramebufferWidth;
         GsGlobal->Height = Ps2DefaultFramebufferHeight;
         GsGlobal->PSM = GS_PSM_CT32;
-        GsGlobal->DoubleBuffering = GS_SETTING_OFF;
+        GsGlobal->DoubleBuffering = GS_SETTING_ON;
         const HERuntimeGraphicsRendererManifest* graphicsRendererManifest = he_get_runtime_graphics_renderer_manifest();
         if (graphicsRendererManifest == 0) {
             BootLog("graphics renderer manifest missing");
@@ -842,6 +842,10 @@ namespace helengine::ps2 {
                         while (true) {
                         }
                     }
+
+                    // VU opaque rendering emits GIF work asynchronously through VIF1. Wait for the
+                    // GIF channel to drain before 2D overlays and the frame submit reuse GS state.
+                    dma_channel_wait(DMA_CHANNEL_GIF, 0);
 
                     if (EnableCubeRuntimeDiagnostics && !CubeDiagnosticsShown) {
                         CubeDiagnosticsShown = true;

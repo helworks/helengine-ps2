@@ -276,11 +276,25 @@ namespace helengine::ps2 {
             return formatted;
         }
 
-        void PopulateLightingPalette(Ps2VuLitTrianglePayload& payload) {
+        std::uint8_t ScaleColorChannel(std::uint8_t channel, float normalizedShade) {
+            const double shadedValue = static_cast<double>(channel) * static_cast<double>(normalizedShade);
+            return static_cast<std::uint8_t>(std::clamp(std::lround(shadedValue), 0l, 255l));
+        }
+
+        void PopulateLightingPalette(const Ps2VuOpaqueBatch& batch, Ps2VuLitTrianglePayload& payload) {
+            const std::uint8_t baseColorR = batch.Material != nullptr ? batch.Material->GetBaseColorR() : 0xFF;
+            const std::uint8_t baseColorG = batch.Material != nullptr ? batch.Material->GetBaseColorG() : 0xFF;
+            const std::uint8_t baseColorB = batch.Material != nullptr ? batch.Material->GetBaseColorB() : 0xFF;
+            const std::uint8_t baseColorA = batch.Material != nullptr ? batch.Material->GetBaseColorA() : 0x80;
+
             for (std::size_t paletteIndex = 0; paletteIndex < LightingPaletteEntryCount; paletteIndex++) {
                 const float normalizedShade = static_cast<float>(paletteIndex) / LightingPaletteScale;
-                const std::uint8_t shade = static_cast<std::uint8_t>(std::lround(normalizedShade * 255.0f));
-                payload.LightingPalette[paletteIndex].Low = GS_SETREG_RGBAQ(shade, shade, shade, 0x80, 0x00);
+                payload.LightingPalette[paletteIndex].Low = GS_SETREG_RGBAQ(
+                    ScaleColorChannel(baseColorR, normalizedShade),
+                    ScaleColorChannel(baseColorG, normalizedShade),
+                    ScaleColorChannel(baseColorB, normalizedShade),
+                    baseColorA,
+                    0x00);
                 payload.LightingPalette[paletteIndex].High = static_cast<std::uint64_t>(GIF_REG_RGBAQ);
             }
         }
@@ -326,7 +340,7 @@ namespace helengine::ps2 {
             }
 
             std::memset(&payload, 0, sizeof(Ps2VuLitTrianglePayload));
-            PopulateLightingPalette(payload);
+            PopulateLightingPalette(batch, payload);
             std::memcpy(payload.GifPacketTemplate, gifPacket.get()->base, TriangleGifPacketTemplateByteCount);
             if (EnableVuGifTemplateLayoutDiagnostics) {
                 throw std::runtime_error(
