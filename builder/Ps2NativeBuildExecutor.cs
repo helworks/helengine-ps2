@@ -10,6 +10,7 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
     /// Docker image tag used for the PS2 toolchain container.
     /// </summary>
     const string DockerImageTag = "helengine-ps2";
+    static readonly string DebugLogPath = Path.Combine(AppContext.BaseDirectory, "ps2-native-build-executor.log");
 
     /// <summary>
     /// Builds one PS2 ELF for the prepared workspace.
@@ -55,7 +56,7 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
     }
 
     /// <summary>
-    /// Applies PS2-native generated-core source normalization before the Docker toolchain compiles the translated runtime.
+    /// Applies the minimal generated-core source normalization required for the current engine API before the PS2 Docker toolchain compiles the translated runtime.
     /// </summary>
     /// <param name="generatedCoreRootPath">Absolute generated-core root produced by the editor build graph.</param>
     static void NormalizeGeneratedCoreSources(string generatedCoreRootPath) {
@@ -67,48 +68,106 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             return;
         }
 
-        string[] sourceFiles = Directory.GetFiles(generatedCoreRootPath, "*.*", SearchOption.AllDirectories);
-        Array.Sort(sourceFiles, StringComparer.OrdinalIgnoreCase);
-        for (int index = 0; index < sourceFiles.Length; index++) {
-            string sourceFilePath = sourceFiles[index];
-            string extension = Path.GetExtension(sourceFilePath);
-            if (!string.Equals(extension, ".cpp", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(extension, ".hpp", StringComparison.OrdinalIgnoreCase)
-                && !string.Equals(extension, ".tpp", StringComparison.OrdinalIgnoreCase)) {
-                continue;
-            }
+        File.WriteAllText(DebugLogPath, $"generatedCoreRootPath={generatedCoreRootPath}{Environment.NewLine}");
 
-            string fileName = Path.GetFileName(sourceFilePath);
-            string contents = File.ReadAllText(sourceFilePath);
-            string updatedContents = NormalizeGeneratedCoreSource(fileName, contents);
+        string scrollComponentPath = Path.Combine(generatedCoreRootPath, "ScrollComponent.cpp");
+        if (!File.Exists(scrollComponentPath)) {
+            scrollComponentPath = string.Empty;
+        }
+
+        if (!string.IsNullOrWhiteSpace(scrollComponentPath)) {
+            string contents = File.ReadAllText(scrollComponentPath);
+            string updatedContents = contents.Replace("SizeValue(new int2())", "SizeValue(int2())", StringComparison.Ordinal);
             if (!string.Equals(contents, updatedContents, StringComparison.Ordinal)) {
-                File.WriteAllText(sourceFilePath, updatedContents);
+                File.WriteAllText(scrollComponentPath, updatedContents);
             }
         }
-    }
 
-    /// <summary>
-    /// Rewrites known light-component native generation defects so the PS2 toolchain receives valid C++ source.
-    /// </summary>
-    /// <param name="fileName">Generated source file name being normalized.</param>
-    /// <param name="contents">Current generated source contents.</param>
-    /// <returns>Normalized generated source contents for PS2 native compilation.</returns>
-    static string NormalizeGeneratedCoreSource(string fileName, string contents) {
-        if (string.IsNullOrWhiteSpace(fileName) || string.IsNullOrEmpty(contents)) {
-            return contents;
+        string resolverPath = Path.Combine(generatedCoreRootPath, "RuntimeSceneAssetReferenceResolver.cpp");
+        File.AppendAllText(DebugLogPath, $"resolverPath={resolverPath} exists={File.Exists(resolverPath)}{Environment.NewLine}");
+        if (File.Exists(resolverPath)) {
+            string resolverContents = File.ReadAllText(resolverPath);
+            string resolverUpdatedContents = resolverContents.Replace(
+                "const std::string fullPath = Path::GetFullPath(Path::Combine(this->ContentRootPath, reference->get_RelativePath()));\nconst std::string contentRootPrefix = this->EnsureTrailingDirectorySeparator(this->ContentRootPath);\n    if (!String::StartsWith(fullPath, contentRootPrefix, StringComparison::OrdinalIgnoreCase))\n    {\nthrow new InvalidOperationException(\"Packaged scene asset reference path must stay inside the content root.\");\n    }\nreturn fullPath;}",
+                "if (Path::IsPathRooted(reference->get_RelativePath()))\n    {\nreturn Path::GetFullPath(reference->get_RelativePath());\n    }\nconst std::string fullPath = Path::GetFullPath(Path::Combine(this->ContentRootPath, reference->get_RelativePath()));\nconst std::string contentRootPrefix = this->EnsureTrailingDirectorySeparator(this->ContentRootPath);\n    if (!String::StartsWith(fullPath, contentRootPrefix, StringComparison::OrdinalIgnoreCase))\n    {\nthrow new InvalidOperationException(\"Packaged scene asset reference path must stay inside the content root.\");\n    }\nreturn fullPath;}",
+                StringComparison.Ordinal);
+            resolverUpdatedContents = resolverUpdatedContents.Replace(
+                "#include \"runtime/native_string.hpp\"",
+                "#include \"runtime/native_string.hpp\"\n#include \"Logger.hpp\"\n#include <cstdio>",
+                StringComparison.Ordinal);
+            resolverUpdatedContents = resolverUpdatedContents.Replace(
+                "const std::string fullPath = this->ResolveFileBackedAssetPath(reference);\n::Ps2MaterialAsset *materialAsset = this->AssetContentManager->Load<Ps2MaterialAsset*>(fullPath, RuntimeContentProcessorIds::MaterialAsset);\nreturn Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromCooked(materialAsset);}",
+                "const std::string fullPath = this->ResolveFileBackedAssetPath(reference);\nstd::printf(\"[generated-core] ResolveMaterial %s\\n\", fullPath.c_str());\nstd::fflush(stdout);\nLogger::WriteLine(std::string(\"ResolveMaterial path=\") + fullPath);\n::Ps2MaterialAsset *materialAsset = this->AssetContentManager->Load<Ps2MaterialAsset*>(fullPath, RuntimeContentProcessorIds::MaterialAsset);\nLogger::WriteLine(std::string(\"ResolveMaterial asset loaded path=\") + fullPath);\n::RuntimeMaterial* runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromCooked(materialAsset);\nLogger::WriteLine(std::string(\"ResolveMaterial runtime material built path=\") + fullPath);\nreturn runtimeMaterial;}",
+                StringComparison.Ordinal);
+            resolverUpdatedContents = resolverUpdatedContents.Replace(
+                "const std::string fullPath = this->ResolveFileBackedAssetPath(reference);\n::MaterialAsset *materialAsset = this->AssetContentManager->Load<MaterialAsset*>(fullPath, RuntimeContentProcessorIds::MaterialAsset);\n::ShaderAsset *shaderAsset = this->AssetContentManager->Load<ShaderAsset*>(this->ResolveShaderPackagePath(materialAsset->ShaderAssetId), RuntimeContentProcessorIds::ShaderAsset);\n::RuntimeMaterial *runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromRaw(materialAsset, shaderAsset);\nthis->ApplyMaterialDiffuseTexture(runtimeMaterial, materialAsset, fullPath);\nreturn runtimeMaterial;}",
+                "const std::string fullPath = this->ResolveFileBackedAssetPath(reference);\nstd::printf(\"[generated-core] ResolveMaterial %s\\n\", fullPath.c_str());\nstd::fflush(stdout);\nLogger::WriteLine(std::string(\"ResolveMaterial path=\") + fullPath);\n::Ps2MaterialAsset *materialAsset = this->AssetContentManager->Load<Ps2MaterialAsset*>(fullPath, RuntimeContentProcessorIds::MaterialAsset);\nLogger::WriteLine(std::string(\"ResolveMaterial asset loaded path=\") + fullPath);\n::RuntimeMaterial* runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromCooked(materialAsset);\nLogger::WriteLine(std::string(\"ResolveMaterial runtime material built path=\") + fullPath);\nreturn runtimeMaterial;}",
+                StringComparison.Ordinal);
+            bool resolverChanged = !string.Equals(resolverContents, resolverUpdatedContents, StringComparison.Ordinal);
+            bool containsMaterialAssetLoad = resolverContents.Contains(
+                "Load<MaterialAsset*>(fullPath, RuntimeContentProcessorIds::MaterialAsset)",
+                StringComparison.Ordinal);
+            File.AppendAllText(
+                DebugLogPath,
+                $"resolverChanged={resolverChanged} containsMaterialAssetLoad={containsMaterialAssetLoad}{Environment.NewLine}");
+            if (resolverChanged) {
+                File.WriteAllText(resolverPath, resolverUpdatedContents);
+            }
         }
 
-        if (string.Equals(fileName, "AmbientLightComponent.cpp", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(fileName, "DirectionalLightComponent.cpp", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(fileName, "PointLightComponent.cpp", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(fileName, "SpotLightComponent.cpp", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(fileName, "LightComponent.cpp", StringComparison.OrdinalIgnoreCase)) {
-            string updatedContents = contents.Replace("LightType.", "LightType::", StringComparison.Ordinal);
-            updatedContents = updatedContents.Replace("this->ShadowMapMode::Auto", "::ShadowMapMode::Auto", StringComparison.Ordinal);
-            return updatedContents;
+        string runtimeContentManagerConfigurationPath = Path.Combine(generatedCoreRootPath, "RuntimeContentManagerConfiguration.cpp");
+        File.AppendAllText(DebugLogPath, $"runtimeContentManagerConfigurationPath={runtimeContentManagerConfigurationPath} exists={File.Exists(runtimeContentManagerConfigurationPath)}{Environment.NewLine}");
+        if (File.Exists(runtimeContentManagerConfigurationPath)) {
+            string configurationContents = File.ReadAllText(runtimeContentManagerConfigurationPath);
+            string updatedConfigurationContents = configurationContents.Replace(
+                "#include \"MaterialAsset.hpp\"",
+                "#include \"MaterialAsset.hpp\"\n#include \"Ps2MaterialAsset.hpp\"",
+                StringComparison.Ordinal);
+            updatedConfigurationContents = updatedConfigurationContents.Replace(
+                "RegisterProcessorIfMissing<MaterialAsset*>(contentManager, RuntimeContentProcessorIds::MaterialAsset, new ::AssetContentProcessor_1<::MaterialAsset*>(), new Array<std::string>({ MaterialAssetExtension }));",
+                "RegisterProcessorIfMissing<Ps2MaterialAsset*>(contentManager, RuntimeContentProcessorIds::MaterialAsset, new ::AssetContentProcessor_1<::Ps2MaterialAsset*>(), new Array<std::string>({ MaterialAssetExtension }));",
+                StringComparison.Ordinal);
+            bool runtimeContentChanged = !string.Equals(configurationContents, updatedConfigurationContents, StringComparison.Ordinal);
+            bool containsRegisterProcessorIfMissingMaterial = configurationContents.Contains(
+                "RegisterProcessorIfMissing<MaterialAsset*>(contentManager, RuntimeContentProcessorIds::MaterialAsset",
+                StringComparison.Ordinal);
+            File.AppendAllText(
+                DebugLogPath,
+                $"runtimeContentChanged={runtimeContentChanged} containsRegisterProcessorIfMissingMaterial={containsRegisterProcessorIfMissingMaterial}{Environment.NewLine}");
+            if (runtimeContentChanged) {
+                File.WriteAllText(runtimeContentManagerConfigurationPath, updatedConfigurationContents);
+            }
         }
 
-        return contents;
+        string renderManagerHeaderPath = Path.Combine(generatedCoreRootPath, "RenderManager3D.hpp");
+        File.AppendAllText(DebugLogPath, $"renderManagerHeaderPath={renderManagerHeaderPath} exists={File.Exists(renderManagerHeaderPath)}{Environment.NewLine}");
+        if (File.Exists(renderManagerHeaderPath)) {
+            string headerContents = File.ReadAllText(renderManagerHeaderPath).Replace("\r\n", "\n", StringComparison.Ordinal);
+            string updatedHeaderContents = headerContents.Replace(
+                "class RuntimeMaterial;\nclass MaterialAsset;\nclass ShaderAsset;",
+                "class RuntimeMaterial;\nclass MaterialAsset;\nclass Ps2MaterialAsset;\nclass ShaderAsset;",
+                StringComparison.Ordinal);
+            updatedHeaderContents = updatedHeaderContents.Replace(
+                "    virtual ::RuntimeMaterial* BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset);\n",
+                "    virtual ::RuntimeMaterial* BuildMaterialFromCooked(::Ps2MaterialAsset* materialAsset);\n\n    virtual ::RuntimeMaterial* BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset);\n",
+                StringComparison.Ordinal);
+            if (!string.Equals(headerContents, updatedHeaderContents, StringComparison.Ordinal)) {
+                File.WriteAllText(renderManagerHeaderPath, updatedHeaderContents);
+            }
+        }
+
+        string renderManagerSourcePath = Path.Combine(generatedCoreRootPath, "RenderManager3D.cpp");
+        File.AppendAllText(DebugLogPath, $"renderManagerSourcePath={renderManagerSourcePath} exists={File.Exists(renderManagerSourcePath)}{Environment.NewLine}");
+        if (File.Exists(renderManagerSourcePath)) {
+            string sourceContents = File.ReadAllText(renderManagerSourcePath).Replace("\r\n", "\n", StringComparison.Ordinal);
+            string updatedSourceContents = sourceContents.Replace(
+                "::RuntimeMaterial* RenderManager3D::BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset)\n{\nthrow new NotSupportedException(\"This renderer does not support material creation.\");\n}\n",
+                "::RuntimeMaterial* RenderManager3D::BuildMaterialFromCooked(::Ps2MaterialAsset* materialAsset)\n{\nthrow new NotSupportedException(\"This renderer does not support material creation.\");\n}\n\n::RuntimeMaterial* RenderManager3D::BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset)\n{\nthrow new NotSupportedException(\"This renderer does not support material creation.\");\n}\n",
+                StringComparison.Ordinal);
+            if (!string.Equals(sourceContents, updatedSourceContents, StringComparison.Ordinal)) {
+                File.WriteAllText(renderManagerSourcePath, updatedSourceContents);
+            }
+        }
     }
 
     /// <summary>

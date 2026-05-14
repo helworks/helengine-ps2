@@ -1,0 +1,14 @@
+; Textured opaque VU1 microprogram that directly kicks a host-built GIF packet.
+
+		.vu
+		.align 4
+		.global	Ps2OpaqueTexturedDraw3D_CodeStart
+		.global	Ps2OpaqueTexturedDraw3D_CodeEnd
+Ps2OpaqueTexturedDraw3D_CodeStart:
+__ps2_opaque_textured_draw_3d:
+         NOP                                                        xtop VI02
+         NOP                                                        xgkick VI02
+         NOP[E]                                                     NOP
+         NOP                                                        NOP
+		.align 4
+Ps2OpaqueTexturedDraw3D_CodeEnd:

@@ -142,47 +142,6 @@ public static class Ps2PlatformDefinitionFactory {
             ],
             [
                 new PlatformMaterialSchemaDefinition(
-                    "ps2-unlit-textured",
-                    "PS2 Unlit Textured",
-                    ["ps2-standard-forward", "ps2-showcase-forward"],
-                    [
-                        new PlatformMaterialFieldDefinition(
-                            "texture-relative-path",
-                            "Texture",
-                            PlatformMaterialFieldKind.Text,
-                            string.Empty,
-                            false,
-                            []),
-                        new PlatformMaterialFieldDefinition(
-                            "alpha-mode",
-                            "Alpha Mode",
-                            PlatformMaterialFieldKind.Choice,
-                            "opaque",
-                            true,
-                            ["opaque", "alpha-test", "alpha-blend", "additive"]),
-                        new PlatformMaterialFieldDefinition(
-                            "double-sided",
-                            "Double Sided",
-                            PlatformMaterialFieldKind.Boolean,
-                            "false",
-                            true,
-                            []),
-                        new PlatformMaterialFieldDefinition(
-                            Ps2MaterialSchemaIds.CastShadowsFieldId,
-                            "Cast Shadows",
-                            PlatformMaterialFieldKind.Boolean,
-                            "false",
-                            true,
-                            []),
-                        new PlatformMaterialFieldDefinition(
-                            "vertex-color-mode",
-                            "Vertex Color",
-                            PlatformMaterialFieldKind.Choice,
-                            "multiply",
-                            true,
-                            ["multiply", "ignore"])
-                    ]),
-                new PlatformMaterialSchemaDefinition(
                     "ps2-simple-lit-textured",
                     "PS2 Simple Lit Textured",
                     ["ps2-standard-forward", "ps2-showcase-forward"],
@@ -229,6 +188,47 @@ public static class Ps2PlatformDefinitionFactory {
                             "#ffffff",
                             false,
                             [])
+                    ]),
+                new PlatformMaterialSchemaDefinition(
+                    "ps2-unlit-textured",
+                    "PS2 Unlit Textured",
+                    ["ps2-standard-forward", "ps2-showcase-forward"],
+                    [
+                        new PlatformMaterialFieldDefinition(
+                            "texture-relative-path",
+                            "Texture",
+                            PlatformMaterialFieldKind.Text,
+                            string.Empty,
+                            false,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            "alpha-mode",
+                            "Alpha Mode",
+                            PlatformMaterialFieldKind.Choice,
+                            "opaque",
+                            true,
+                            ["opaque", "alpha-test", "alpha-blend", "additive"]),
+                        new PlatformMaterialFieldDefinition(
+                            "double-sided",
+                            "Double Sided",
+                            PlatformMaterialFieldKind.Boolean,
+                            "false",
+                            true,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            Ps2MaterialSchemaIds.CastShadowsFieldId,
+                            "Cast Shadows",
+                            PlatformMaterialFieldKind.Boolean,
+                            "false",
+                            true,
+                            []),
+                        new PlatformMaterialFieldDefinition(
+                            "vertex-color-mode",
+                            "Vertex Color",
+                            PlatformMaterialFieldKind.Choice,
+                            "multiply",
+                            true,
+                            ["multiply", "ignore"])
                     ]),
                 new PlatformMaterialSchemaDefinition(
                     "ps2-showcase-lit-textured",

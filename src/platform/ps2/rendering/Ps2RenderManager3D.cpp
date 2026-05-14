@@ -31,6 +31,7 @@
 #include "Ps2MaterialAsset.hpp"
 #include "Ps2MaterialLightingMode.hpp"
 #include "MaterialBlendMode.hpp"
+#include "RenderTarget.hpp"
 #include "float2.hpp"
 #include "float3.hpp"
 #include "platform/ps2/rendering/Ps2FramePlan.hpp"
@@ -78,11 +79,11 @@ namespace helengine::ps2 {
         const ::float3 DefaultForward(0.0f, 0.0f, -1.0f);
         const ::float3 DefaultUp(0.0f, 1.0f, 0.0f);
 
-        ::float4 ResolvePixelViewport(::CameraComponent* camera, const int2* windowSize) {
+        ::float4 ResolvePixelViewport(::CameraComponent* camera, const int2& windowSize) {
             if (camera == nullptr) {
                 throw std::invalid_argument("Camera must be provided.");
             }
-            if (windowSize == nullptr || windowSize->X <= 0 || windowSize->Y <= 0) {
+            if (windowSize.X <= 0 || windowSize.Y <= 0) {
                 throw std::invalid_argument("Window size must be greater than zero.");
             }
 
@@ -92,10 +93,10 @@ namespace helengine::ps2 {
             double width = viewport.Z;
             double height = viewport.W;
             if (width <= 1.0 && height <= 1.0) {
-                offsetX *= static_cast<double>(windowSize->X);
-                offsetY *= static_cast<double>(windowSize->Y);
-                width *= static_cast<double>(windowSize->X);
-                height *= static_cast<double>(windowSize->Y);
+                offsetX *= static_cast<double>(windowSize.X);
+                offsetY *= static_cast<double>(windowSize.Y);
+                width *= static_cast<double>(windowSize.X);
+                height *= static_cast<double>(windowSize.Y);
             }
 
             return ::float4(
@@ -475,6 +476,42 @@ namespace helengine::ps2 {
         return runtimeMaterial;
     }
 
+    ::RuntimeMaterial* Ps2RenderManager3D::BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset) {
+        if (materialAsset == nullptr) {
+            throw std::invalid_argument("PS2 raw material asset is required.");
+        }
+
+        (void)shaderAsset;
+
+        ::Ps2MaterialAsset* cookedMaterialAsset = new ::Ps2MaterialAsset();
+        cookedMaterialAsset->set_Id(materialAsset->get_Id());
+        cookedMaterialAsset->RendererFamilyId = "ps2-standard-forward";
+        cookedMaterialAsset->LightingMode = ::Ps2MaterialLightingMode::SimpleLit;
+        cookedMaterialAsset->BaseColorR = 0xFF;
+        cookedMaterialAsset->BaseColorG = 0xFF;
+        cookedMaterialAsset->BaseColorB = 0xFF;
+        cookedMaterialAsset->BaseColorA = 0xFF;
+        cookedMaterialAsset->DoubleSided = false;
+        cookedMaterialAsset->CastShadows = materialAsset->CastsShadows;
+        cookedMaterialAsset->UseVertexColor = true;
+        cookedMaterialAsset->ExpensiveModeAllowed = false;
+        cookedMaterialAsset->Roughness = 0.5f;
+        cookedMaterialAsset->SpecularStrength = 0.5f;
+        cookedMaterialAsset->EmissiveStrength = 0.0f;
+        cookedMaterialAsset->TextureRelativePath = materialAsset->DiffuseTextureAssetId;
+
+        ::MaterialRenderState* renderState = materialAsset->RenderState;
+        if (renderState != nullptr && renderState->get_BlendMode() == MaterialBlendMode::AlphaBlend) {
+            cookedMaterialAsset->AlphaMode = ::Ps2MaterialAlphaMode::AlphaBlend;
+            cookedMaterialAsset->RenderClass = ::Ps2RenderClass::Transparent;
+        } else {
+            cookedMaterialAsset->AlphaMode = ::Ps2MaterialAlphaMode::Opaque;
+            cookedMaterialAsset->RenderClass = ::Ps2RenderClass::Opaque;
+        }
+
+        return BuildMaterialFromCooked(cookedMaterialAsset);
+    }
+
     ::RuntimeModel* Ps2RenderManager3D::BuildModelFromRaw(::ModelAsset* data) {
         if (data == nullptr) {
             throw std::invalid_argument("PS2 raw model data is required.");
@@ -522,8 +559,8 @@ namespace helengine::ps2 {
             return;
         }
 
-        int2* windowSize = get_MainWindowSize();
-        if (windowSize == nullptr || windowSize->X <= 0 || windowSize->Y <= 0) {
+        const int2 windowSize = get_MainWindowSize();
+        if (windowSize.X <= 0 || windowSize.Y <= 0) {
             return;
         }
 
@@ -629,21 +666,21 @@ namespace helengine::ps2 {
                 continue;
             }
 
-            if (batch.Textured) {
-                DrawOpaqueProxyLegacy(*batch.Proxy, view, projection, viewport, nearPlaneDistance);
-                continue;
-            }
-
-            ApplyDepthState(GsGlobal->ZBuffering == GS_SETTING_ON);
-            ApplyMaterialAlphaState(*batch.Material);
-            gsKit_queue_exec(GsGlobal);
-            dma_channel_wait(DMA_CHANNEL_GIF, 0);
-
             dma_channel_wait(DMA_CHANNEL_VIF1, 0);
             ::float4x4 world = BuildWorldMatrix(*batch.Proxy);
             VuGifStateEncoder.EncodeOpaqueState(batch, GsGlobal);
             VuVifPacketBuilder.Reset();
-            VuVifPacketBuilder.AddOpaqueBatch(batch, world, view, projection, viewport, nearPlaneDistance, lightDirection, GsGlobal);
+            VuVifPacketBuilder.AddOpaqueBatch(
+                batch,
+                world,
+                view,
+                projection,
+                viewport,
+                nearPlaneDistance,
+                lightDirection,
+                GsGlobal,
+                0,
+                0);
             (void)VuProgramRegistry.ResolveOpaqueProgram(batch);
             packet2_t* packet = VuVifPacketBuilder.GetPacket();
             if (packet == nullptr) {
@@ -1097,6 +1134,20 @@ namespace helengine::ps2 {
 
     void Ps2RenderManager3D::SetHdrEnabled(bool enabled) {
         HdrEnabled = enabled;
+    }
+
+    ::RenderTarget* Ps2RenderManager3D::CreateRenderTarget(int32_t width, int32_t height) {
+        std::printf("[helengine-ps2] CreateRenderTarget requested width=%d height=%d\n", width, height);
+        std::fflush(stdout);
+        scr_printf("[helengine-ps2] CreateRenderTarget requested width=%d height=%d\n", width, height);
+
+        ::RenderTarget* renderTarget = new ::RenderTarget();
+        renderTarget->set_Width(width);
+        renderTarget->set_Height(height);
+        renderTarget->set_CanSampleAsTexture(false);
+        renderTarget->set_HasDepthBuffer(false);
+        renderTarget->set_Id(std::string("ps2-placeholder-render-target-") + std::to_string(width) + "x" + std::to_string(height));
+        return renderTarget;
     }
 
     void Ps2RenderManager3D::DrawOpaqueProxyLegacy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {

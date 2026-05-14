@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "RenderManager3D.hpp"
@@ -17,6 +18,7 @@ typedef struct gsTexture GSTEXTURE;
 class CameraComponent;
 class ModelAsset;
 class Ps2MaterialAsset;
+class RenderTarget;
 class RuntimeMaterial;
 class RuntimeModel;
 class float3;
@@ -32,8 +34,10 @@ namespace helengine::ps2 {
     public:
         Ps2RenderManager3D();
 
-        ::RuntimeMaterial* BuildMaterialFromCooked(::Ps2MaterialAsset* materialAsset) override;
+        ::RuntimeMaterial* BuildMaterialFromCooked(::Ps2MaterialAsset* materialAsset);
+        ::RuntimeMaterial* BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset) override;
         ::RuntimeModel* BuildModelFromRaw(::ModelAsset* data) override;
+        ::RenderTarget* CreateRenderTarget(int32_t width, int32_t height) override;
         void Draw() override;
         void SetHdrEnabled(bool enabled);
         void SetGsGlobal(GSGLOBAL* gsGlobal);

@@ -34,9 +34,11 @@ PS2_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuGifStateEncoder.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp
 VU_PROGRAM_SOURCES := \
-	$(SOURCE_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueDraw3D.vsm
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueDraw3D.vsm \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueTexturedDraw3D.vsm
 VU_PROGRAM_OBJECTS := \
-	$(BUILD_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueDraw3D.o
+	$(BUILD_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueDraw3D.o \
+	$(BUILD_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueTexturedDraw3D.o
 OBJECTS := \
 	$(patsubst $(SOURCE_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(PS2_SOURCES)) \
 	$(VU_PROGRAM_OBJECTS) \

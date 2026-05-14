@@ -405,6 +405,12 @@ public class Ps2PlatformAssetBuilderTests {
                 "project",
                 "1.0.0",
                 "1.0.0",
+                "ps2",
+                "1.0.0",
+                "ps2",
+                "1.0.0",
+                "ps2",
+                "1.0.0",
                 "Scenes/Main.helen",
                 [
                     new PlatformBuildScene(

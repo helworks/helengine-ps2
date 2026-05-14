@@ -31,6 +31,24 @@ public sealed class Ps2DiscPathResolverTests {
     }
 
     /// <summary>
+    /// Ensures generic long-path aliases shard the dense `L` bucket so runtime disc lookups do not depend on broad single-directory scans.
+    /// </summary>
+    [Fact]
+    public void ResolveDiscRelativePath_WhenGivenLongGenericPath_UsesShardedLongPathAliasBucket() {
+        string resolved = Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/materials/rendering/colored_cube_grid_cube_02.hasset");
+        string runtimePhysicalPath = "\\" + resolved.Replace('/', '\\') + ";1";
+        string[] segments = resolved.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+
+        Assert.Equal("COOKED", segments[0]);
+        Assert.Equal(4, segments.Length);
+        Assert.Equal("L", segments[1]);
+        Assert.Matches("^[A-Z0-9_]$", segments[2]);
+        Assert.Matches("^A[A-Z0-9_]{7}\\.[A-Z0-9_]{3}$", segments[3]);
+        Assert.EndsWith(".HAS", segments[3], StringComparison.Ordinal);
+        Assert.True(runtimePhysicalPath.Length <= 32, $"Expected a PS2-safe runtime path length, but got {runtimePhysicalPath.Length} for '{runtimePhysicalPath}'.");
+    }
+
+    /// <summary>
     /// Ensures deep scene-local hashed runtime HEL assets collapse into a sharded short alias bucket so runtime disc lookups avoid multi-sector directory scans in the dense `COOKED\H` namespace.
     /// </summary>
     [Fact]

@@ -47,6 +47,8 @@ public static class Program {
                 "project",
                 "1.0.0",
                 "1.0.0",
+                "ps2",
+                "1.0.0",
                 "startup",
                 [
                     new PlatformBuildScene(

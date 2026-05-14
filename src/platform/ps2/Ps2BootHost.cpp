@@ -56,9 +56,6 @@ namespace {
     constexpr const char* CubeMaterialLateDiagnosticPath = "cdrom0:\\COOKED\\ENGINE\\MAT\\CUBE14\\CUBE14.HAS;1";
     constexpr const char* SceneLocalMaterialCookedDiagnosticPath = "cdrom0:\\COOKED\\MAD3CCDB\\REFF7C42\\CO5CB17F\\CUBE14.HEL;1";
     constexpr const char* SceneLocalMaterialRootDiagnosticPath = "cdrom0:\\MAD3CCDB\\REFF7C42\\CO5CB17F\\CUBE14.HEL;1";
-    constexpr const char* AliasedCookedHasDiagnosticPath = "cdrom0:\\COOKED\\L\\3A76DDE8.HAS;1";
-    constexpr const char* AliasedCookedStartupHardcodedDiagnosticPath = "cdrom0:\\COOKED\\L\\D79F205B.HAS;1";
-    constexpr const char* H1ProbeRuntimeFailureDiagnosticPath = "cdrom0:\\COOKED\\H\\D\\H1DE3294.HEL;1";
     constexpr bool EnableCubeSpriteDiagnostics = false;
     constexpr bool EnableCubeTriangle2dDiagnostics = false;
     constexpr bool EnableCubeTriangle3dDiagnostics = false;
@@ -207,40 +204,6 @@ namespace {
         } catch (...) {
             BootLog(std::string(label) + ": open unknown exception");
         }
-    }
-
-    void BootLogCompactDiscProbe(const char* label, const char* path) {
-        bool exists = File::Exists(path);
-        std::FILE* directFile = std::fopen(path, "rb");
-        bool fopenSucceeded = directFile != nullptr;
-        if (directFile != nullptr) {
-            std::fclose(directFile);
-        }
-
-        std::string openResult = "not-attempted";
-        try {
-            FileStream* stream = File::OpenRead(path);
-            if (stream == nullptr) {
-                openResult = "null";
-            } else {
-                openResult = std::to_string(stream->Length());
-                delete stream;
-            }
-        } catch (Exception* exception) {
-            openResult = std::string("ex:") + (exception != nullptr ? exception->what() : "null");
-            delete exception;
-        } catch (const std::exception& exception) {
-            openResult = std::string("std:") + exception.what();
-        } catch (...) {
-            openResult = "unknown";
-        }
-
-        BootLog(label);
-        BootLog(
-            std::string("probe exists=")
-            + (exists ? "true" : "false")
-            + " fopen=" + (fopenSucceeded ? "true" : "false"));
-        BootLog(std::string("probe open=") + openResult);
     }
 
     void DrawCubeSpriteDiagnosticsFrame(GSGLOBAL* gsGlobal) {
@@ -433,7 +396,7 @@ namespace {
 
             ::Entity* parent = sprite->get_Parent();
             const ::float3 position = parent != nullptr ? parent->get_Position() : ::float3();
-            ::int2* size = sprite->get_Size();
+            const ::int2 size = sprite->get_Size();
             const ::byte4 color = sprite->get_Color();
             const u8 alpha = static_cast<u8>(std::min(static_cast<int>(color.W), 0x80));
             const u64 rgba = GS_SETREG_RGBAQ(color.X, color.Y, color.Z, alpha, 0x00);
@@ -454,8 +417,8 @@ namespace {
                             position.Y,
                             0.0f,
                             0.0f,
-                            position.X + static_cast<float>(size != nullptr ? size->X : 0),
-                            position.Y + static_cast<float>(size != nullptr ? size->Y : 0),
+                            position.X + static_cast<float>(size.X),
+                            position.Y + static_cast<float>(size.Y),
                             static_cast<float>(record.Texture.Width),
                             static_cast<float>(record.Texture.Height),
                             0.0f,
@@ -474,8 +437,8 @@ namespace {
                 ActiveGsGlobal,
                 position.X,
                 position.Y,
-                position.X + static_cast<float>(size != nullptr ? size->X : 0),
-                position.Y + static_cast<float>(size != nullptr ? size->Y : 0),
+                position.X + static_cast<float>(size.X),
+                position.Y + static_cast<float>(size.Y),
                 0,
                 rgba);
         }
@@ -506,8 +469,8 @@ namespace {
             }
 
             std::string content = text->get_Text();
-            if (text->get_WrapText() && text->get_Size() != nullptr) {
-                content = TextLayoutUtils::WrapText(content, font, text->get_Size()->X);
+            if (text->get_WrapText()) {
+                content = TextLayoutUtils::WrapText(content, font, text->get_Size().X);
             }
 
             const ::float3 position = parent->get_Position();
@@ -582,7 +545,7 @@ namespace {
 
             ::Entity* parent = shape->get_Parent();
             const ::float3 position = parent != nullptr ? parent->get_Position() : ::float3();
-            ::int2* size = shape->get_Size();
+            const ::int2 size = shape->get_Size();
             const ::byte4 color = shape->get_FillColor();
             const u8 alpha = static_cast<u8>(std::min(static_cast<int>(color.W), 0x80));
             const u64 rgba = GS_SETREG_RGBAQ(color.X, color.Y, color.Z, alpha, 0x00);
@@ -594,8 +557,8 @@ namespace {
                 ActiveGsGlobal,
                 position.X,
                 position.Y,
-                position.X + static_cast<float>(size != nullptr ? size->X : 0),
-                position.Y + static_cast<float>(size != nullptr ? size->Y : 0),
+                position.X + static_cast<float>(size.X),
+                position.Y + static_cast<float>(size.Y),
                 0,
                 rgba);
         }
@@ -609,6 +572,7 @@ namespace helengine::ps2 {
     Ps2BootHost::Ps2BootHost()
         : EngineCore(0),
           EngineOptions(0),
+          EnginePlatformInfo(0),
           EngineInputBackend(0),
           EngineRenderManager2D(0),
           EngineRenderManager3D(0),
@@ -648,9 +612,6 @@ namespace helengine::ps2 {
         BootLogDiscProbe("disc probe cube material late", CubeMaterialLateDiagnosticPath);
         BootLogDiscProbe("disc probe scene local material cooked", SceneLocalMaterialCookedDiagnosticPath);
         BootLogDiscProbe("disc probe scene local material root", SceneLocalMaterialRootDiagnosticPath);
-        BootLogDiscProbe("disc probe aliased cooked has", AliasedCookedHasDiagnosticPath);
-        BootLogDiscProbe("disc probe startup scene hardcoded", AliasedCookedStartupHardcodedDiagnosticPath);
-        BootLogDiscProbe("disc probe startup scene runtime", he_get_runtime_ps2_startup_scene_path());
         EngineCore = new Core();
         EngineOptions = EngineCore->get_InitializationOptions();
         EngineOptions->set_ContentRootPath(ResolveApplicationDirectoryPath());
@@ -671,19 +632,17 @@ namespace helengine::ps2 {
 
         EngineRenderManager2D = &RenderManager2DBackend;
         EngineRenderManager3D = &RenderManager3DBackend;
+        EnginePlatformInfo = new PlatformInfo("ps2", "1.0.0");
 
         BootLog("core initialize begin");
         EngineCore->Initialize(
             EngineRenderManager3D,
             EngineRenderManager2D,
             EngineInputBackend,
+            EnginePlatformInfo,
             EngineOptions);
         BootLog("core initialized");
 
-        scr_clear();
-        BootLog("startup scene diagnostics reset");
-        BootLog("startup scene probe spacer");
-        BootLogCompactDiscProbe("disc probe h1 runtime fail", H1ProbeRuntimeFailureDiagnosticPath);
         BootLog("startup scene load begin");
         StartupSceneLoaded = LoadPackagedStartupScene();
         BootLog(StartupSceneLoaded ? "startup scene load succeeded" : "startup scene load failed");
@@ -717,7 +676,7 @@ namespace helengine::ps2 {
         GsGlobal->Width = Ps2DefaultFramebufferWidth;
         GsGlobal->Height = Ps2DefaultFramebufferHeight;
         GsGlobal->PSM = GS_PSM_CT32;
-        GsGlobal->DoubleBuffering = GS_SETTING_ON;
+        GsGlobal->DoubleBuffering = GS_SETTING_OFF;
         const HERuntimeGraphicsRendererManifest* graphicsRendererManifest = he_get_runtime_graphics_renderer_manifest();
         if (graphicsRendererManifest == 0) {
             BootLog("graphics renderer manifest missing");
@@ -768,13 +727,10 @@ namespace helengine::ps2 {
                 BootLog("startup scene asset load returned null");
                 return false;
             }
-            BootLog("startup scene asset deserialized");
 
             SceneAsset* startupScene = static_cast<SceneAsset*>(startupAsset);
             if (EngineCore != nullptr && EngineCore->get_SceneLoadService() != nullptr) {
-                BootLog("startup scene runtime load begin");
                 EngineCore->get_SceneLoadService()->Load(startupScene);
-                BootLog("startup scene runtime load complete");
                 BootLog(std::string("startup scene loaded: ") + startupScenePhysicalPath);
                 return true;
             }
@@ -796,8 +752,7 @@ namespace helengine::ps2 {
 
     Asset* Ps2BootHost::LoadPackagedPhysicalAsset(const std::string& physicalPath) {
         if (!File::Exists(physicalPath)) {
-            BootLog("packaged asset missing");
-            BootLog(physicalPath);
+            BootLog(std::string("packaged asset missing: ") + physicalPath);
             return nullptr;
         }
 
@@ -892,12 +847,41 @@ namespace helengine::ps2 {
                         CubeDiagnosticsShown = true;
                         scr_clear();
                         BootLog(
+                            "cube runtime counts: proxies="
+                            + std::to_string(RenderManager3DBackend.GetLastProxyCount())
+                            + " opaqueWorld="
+                            + std::to_string(RenderManager3DBackend.GetLastOpaqueWorldCount())
+                            + " opaqueDynamic="
+                            + std::to_string(RenderManager3DBackend.GetLastOpaqueDynamicCount())
+                            + " alphaWorld="
+                            + std::to_string(RenderManager3DBackend.GetLastAlphaWorldCount())
+                            + " alphaDynamic="
+                            + std::to_string(RenderManager3DBackend.GetLastAlphaDynamicCount()));
+                        BootLog(
+                            "cube runtime rejects: missingMaterial="
+                            + std::to_string(RenderManager3DBackend.GetLastVuRejectedMissingMaterialCount())
+                            + " missingModel="
+                            + std::to_string(RenderManager3DBackend.GetLastVuRejectedMissingModelCount())
+                            + " missingPackedModel="
+                            + std::to_string(RenderManager3DBackend.GetLastVuRejectedMissingPackedModelCount())
+                            + " clip="
+                            + std::to_string(RenderManager3DBackend.GetLastClipRejectCount())
+                            + " projection="
+                            + std::to_string(RenderManager3DBackend.GetLastProjectionRejectCount())
+                            + " cull="
+                            + std::to_string(RenderManager3DBackend.GetLastCullRejectCount()));
+                        BootLog(
                             "cube runtime checkpoint: after draw phase="
                             + std::to_string(RenderManager3DBackend.GetLastVuPacketPhase())
                             + " packetBytes="
                             + std::to_string(RenderManager3DBackend.GetLastVuPacketByteCount())
                             + " submitted="
                             + std::to_string(RenderManager3DBackend.GetLastSubmittedTriangleCount()));
+                        BootLog(
+                            "cube draw returned: viewport="
+                            + FormatFloat4(RenderManager3DBackend.GetLastResolvedViewport())
+                            + " screenBounds="
+                            + FormatFloat4(RenderManager3DBackend.GetLastSubmittedScreenBounds()));
                         BootLog(
                             "cube draw returned: screenBounds="
                             + FormatFloat4(RenderManager3DBackend.GetLastSubmittedScreenBounds())

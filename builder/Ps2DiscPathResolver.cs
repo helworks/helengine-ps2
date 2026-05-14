@@ -45,6 +45,11 @@ public static class Ps2DiscPathResolver {
     const int ImportedAssetAliasShardLength = 1;
 
     /// <summary>
+    /// Number of alias-stem characters used to shard dense generic long-path alias buckets across multiple small directories.
+    /// </summary>
+    const int LongPathAliasShardLength = 1;
+
+    /// <summary>
     /// Resolves one logical cooked relative path into a PS2-safe physical disc relative path.
     /// </summary>
     /// <param name="logicalRelativePath">Logical cooked relative path that identifies one staged asset.</param>
@@ -134,6 +139,7 @@ public static class Ps2DiscPathResolver {
             : ResolveComponentToken("ROOT", 8);
         string resolvedExtension = ResolveResolvedExtension(fileName);
         string aliasFileStem = ResolveNumericLeadingAliasStem(normalizedLogicalPath);
+        string aliasShardDirectory = ResolveLongPathAliasShardDirectory(aliasFileStem);
         string aliasFileName = string.IsNullOrWhiteSpace(resolvedExtension)
             ? aliasFileStem
             : aliasFileStem + "." + resolvedExtension;
@@ -142,6 +148,7 @@ public static class Ps2DiscPathResolver {
             new[] {
                 aliasRoot,
                 LongPathAliasDirectoryToken,
+                aliasShardDirectory,
                 aliasFileName
             });
         if (GetRuntimePhysicalPathLength(aliasedPath) > MaxPhysicalRuntimePathLength) {
@@ -245,13 +252,13 @@ public static class Ps2DiscPathResolver {
     }
 
     /// <summary>
-    /// Resolves one deterministic generic alias stem whose first character is numeric so PS2 generic alias buckets avoid the unreadable letter-led filename quirk.
+    /// Resolves one deterministic generic alias stem whose first character is alphabetic so PS2 runtime CD file lookup can open long-path aliases reliably.
     /// </summary>
     /// <param name="normalizedLogicalPath">Normalized logical path using forward slashes.</param>
-    /// <returns>8-character deterministic alias stem whose first character is numeric.</returns>
+    /// <returns>8-character deterministic alias stem whose first character is alphabetic.</returns>
     static string ResolveNumericLeadingAliasStem(string normalizedLogicalPath) {
         string hash = ComputeHash(normalizedLogicalPath);
-        return "0" + hash[1..];
+        return "A" + hash[1..];
     }
 
     /// <summary>
@@ -324,6 +331,22 @@ public static class Ps2DiscPathResolver {
         }
 
         return aliasFileStem.Substring(2, ImportedAssetAliasShardLength);
+    }
+
+    /// <summary>
+    /// Resolves the shard directory for one generic long-path alias stem so dense `L` buckets do not require multi-sector ISO directory scans at runtime.
+    /// </summary>
+    /// <param name="aliasFileStem">Deterministic generic alias stem that will be emitted as the physical file name.</param>
+    /// <returns>Stable shard directory token derived from the generic alias stem.</returns>
+    static string ResolveLongPathAliasShardDirectory(string aliasFileStem) {
+        if (string.IsNullOrWhiteSpace(aliasFileStem)) {
+            throw new ArgumentException("Long-path alias file stem must be provided.", nameof(aliasFileStem));
+        }
+        if (aliasFileStem.Length < 1 + LongPathAliasShardLength) {
+            throw new InvalidOperationException($"Long-path alias file stem '{aliasFileStem}' is too short to derive a shard directory.");
+        }
+
+        return aliasFileStem.Substring(1, LongPathAliasShardLength);
     }
 
     /// <summary>
