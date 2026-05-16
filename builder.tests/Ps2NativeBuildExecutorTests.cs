@@ -84,6 +84,52 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that the opaque untextured VU program performs clip-flag generation in the microprogram instead of leaving visibility entirely to CPU-side triangle handling.
+    /// </summary>
+    [Fact]
+    public void Ps2OpaqueDraw3DProgram_WhenUsingVuClipCullPath_ShouldUseClipwForTriangleVisibility() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string programPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "programs",
+            "Ps2OpaqueDraw3D.vsm");
+
+        string source = File.ReadAllText(programPath);
+
+        Assert.Contains("clipw.xyz", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the opaque untextured VU packet builder does not use CPU near-plane clipping or CPU front-face rejection in the untextured VU path.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenBuildingOpaqueUntexturedPath_ShouldNotUseCpuTriangleRejectionMarkers() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string source = File.ReadAllText(builderPath);
+        string untexturedBranch = ExtractSourceRange(
+            source,
+            "} else if (!textured) {",
+            "} else {");
+
+        Assert.DoesNotContain("ClipTriangleAgainstNearPlane(", untexturedBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("IsFrontFacingTriangle(", untexturedBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that the opaque-untextured VU packet template uses an explicit VU-owned header instead of the draw_prim helper packet seam.
     /// </summary>
     [Fact]
@@ -520,5 +566,26 @@ FileStream::FileStream(const char* path, FileMode mode)
     /// <returns>Absolute repository root path.</returns>
     static string ResolveRepositoryRoot() {
         return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+    }
+
+    /// <summary>
+    /// Extracts a contiguous source section bounded by exact start and end markers so tests can reason about a single branch without matching unrelated helper code elsewhere in the file.
+    /// </summary>
+    /// <param name="source">Full source text.</param>
+    /// <param name="startMarker">Exact text where the desired section begins.</param>
+    /// <param name="endMarker">Exact text that terminates the desired section.</param>
+    /// <returns>The substring between the provided markers, including the start marker and excluding the end marker.</returns>
+    static string ExtractSourceRange(string source, string startMarker, string endMarker) {
+        int startIndex = source.IndexOf(startMarker, StringComparison.Ordinal);
+        if (startIndex < 0) {
+            throw new InvalidOperationException($"Start marker '{startMarker}' was not found.");
+        }
+
+        int endIndex = source.IndexOf(endMarker, startIndex + startMarker.Length, StringComparison.Ordinal);
+        if (endIndex < 0) {
+            throw new InvalidOperationException($"End marker '{endMarker}' was not found.");
+        }
+
+        return source[startIndex..endIndex];
     }
 }

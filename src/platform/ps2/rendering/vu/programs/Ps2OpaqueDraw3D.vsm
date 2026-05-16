@@ -2,12 +2,12 @@
 ; Scope for this step:
 ; - read three source positions
 ; - transform them with the precomputed WVP matrix
+; - perform clip-flag based visibility checks
 ; - convert them to GS XYZ2 values
-; - patch the existing helper-generated packet
+; - patch the existing VU-owned packet
 ; - xgkick
 ; Non-goals:
 ; - no VU lighting
-; - no VU culling
 ; - no packet layout changes
 
 		.vu
@@ -31,14 +31,26 @@ __ps2_opaque_draw_3d:
          madday        ACC,VF05,VF01y                               NOP
          maddaz        ACC,VF06,VF01z                               NOP
          maddw         VF01,VF07,VF01w                              NOP
+         clipw.xyz     VF01, VF01                                   NOP
+         NOP                                                        fcand VI01, 0x0003FFFF
+         NOP                                                        iaddiu VI04, VI01, 0x00007FFF
+         NOP                                                        isw.w VI04, 22(VI02)
          mulax         ACC,VF04,VF02x                               NOP
          madday        ACC,VF05,VF02y                               NOP
          maddaz        ACC,VF06,VF02z                               NOP
          maddw         VF02,VF07,VF02w                              NOP
+         clipw.xyz     VF02, VF02                                   NOP
+         NOP                                                        fcand VI01, 0x0003FFFF
+         NOP                                                        iaddiu VI04, VI01, 0x00007FFF
+         NOP                                                        isw.w VI04, 26(VI02)
          mulax         ACC,VF04,VF03x                               NOP
          madday        ACC,VF05,VF03y                               NOP
          maddaz        ACC,VF06,VF03z                               NOP
          maddw         VF03,VF07,VF03w                              NOP
+         clipw.xyz     VF03, VF03                                   NOP
+         NOP                                                        fcand VI01, 0x0003FFFF
+         NOP                                                        iaddiu VI04, VI01, 0x00007FFF
+         NOP                                                        isw.w VI04, 24(VI02)
          NOP                                                        div           Q,VF00w,VF01w
          mulq.xyz      VF01, VF01, Q                                waitq
          mul.xyz       VF01, VF01, VF08                             NOP
@@ -57,10 +69,6 @@ __ps2_opaque_draw_3d:
          add.xyz       VF03, VF03, VF09                             NOP
          ftoi4.xy      VF03, VF03                                   NOP
          ftoi0.z       VF03, VF03                                   NOP
-         NOP                                                        iaddiu VI04, VI00, 0x00000000
-         NOP                                                        isw.w VI04, 22(VI02)
-         NOP                                                        isw.w VI04, 24(VI02)
-         NOP                                                        isw.w VI04, 26(VI02)
          NOP                                                        sq.xyz VF01, 22(VI02)
          NOP                                                        sq.xyz VF03, 24(VI02)
          NOP                                                        sq.xyz VF02, 26(VI02)
