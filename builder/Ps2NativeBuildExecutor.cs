@@ -77,6 +77,13 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
         NormalizeGeneratedCoreFile(generatedCoreRootPath, "RenderManager3D.cpp");
         NormalizeGeneratedCoreFile(generatedCoreRootPath, "ScrollComponent.cpp");
         NormalizeGeneratedCoreFile(generatedCoreRootPath, "FontAsset.cpp");
+        NormalizeGeneratedCoreFile(generatedCoreRootPath, "AmbientLightComponent.cpp");
+        NormalizeGeneratedCoreFile(generatedCoreRootPath, "DirectionalLightComponent.cpp");
+        NormalizeGeneratedCoreFile(generatedCoreRootPath, "LightComponent.cpp");
+        NormalizeGeneratedCoreFile(generatedCoreRootPath, "PointLightComponent.cpp");
+        NormalizeGeneratedCoreFile(generatedCoreRootPath, "SpotLightComponent.cpp");
+        NormalizeGeneratedCoreFile(generatedCoreRootPath, Path.Combine("system", "io", "file-stream.hpp"));
+        NormalizeGeneratedCoreFile(generatedCoreRootPath, Path.Combine("system", "io", "file-stream.cpp"));
         NormalizeGeneratedCoreFile(generatedCoreRootPath, "Core.cpp");
         NormalizeGeneratedCoreFile(generatedCoreRootPath, "SceneManager.cpp");
         NormalizeGeneratedCoreFile(generatedCoreRootPath, Path.Combine("runtime", "runtime_graphics_renderer_manifest.cpp"));
@@ -185,6 +192,7 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
         }
 
         string normalizedContents = contents.Replace("\r\n", "\n", StringComparison.Ordinal);
+        normalizedContents = normalizedContents.Replace("LightType::hpp", "LightType.hpp", StringComparison.Ordinal);
         if (string.Equals(fileName, "ScrollComponent.cpp", StringComparison.OrdinalIgnoreCase)) {
             return normalizedContents.Replace("SizeValue(new int2())", "SizeValue(int2())", StringComparison.Ordinal);
         }
@@ -197,6 +205,30 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             normalizedContents = normalizedContents.Replace(
                 "entry.get_Key()",
                 "entry.first",
+                StringComparison.Ordinal);
+            return normalizedContents;
+        }
+
+        if (string.Equals(fileName, Path.Combine("system", "io", "file-stream.hpp"), StringComparison.OrdinalIgnoreCase)) {
+            normalizedContents = normalizedContents.Replace(
+                "    bool usesMemoryBuffer;\n    std::vector<uint8_t> memoryBuffer;\n    bool ownsMemoryBuffer;\n",
+                "    bool usesMemoryBuffer;\n    bool ownsMemoryBuffer;\n",
+                StringComparison.Ordinal);
+            return normalizedContents;
+        }
+
+        if (string.Equals(fileName, Path.Combine("system", "io", "file-stream.cpp"), StringComparison.OrdinalIgnoreCase)) {
+            normalizedContents = normalizedContents.Replace(
+                "FileStream::FileStream(const uint8_t* data, size_t dataLength)\n    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(true), writable(false) {\n",
+                "FileStream::FileStream(const uint8_t* data, size_t dataLength)\n    : file(nullptr), memoryBuffer(), position(0), length(0), usesMemoryBuffer(true), ownsMemoryBuffer(true), writable(false) {\n",
+                StringComparison.Ordinal);
+            normalizedContents = normalizedContents.Replace(
+                "FileStream::FileStream(const char* path, FileMode mode)\n    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(false), writable(true) {\n",
+                "FileStream::FileStream(const char* path, FileMode mode)\n    : file(nullptr), memoryBuffer(), position(0), length(0), usesMemoryBuffer(false), ownsMemoryBuffer(false), writable(true) {\n",
+                StringComparison.Ordinal);
+            normalizedContents = normalizedContents.Replace(
+                "        memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);\n        usesMemoryBuffer = true;\n        length = memoryBuffer.size();\n        return;\n",
+                "        memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);\n        usesMemoryBuffer = true;\n        ownsMemoryBuffer = true;\n        writable = false;\n        length = memoryBuffer.size();\n        return;\n",
                 StringComparison.Ordinal);
             return normalizedContents;
         }

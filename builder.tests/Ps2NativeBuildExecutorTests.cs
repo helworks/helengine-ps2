@@ -450,6 +450,55 @@ glyph.SourceX = glyph.SourceX * widthScale;
     }
 
     /// <summary>
+    /// Verifies that generated light-component includes are normalized when the current engine rewrite emits the invalid `LightType::hpp` form.
+    /// </summary>
+    [Fact]
+    public void NormalizeGeneratedCoreSource_WhenLightComponentIncludesUseScopedHeaderToken_RewritesToPlainHeaderName() {
+        const string source = """
+#include "AmbientLightComponent.hpp"
+#include "LightType::hpp"
+""";
+
+        string normalizedSource = InvokeNormalizeGeneratedCoreSource("AmbientLightComponent.cpp", source);
+
+        Assert.Contains("#include \"LightType.hpp\"", normalizedSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("LightType::hpp", normalizedSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that generated PS2 direct-disc file streams become readable owned memory streams instead of zero-byte streams.
+    /// </summary>
+    [Fact]
+    public void NormalizeGeneratedCoreSource_WhenPs2FileStreamUsesDirectDiscBuffer_MarksMemoryBufferReadableOwnedAndReadOnly() {
+        const string source = """
+FileStream::FileStream(const uint8_t* data, size_t dataLength)
+    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(true), writable(false) {
+}
+
+FileStream::FileStream(const char* path, FileMode mode)
+    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(false), writable(true) {
+#if HE_CPP_PLATFORM_PS2
+    std::string resolvedPs2ReadPath = FileStreamSupportResolvePs2DiscReadPath(path);
+    bool usesPs2DirectRead = FileStreamSupportStartsWithPs2CdromPrefix(resolvedPs2ReadPath) || resolvedPs2ReadPath.find(';') != std::string::npos;
+    if (usesPs2DirectRead) {
+        memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);
+        usesMemoryBuffer = true;
+        length = memoryBuffer.size();
+        return;
+    }
+#endif
+}
+""";
+
+        string normalizedSource = InvokeNormalizeGeneratedCoreSource(Path.Combine("system", "io", "file-stream.cpp"), source);
+
+        Assert.Contains("usesMemoryBuffer(true), ownsMemoryBuffer(true), writable(false)", normalizedSource, StringComparison.Ordinal);
+        Assert.Contains("usesMemoryBuffer(false), ownsMemoryBuffer(false), writable(true)", normalizedSource, StringComparison.Ordinal);
+        Assert.Contains("ownsMemoryBuffer = true;", normalizedSource, StringComparison.Ordinal);
+        Assert.Contains("writable = false;", normalizedSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Invokes the private generated-core normalization entry point so tests can assert the PS2 build-specific source rewrite contract.
     /// </summary>
     /// <param name="fileName">Generated source file name passed to the normalization routine.</param>

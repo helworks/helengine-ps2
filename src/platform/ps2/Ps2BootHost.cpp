@@ -22,7 +22,11 @@
 #include "Core.hpp"
 #include "CoreInitializationOptions.hpp"
 #include "Entity.hpp"
+#include "FontInfo.hpp"
+#include "IRoundedRectDrawable2D.hpp"
+#include "ITextDrawable2D.hpp"
 #include "ModelAsset.hpp"
+#include "PlatformInfo.hpp"
 #include "SceneAsset.hpp"
 #include "SpriteComponent.hpp"
 #include "platform/ps2/Ps2InputBackend.hpp"
@@ -62,8 +66,8 @@ namespace {
     constexpr bool EnableCubeRuntimeDiagnostics = false;
     constexpr bool EnableCubeRuntimeDiagnosticImmediateHalt = false;
     constexpr double CubeRuntimeDiagnosticWatchSeconds = 5.0;
-    constexpr bool EnableFrameTimingDiagnostics = true;
-    constexpr bool EnableFrameTimingDiagnosticHalt = true;
+    constexpr bool EnableFrameTimingDiagnostics = false;
+    constexpr bool EnableFrameTimingDiagnosticHalt = false;
     constexpr int FrameTimingSampleFrameCount = 60;
     constexpr float CubeSpriteDiagnosticLeft = 211.843231f;
     constexpr float CubeSpriteDiagnosticTop = 115.843239f;
@@ -566,15 +570,19 @@ namespace {
             }
 
             std::string content = text->get_Text();
+            const double fontScale = std::max(static_cast<double>(text->get_FontScale()), 0.0001);
             if (text->get_WrapText()) {
-                content = TextLayoutUtils::WrapText(content, font, text->get_Size().X);
+                content = TextLayoutUtils::WrapText(
+                    content,
+                    font,
+                    std::max(1, static_cast<int>(std::round(static_cast<double>(text->get_Size().X) / fontScale))));
             }
 
             const ::float3 position = parent->get_Position();
             const ::byte4 color = text->get_Color();
             const u8 alpha = static_cast<u8>(std::min(static_cast<int>(color.W), 0x80));
             const u64 rgba = GS_SETREG_RGBAQ(color.X, color.Y, color.Z, alpha, 0x00);
-            const double lineHeight = std::max(static_cast<double>(font->get_LineHeight()), 1.0);
+            const double lineHeight = std::max(static_cast<double>(font->get_LineHeight()) * fontScale, 1.0);
             const double baseX = std::round(position.X);
             const double baseY = std::round(position.Y);
             double offsetX = 0.0;
@@ -597,7 +605,7 @@ namespace {
                 }
 
                 if (character == ' ') {
-                    offsetX += font->get_FontInfo()->get_SpaceWidth();
+                    offsetX += static_cast<double>(font->get_FontInfo()->get_SpaceWidth()) * fontScale;
                     continue;
                 }
 
@@ -606,12 +614,12 @@ namespace {
                     continue;
                 }
 
-                const double pixelWidth = glyph.SourceRect.Z * static_cast<double>(record.Texture.Width);
-                const double pixelHeight = glyph.SourceRect.W * static_cast<double>(record.Texture.Height);
+                const double pixelWidth = glyph.SourceRect.Z * static_cast<double>(record.Texture.Width) * fontScale;
+                const double pixelHeight = glyph.SourceRect.W * static_cast<double>(record.Texture.Height) * fontScale;
                 const double sourceX = glyph.SourceRect.X * static_cast<double>(record.Texture.Width);
                 const double sourceY = glyph.SourceRect.Y * static_cast<double>(record.Texture.Height);
                 const double drawX = baseX + offsetX;
-                const double drawY = baseY + std::round(offsetY) + glyph.OffsetY;
+                const double drawY = baseY + std::round(offsetY) + (static_cast<double>(glyph.OffsetY) * fontScale);
 
                 gsKit_prim_sprite_texture(
                     ActiveGsGlobal,
@@ -627,7 +635,9 @@ namespace {
                     0.0f,
                     rgba);
 
-                const double advance = glyph.AdvanceWidth > 0.0f ? glyph.AdvanceWidth : pixelWidth;
+                const double advance = glyph.AdvanceWidth > 0.0f
+                    ? static_cast<double>(glyph.AdvanceWidth) * fontScale
+                    : pixelWidth;
                 offsetX += advance;
             }
 
