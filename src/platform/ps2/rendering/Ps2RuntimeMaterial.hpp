@@ -5,6 +5,7 @@
 #include "Ps2RenderClass.hpp"
 #include "RuntimeMaterial.hpp"
 
+class PlatformMaterialAsset;
 class Ps2MaterialAsset;
 
 namespace helengine::ps2 {
@@ -27,7 +28,7 @@ namespace helengine::ps2 {
         float GetSpecularStrength() const;
         float GetEmissiveStrength() const;
         bool UsesVertexColor() const;
-        void LoadFromCooked(::Ps2MaterialAsset* materialAsset);
+        void LoadFromCooked(::PlatformMaterialAsset* materialAsset);
 
     private:
         ::Ps2MaterialAlphaMode AlphaMode;

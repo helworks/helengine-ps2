@@ -16,6 +16,7 @@ namespace helengine::ps2 {
         Ps2RuntimeModel();
 
         void LoadFromRaw(::ModelAsset* modelAsset);
+        void LoadFromRawWithoutPackedMesh(::ModelAsset* modelAsset);
 
         const std::vector<::float3>& GetNormals() const;
         const std::vector<std::uint16_t>& GetIndices() const;

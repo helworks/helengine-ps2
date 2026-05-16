@@ -11,6 +11,18 @@
 #include "float3.hpp"
 
 namespace helengine::ps2 {
+    namespace {
+        void PopulateRuntimeModelCommonData(Ps2RuntimeModel* runtimeModel, ::ModelAsset* modelAsset) {
+            if (runtimeModel == nullptr) {
+                throw std::invalid_argument("PS2 runtime model instance is required.");
+            } else if (modelAsset == nullptr) {
+                throw std::invalid_argument("PS2 raw model data is required.");
+            }
+
+            runtimeModel->set_Id(modelAsset->get_Id());
+        }
+    }
+
     Ps2RuntimeModel::Ps2RuntimeModel() {
         BoundsMinimum = ::float3::get_Zero();
         BoundsMaximum = ::float3::get_Zero();
@@ -24,7 +36,7 @@ namespace helengine::ps2 {
             throw std::invalid_argument("PS2 raw model data is required.");
         }
 
-        this->set_Id(modelAsset->get_Id());
+        PopulateRuntimeModelCommonData(this, modelAsset);
         Positions.clear();
         Normals.clear();
         Indices.clear();
@@ -103,6 +115,83 @@ namespace helengine::ps2 {
         VuPackedModel->LoadFromPackedBytes(
             reinterpret_cast<const std::uint8_t*>(modelAsset->Ps2PackedMeshBytes->Data),
             static_cast<std::size_t>(modelAsset->Ps2PackedMeshBytes->Length));
+    }
+
+    void Ps2RuntimeModel::LoadFromRawWithoutPackedMesh(::ModelAsset* modelAsset) {
+        if (modelAsset == nullptr) {
+            throw std::invalid_argument("PS2 raw model data is required.");
+        }
+
+        PopulateRuntimeModelCommonData(this, modelAsset);
+        Positions.clear();
+        Normals.clear();
+        Indices.clear();
+        TexCoords.clear();
+        delete VuPackedModel;
+        VuPackedModel = nullptr;
+
+        if (modelAsset->Positions == nullptr || modelAsset->Positions->Length <= 0) {
+            throw std::invalid_argument("PS2 raw model data must include positions.");
+        }
+
+        Positions.reserve(static_cast<std::size_t>(modelAsset->Positions->Length));
+        BoundsMinimum = ::float3(
+            std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max());
+        BoundsMaximum = ::float3(
+            std::numeric_limits<float>::lowest(),
+            std::numeric_limits<float>::lowest(),
+            std::numeric_limits<float>::lowest());
+        for (int32_t index = 0; index < modelAsset->Positions->Length; index++) {
+            const ::float3 position = modelAsset->Positions->Data[index];
+            Positions.push_back(position);
+            BoundsMinimum.X = std::min(BoundsMinimum.X, position.X);
+            BoundsMinimum.Y = std::min(BoundsMinimum.Y, position.Y);
+            BoundsMinimum.Z = std::min(BoundsMinimum.Z, position.Z);
+            BoundsMaximum.X = std::max(BoundsMaximum.X, position.X);
+            BoundsMaximum.Y = std::max(BoundsMaximum.Y, position.Y);
+            BoundsMaximum.Z = std::max(BoundsMaximum.Z, position.Z);
+        }
+        BoundsCenter = ::float3(
+            (BoundsMinimum.X + BoundsMaximum.X) * 0.5f,
+            (BoundsMinimum.Y + BoundsMaximum.Y) * 0.5f,
+            (BoundsMinimum.Z + BoundsMaximum.Z) * 0.5f);
+        const float halfExtentX = (BoundsMaximum.X - BoundsMinimum.X) * 0.5f;
+        const float halfExtentY = (BoundsMaximum.Y - BoundsMinimum.Y) * 0.5f;
+        const float halfExtentZ = (BoundsMaximum.Z - BoundsMinimum.Z) * 0.5f;
+        BoundsRadius = std::sqrt((halfExtentX * halfExtentX) + (halfExtentY * halfExtentY) + (halfExtentZ * halfExtentZ));
+
+        if (modelAsset->Normals != nullptr && modelAsset->Normals->Length > 0) {
+            Normals.reserve(static_cast<std::size_t>(modelAsset->Normals->Length));
+            for (int32_t index = 0; index < modelAsset->Normals->Length; index++) {
+                Normals.push_back(modelAsset->Normals->Data[index]);
+            }
+        }
+
+        if (modelAsset->TexCoords != nullptr && modelAsset->TexCoords->Length > 0) {
+            TexCoords.reserve(static_cast<std::size_t>(modelAsset->TexCoords->Length));
+            for (int32_t index = 0; index < modelAsset->TexCoords->Length; index++) {
+                TexCoords.push_back(modelAsset->TexCoords->Data[index]);
+            }
+        }
+
+        if (modelAsset->Indices16 != nullptr && modelAsset->Indices16->Length > 0) {
+            Indices.reserve(static_cast<std::size_t>(modelAsset->Indices16->Length));
+            for (int32_t index = 0; index < modelAsset->Indices16->Length; index++) {
+                Indices.push_back(modelAsset->Indices16->Data[index]);
+            }
+        } else if (modelAsset->Indices32 != nullptr && modelAsset->Indices32->Length > 0) {
+            Indices.reserve(static_cast<std::size_t>(modelAsset->Indices32->Length));
+            for (int32_t index = 0; index < modelAsset->Indices32->Length; index++) {
+                std::uint32_t rawIndex = modelAsset->Indices32->Data[index];
+                if (rawIndex > static_cast<std::uint32_t>(std::numeric_limits<std::uint16_t>::max())) {
+                    throw std::invalid_argument("PS2 runtime models require 16-bit indices.");
+                }
+
+                Indices.push_back(static_cast<std::uint16_t>(rawIndex));
+            }
+        }
     }
 
     const std::vector<::float3>& Ps2RuntimeModel::GetNormals() const {

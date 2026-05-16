@@ -289,7 +289,7 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("constexpr int Ps2DefaultFramebufferWidth = 640;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr int Ps2DefaultFramebufferHeight = 448;", source, StringComparison.Ordinal);
         Assert.Contains("GsGlobal->Interlace = GS_INTERLACED;", source, StringComparison.Ordinal);
-        Assert.Contains("GsGlobal->Field = GS_FIELD;", source, StringComparison.Ordinal);
+        Assert.Contains("GsGlobal->Field = GS_FRAME;", source, StringComparison.Ordinal);
         Assert.Contains("GsGlobal->DoubleBuffering = GS_SETTING_ON;", source, StringComparison.Ordinal);
         Assert.Contains("GsGlobal->Aspect = GS_ASPECT_4_3;", source, StringComparison.Ordinal);
         Assert.Contains("GsGlobal->Width = Ps2DefaultFramebufferWidth;", source, StringComparison.Ordinal);

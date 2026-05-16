@@ -15,6 +15,11 @@ endif
 TARGET := build/helengine_ps2.elf
 BUILD_DIR := build
 SOURCE_DIR := src
+HOST_DEBUGGER_DIR := tools/ps2-host-debugger
+HOST_DEBUGGER_BUILD_DIR := $(HOST_DEBUGGER_DIR)/build
+HOST_DEBUGGER_TARGET := $(HOST_DEBUGGER_DIR)/bin/ps2-host-debugger.exe
+HOST_GENERATED_CORE_STAGE_ROOT := $(HOST_DEBUGGER_BUILD_DIR)/generated-core
+HOST_GENERATED_CORE_STAGE_STAMP := $(HOST_GENERATED_CORE_STAGE_ROOT)/.prepared
 GENERATED_CORE_STAGE_ROOT := $(BUILD_DIR)/generated-core
 GENERATED_CORE_STAGE_STAMP := $(GENERATED_CORE_STAGE_ROOT)/.prepared
 GENERATED_CORE_STAGE_INPUTS = $(shell find $(HELENGINE_CORE_CPP_ROOT) -type f | sort)
@@ -30,6 +35,7 @@ PS2_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RuntimeModel.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuPackedModel.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuOpaqueBatchBuilder.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuOpaqueUntexturedSetupBuilder.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuProgramRegistry.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuGifStateEncoder.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp
@@ -51,6 +57,7 @@ OBJECTS := \
 CXX := mips64r5900el-ps2-elf-g++
 STRIP := mips64r5900el-ps2-elf-strip
 EE_DVP := dvp-as
+HOST_CXX ?= g++
 
 CPPFLAGS := \
 	-D_EE \
@@ -63,6 +70,19 @@ CPPFLAGS := \
 CXXFLAGS := \
 	-std=gnu++20 \
 	-O2 \
+	-Wall \
+	-Wextra \
+	-Wno-unused-parameter
+
+HOST_CPPFLAGS := \
+	-I$(SOURCE_DIR) \
+	-I$(HOST_GENERATED_CORE_STAGE_ROOT) \
+	-I$(HOST_DEBUGGER_DIR)
+
+HOST_CXXFLAGS := \
+	-std=gnu++20 \
+	-O0 \
+	-g \
 	-Wall \
 	-Wextra \
 	-Wno-unused-parameter
@@ -86,7 +106,31 @@ LDLIBS := \
 	-ldma \
 	-lgraph
 
-.PHONY: all clean
+HOST_DEBUGGER_SOURCES := \
+	$(HOST_DEBUGGER_DIR)/main.cpp \
+	$(HOST_DEBUGGER_DIR)/Ps2HostDebugSession.cpp \
+	$(HOST_DEBUGGER_DIR)/Ps2HostFileSystem.cpp \
+	$(HOST_DEBUGGER_DIR)/Ps2HostRenderManager3D.cpp \
+	$(HOST_DEBUGGER_DIR)/Ps2HostRenderManager2D.cpp \
+	$(HOST_DEBUGGER_DIR)/Ps2HostInputBackend.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/Ps2FramePlan.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/Ps2FramePlanner.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RenderProxy.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RuntimeMaterial.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RuntimeModel.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuOpaqueBatchBuilder.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuOpaqueUntexturedSetupBuilder.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuPackedModel.cpp \
+	$(HOST_DEBUGGER_DIR)/HostFile.cpp \
+	$(HOST_DEBUGGER_DIR)/HostFileStream.cpp
+HOST_DEBUGGER_OBJECTS := \
+	$(patsubst $(HOST_DEBUGGER_DIR)/%.cpp,$(HOST_DEBUGGER_BUILD_DIR)/%.o,$(filter $(HOST_DEBUGGER_DIR)/%.cpp,$(HOST_DEBUGGER_SOURCES))) \
+	$(patsubst $(SOURCE_DIR)/%.cpp,$(HOST_DEBUGGER_BUILD_DIR)/ps2-runtime/%.o,$(filter $(SOURCE_DIR)/%.cpp,$(HOST_DEBUGGER_SOURCES))) \
+	$(HOST_DEBUGGER_BUILD_DIR)/generated/helengine_core_amalgamated.o \
+	$(HOST_DEBUGGER_BUILD_DIR)/generated/runtime/runtime_scene_catalog_manifest.o \
+	$(HOST_DEBUGGER_BUILD_DIR)/generated/runtime/runtime_ps2_asset_path_manifest.o
+
+.PHONY: all clean ps2-host-debugger
 
 all: $(TARGET)
 
@@ -134,6 +178,41 @@ $(BUILD_DIR)/generated/runtime/runtime_ps2_asset_path_manifest.o: $(GENERATED_CO
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
+$(HOST_DEBUGGER_TARGET): $(HOST_DEBUGGER_OBJECTS)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) $(HOST_CXXFLAGS) -o $@ $^
+
+$(HOST_GENERATED_CORE_STAGE_STAMP): $(shell find $(HELENGINE_CORE_CPP_ROOT) -type f | sort)
+	@rm -rf $(HOST_GENERATED_CORE_STAGE_ROOT)
+	@mkdir -p $(HOST_GENERATED_CORE_STAGE_ROOT)
+	@cp -R $(HELENGINE_CORE_CPP_ROOT)/. $(HOST_GENERATED_CORE_STAGE_ROOT)/
+	@grep -v 'system/io/file-stream.cpp' $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp | grep -v 'system/io/file.cpp' > $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp.tmp
+	@mv $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp.tmp $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp
+	@touch $@
+
+$(HOST_DEBUGGER_BUILD_DIR)/%.o: $(HOST_DEBUGGER_DIR)/%.cpp $(HOST_GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) $(HOST_CPPFLAGS) $(HOST_CXXFLAGS) -c $< -o $@
+
+$(HOST_DEBUGGER_BUILD_DIR)/ps2-runtime/%.o: $(SOURCE_DIR)/%.cpp $(HOST_GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) $(HOST_CPPFLAGS) $(HOST_CXXFLAGS) -c $< -o $@
+
+$(HOST_DEBUGGER_BUILD_DIR)/generated/helengine_core_amalgamated.o: $(HOST_GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) $(HOST_CPPFLAGS) $(HOST_CXXFLAGS) -c $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp -o $@
+
+$(HOST_DEBUGGER_BUILD_DIR)/generated/runtime/runtime_ps2_asset_path_manifest.o: $(HOST_GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) $(HOST_CPPFLAGS) $(HOST_CXXFLAGS) -c $(HOST_GENERATED_CORE_STAGE_ROOT)/runtime/runtime_ps2_asset_path_manifest.cpp -o $@
+
+$(HOST_DEBUGGER_BUILD_DIR)/generated/runtime/runtime_scene_catalog_manifest.o: $(HOST_GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) $(HOST_CPPFLAGS) $(HOST_CXXFLAGS) -c $(HOST_GENERATED_CORE_STAGE_ROOT)/runtime/runtime_scene_catalog_manifest.cpp -o $@
+
+ps2-host-debugger: $(HOST_DEBUGGER_TARGET)
+
 clean:
 	@rm -rf $(BUILD_DIR)
+	@rm -rf $(HOST_DEBUGGER_BUILD_DIR) $(HOST_DEBUGGER_DIR)/bin
 

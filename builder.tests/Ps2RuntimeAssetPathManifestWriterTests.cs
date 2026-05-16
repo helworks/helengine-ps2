@@ -22,6 +22,8 @@ public sealed class Ps2RuntimeAssetPathManifestWriterTests {
             "project",
             "1.0.0",
             "1.0.0",
+            "ps2",
+            "1.0.0",
             "Scenes/DemoDiscMainMenu.helen",
             [
                 new PlatformBuildScene(
@@ -77,6 +79,8 @@ public sealed class Ps2RuntimeAssetPathManifestWriterTests {
             "project",
             "1.0.0",
             "1.0.0",
+            "ps2",
+            "1.0.0",
             "Scenes/DemoDiscMainMenu.helen",
             [
                 new PlatformBuildScene(
@@ -118,10 +122,6 @@ public sealed class Ps2RuntimeAssetPathManifestWriterTests {
             3,
             "project",
             "1.0.0",
-            "1.0.0",
-            "ps2",
-            "1.0.0",
-            "ps2",
             "1.0.0",
             "ps2",
             "1.0.0",

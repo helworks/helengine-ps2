@@ -1,7 +1,9 @@
 #include "platform/ps2/rendering/Ps2RuntimeMaterial.hpp"
 
+#include <cstdio>
 #include <stdexcept>
 
+#include "PlatformMaterialAsset.hpp"
 #include "Ps2MaterialAlphaMode.hpp"
 #include "Ps2MaterialAsset.hpp"
 #include "Ps2MaterialLightingMode.hpp"
@@ -85,26 +87,65 @@ namespace helengine::ps2 {
         return UseVertexColor;
     }
 
-    void Ps2RuntimeMaterial::LoadFromCooked(::Ps2MaterialAsset* materialAsset) {
+    void Ps2RuntimeMaterial::LoadFromCooked(::PlatformMaterialAsset* materialAsset) {
         if (materialAsset == nullptr) {
             throw std::invalid_argument("PS2 cooked material data is required.");
         }
 
+        ::Ps2MaterialAsset* ps2MaterialAsset = dynamic_cast<::Ps2MaterialAsset*>(materialAsset);
+        const std::string materialId = materialAsset->get_Id();
+        const std::string& textureRelativePath = ps2MaterialAsset != nullptr
+            ? ps2MaterialAsset->TextureRelativePath
+            : materialAsset->TextureRelativePath;
+        const std::string loadStartLog =
+            std::string("Ps2RuntimeMaterial::LoadFromCooked start idLen=")
+            + std::to_string(materialId.length())
+            + " textureLen="
+            + std::to_string(textureRelativePath.length());
+        std::printf("[helengine-ps2] %s\n", loadStartLog.c_str());
+        std::fflush(stdout);
+
         this->set_Id(materialAsset->get_Id());
-        LightingMode = materialAsset->LightingMode;
-        AlphaMode = materialAsset->AlphaMode;
-        RenderClass = materialAsset->RenderClass;
-        BaseColorR = materialAsset->BaseColorR;
-        BaseColorG = materialAsset->BaseColorG;
-        BaseColorB = materialAsset->BaseColorB;
-        BaseColorA = materialAsset->BaseColorA;
-        TextureRelativePath = materialAsset->TextureRelativePath;
-        DoubleSided = materialAsset->DoubleSided;
-        CastShadows = materialAsset->CastShadows;
-        UseVertexColor = materialAsset->UseVertexColor;
-        ExpensiveModeAllowed = materialAsset->ExpensiveModeAllowed;
-        Roughness = materialAsset->Roughness;
-        SpecularStrength = materialAsset->SpecularStrength;
-        EmissiveStrength = materialAsset->EmissiveStrength;
+        std::printf("[helengine-ps2] Ps2RuntimeMaterial::LoadFromCooked copied id\n");
+        std::fflush(stdout);
+        if (ps2MaterialAsset != nullptr) {
+            LightingMode = ps2MaterialAsset->LightingMode;
+            AlphaMode = ps2MaterialAsset->AlphaMode;
+            RenderClass = ps2MaterialAsset->RenderClass;
+            BaseColorR = ps2MaterialAsset->BaseColorR;
+            BaseColorG = ps2MaterialAsset->BaseColorG;
+            BaseColorB = ps2MaterialAsset->BaseColorB;
+            BaseColorA = ps2MaterialAsset->BaseColorA;
+            TextureRelativePath = ps2MaterialAsset->TextureRelativePath;
+            DoubleSided = ps2MaterialAsset->DoubleSided;
+            CastShadows = ps2MaterialAsset->CastShadows;
+            UseVertexColor = ps2MaterialAsset->UseVertexColor;
+            ExpensiveModeAllowed = ps2MaterialAsset->ExpensiveModeAllowed;
+            Roughness = ps2MaterialAsset->Roughness;
+            SpecularStrength = ps2MaterialAsset->SpecularStrength;
+            EmissiveStrength = ps2MaterialAsset->EmissiveStrength;
+        } else {
+            BaseColorR = materialAsset->BaseColorR;
+            BaseColorG = materialAsset->BaseColorG;
+            BaseColorB = materialAsset->BaseColorB;
+            BaseColorA = materialAsset->BaseColorA;
+            LightingMode = materialAsset->Lit ? ::Ps2MaterialLightingMode::SimpleLit : ::Ps2MaterialLightingMode::Unlit;
+            AlphaMode = ::Ps2MaterialAlphaMode::Opaque;
+            RenderClass = ::Ps2RenderClass::Opaque;
+            std::printf("[helengine-ps2] Ps2RuntimeMaterial::LoadFromCooked copying texture path\n");
+            std::fflush(stdout);
+            TextureRelativePath = materialAsset->TextureRelativePath;
+            std::printf("[helengine-ps2] Ps2RuntimeMaterial::LoadFromCooked copied texture path\n");
+            std::fflush(stdout);
+            DoubleSided = materialAsset->DoubleSided;
+            UseVertexColor = materialAsset->UseVertexColor;
+            CastShadows = false;
+            ExpensiveModeAllowed = false;
+            Roughness = 0.5f;
+            SpecularStrength = 0.5f;
+            EmissiveStrength = 0.0f;
+        }
+        std::printf("[helengine-ps2] Ps2RuntimeMaterial::LoadFromCooked completed\n");
+        std::fflush(stdout);
     }
 }

@@ -28,6 +28,7 @@
 #include "IDrawable3D.hpp"
 #include "ModelAsset.hpp"
 #include "ObjectManager.hpp"
+#include "PlatformMaterialAsset.hpp"
 #include "TextureAsset.hpp"
 #include "Ps2MaterialAsset.hpp"
 #include "Ps2MaterialLightingMode.hpp"
@@ -70,6 +71,7 @@ namespace helengine::ps2 {
         constexpr bool EnableVuDispatchBypassDiagnostics = false;
         constexpr bool EnableVuDirectGifDispatchDiagnostics = false;
         constexpr bool EnableVuDirectGifHelperTriangleDiagnostics = false;
+        constexpr bool EnableVuSingleTrianglePayloadDiagnostics = false;
         constexpr float VuDirectGifDiagnosticTriangleAX = 211.843231f;
         constexpr float VuDirectGifDiagnosticTriangleAY = 332.156738f;
         constexpr float VuDirectGifDiagnosticTriangleBX = 211.843231f;
@@ -466,6 +468,8 @@ namespace helengine::ps2 {
             LastProxySyncMilliseconds(0.0),
             LastFramePlanMilliseconds(0.0),
             LastVuBatchBuildMilliseconds(0.0),
+            LastVuWaitMilliseconds(0.0),
+            LastVuSubmitMilliseconds(0.0),
             LastVuPacketEncodeMilliseconds(0.0),
             LastVuTriangleSetupMilliseconds(0.0),
             LastVuPacketAssemblyMilliseconds(0.0),
@@ -483,13 +487,33 @@ namespace helengine::ps2 {
           LastSubmittedTriangleVertexB2() {
     }
 
-    ::RuntimeMaterial* Ps2RenderManager3D::BuildMaterialFromCooked(::Ps2MaterialAsset* materialAsset) {
+    ::RuntimeMaterial* Ps2RenderManager3D::BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset) {
         if (materialAsset == nullptr) {
-            throw std::invalid_argument("PS2 cooked material asset is required.");
+            throw std::invalid_argument("PS2 cooked platform material asset is required.");
         }
 
+        std::uintptr_t thisAddress = reinterpret_cast<std::uintptr_t>(this);
+        std::uintptr_t vtableAddress = this == nullptr ? 0u : reinterpret_cast<std::uintptr_t>(*reinterpret_cast<void**>(this));
+        std::uintptr_t materialAddress = reinterpret_cast<std::uintptr_t>(materialAsset);
+        std::string materialLog =
+            "BuildMaterialFromCooked this=0x"
+            + std::to_string(static_cast<unsigned long>(thisAddress))
+            + " vtable=0x"
+            + std::to_string(static_cast<unsigned long>(vtableAddress))
+            + " material=0x"
+            + std::to_string(static_cast<unsigned long>(materialAddress))
+            + " id="
+            + materialAsset->get_Id();
+        std::printf("[helengine-ps2] %s\n", materialLog.c_str());
+        std::fflush(stdout);
+        scr_printf("[helengine-ps2] %s\n", materialLog.c_str());
+
+        scr_printf("[helengine-ps2] BuildMaterialFromCooked runtime material alloc begin\n");
         Ps2RuntimeMaterial* runtimeMaterial = new Ps2RuntimeMaterial();
+        scr_printf("[helengine-ps2] BuildMaterialFromCooked runtime material alloc complete\n");
+        scr_printf("[helengine-ps2] BuildMaterialFromCooked load begin\n");
         runtimeMaterial->LoadFromCooked(materialAsset);
+        scr_printf("[helengine-ps2] BuildMaterialFromCooked load complete\n");
         return runtimeMaterial;
     }
 
@@ -534,8 +558,14 @@ namespace helengine::ps2 {
             throw std::invalid_argument("PS2 raw model data is required.");
         }
 
+        scr_printf("[helengine-ps2] BuildModelFromRaw begin\n");
         Ps2RuntimeModel* runtimeModel = new Ps2RuntimeModel();
-        runtimeModel->LoadFromRaw(data);
+        if (EnableVuSingleTrianglePayloadDiagnostics) {
+            runtimeModel->LoadFromRawWithoutPackedMesh(data);
+        } else {
+            runtimeModel->LoadFromRaw(data);
+        }
+        scr_printf("[helengine-ps2] BuildModelFromRaw complete\n");
         return runtimeModel;
     }
 
@@ -689,6 +719,8 @@ namespace helengine::ps2 {
         std::vector<Ps2VuOpaqueBatch> batches = VuOpaqueBatchBuilder.Build(plan);
         const std::clock_t vuBatchBuildEndTicks = std::clock();
         LastVuBatchBuildMilliseconds = ResolveMillisecondsFromClockTicks(vuBatchBuildStartTicks, vuBatchBuildEndTicks);
+        LastVuWaitMilliseconds = 0.0;
+        LastVuSubmitMilliseconds = 0.0;
         ::float3 lightDirection = DefaultForward;
         TryResolveDirectionalLightDirection(lightDirection);
         LastVuBatchDispatchCount = batches.size();
@@ -700,7 +732,10 @@ namespace helengine::ps2 {
                 continue;
             }
 
+            const std::clock_t vuInitialWaitStartTicks = std::clock();
             dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+            const std::clock_t vuInitialWaitEndTicks = std::clock();
+            LastVuWaitMilliseconds += ResolveMillisecondsFromClockTicks(vuInitialWaitStartTicks, vuInitialWaitEndTicks);
             ::float4x4 world = BuildWorldMatrix(*batch.Proxy);
             VuGifStateEncoder.EncodeOpaqueState(batch, GsGlobal);
             VuVifPacketBuilder.Reset();
@@ -812,9 +847,12 @@ namespace helengine::ps2 {
                 }
             } else {
                 LastVuPacketPhase = 201;
+                const std::clock_t vuSubmitStartTicks = std::clock();
                 dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);
                 LastVuPacketPhase = 202;
                 dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+                const std::clock_t vuSubmitEndTicks = std::clock();
+                LastVuSubmitMilliseconds += ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);
                 LastVuPacketPhase = 203;
             }
             (void)viewport;
@@ -927,6 +965,14 @@ namespace helengine::ps2 {
 
     double Ps2RenderManager3D::GetLastVuBatchBuildMilliseconds() const {
         return LastVuBatchBuildMilliseconds;
+    }
+
+    double Ps2RenderManager3D::GetLastVuWaitMilliseconds() const {
+        return LastVuWaitMilliseconds;
+    }
+
+    double Ps2RenderManager3D::GetLastVuSubmitMilliseconds() const {
+        return LastVuSubmitMilliseconds;
     }
 
     double Ps2RenderManager3D::GetLastVuPacketEncodeMilliseconds() const {
@@ -1214,9 +1260,20 @@ namespace helengine::ps2 {
     }
 
     ::RenderTarget* Ps2RenderManager3D::CreateRenderTarget(int32_t width, int32_t height) {
-        std::printf("[helengine-ps2] CreateRenderTarget requested width=%d height=%d\n", width, height);
+        std::uintptr_t thisAddress = reinterpret_cast<std::uintptr_t>(this);
+        std::uintptr_t vtableAddress = this == nullptr ? 0u : reinterpret_cast<std::uintptr_t>(*reinterpret_cast<void**>(this));
+        std::string createTargetLog =
+            "CreateRenderTarget this=0x"
+            + std::to_string(static_cast<unsigned long>(thisAddress))
+            + " vtable=0x"
+            + std::to_string(static_cast<unsigned long>(vtableAddress))
+            + " width="
+            + std::to_string(width)
+            + " height="
+            + std::to_string(height);
+        std::printf("[helengine-ps2] %s\n", createTargetLog.c_str());
         std::fflush(stdout);
-        scr_printf("[helengine-ps2] CreateRenderTarget requested width=%d height=%d\n", width, height);
+        scr_printf("[helengine-ps2] %s\n", createTargetLog.c_str());
 
         ::RenderTarget* renderTarget = new ::RenderTarget();
         renderTarget->set_Width(width);

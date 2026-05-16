@@ -25,6 +25,7 @@
 #include "platform/ps2/rendering/Ps2RenderProxy.hpp"
 #include "platform/ps2/rendering/Ps2RuntimeModel.hpp"
 #include "platform/ps2/rendering/vu/Ps2VuPackedModel.hpp"
+#include "platform/ps2/rendering/vu/Ps2VuOpaqueUntexturedSetupBuilder.hpp"
 
 namespace helengine::ps2 {
     namespace {
@@ -43,19 +44,31 @@ namespace helengine::ps2 {
         constexpr float FixedTriangleCY = 332.156738f;
         constexpr float FixedTriangleZ = 0.990000f;
         constexpr bool EnableVuGifTemplateLayoutDiagnostics = false;
+        constexpr bool EnableVuFlatColorDiagnostics = false;
+        constexpr bool EnableVuSingleDispatchDiagnostic = false;
         constexpr std::size_t LightingPaletteEntryCount = 16u;
         constexpr float LightingAmbientBias = 0.25f;
         constexpr float LightingDiffuseScale = 0.75f;
         constexpr float LightingPaletteScale = static_cast<float>(LightingPaletteEntryCount - 1u);
-        constexpr std::size_t TriangleGifPacketTemplateQwordCount = 6u;
+        constexpr std::size_t TriangleGifPacketTemplateQwordCount = 11u;
         constexpr std::size_t TriangleGifPacketTemplateByteCount = TriangleGifPacketTemplateQwordCount * 16u;
         constexpr std::size_t LitTrianglePaletteQwordCount = LightingPaletteEntryCount;
         constexpr std::size_t LitTriangleGifPacketQwordOffset = LitTrianglePaletteQwordCount;
-        constexpr std::size_t LitTriangleFaceNormalQwordOffset = LitTriangleGifPacketQwordOffset + TriangleGifPacketTemplateQwordCount;
+        constexpr std::size_t LitTriangleWorldMatrixQwordOffset = LitTriangleGifPacketQwordOffset + TriangleGifPacketTemplateQwordCount;
+        constexpr std::size_t LitTriangleViewMatrixQwordOffset = LitTriangleWorldMatrixQwordOffset + 4u;
+        constexpr std::size_t LitTriangleProjectionMatrixQwordOffset = LitTriangleViewMatrixQwordOffset + 4u;
+        constexpr std::size_t LitTriangleViewportQwordOffset = LitTriangleProjectionMatrixQwordOffset + 4u;
+        constexpr std::size_t LitTriangleSourceTriangleQwordOffset = LitTriangleViewportQwordOffset + 1u;
+        constexpr std::size_t LitTriangleFaceNormalQwordOffset = LitTriangleSourceTriangleQwordOffset + 9u;
         constexpr std::size_t LitTriangleLightDirectionQwordOffset = LitTriangleFaceNormalQwordOffset + 1u;
         constexpr std::size_t LitTriangleLightConstantsQwordOffset = LitTriangleLightDirectionQwordOffset + 1u;
+        constexpr std::size_t LitTriangleWorldViewProjectionMatrixQwordOffset = LitTriangleLightConstantsQwordOffset + 1u;
+        constexpr std::size_t LitTriangleGsScaleQwordOffset = LitTriangleWorldViewProjectionMatrixQwordOffset + 4u;
+        constexpr std::size_t LitTriangleGsOffsetQwordOffset = LitTriangleGsScaleQwordOffset + 1u;
         constexpr std::uint16_t UntexturedMicroProgramAddress = 0u;
         constexpr std::uint16_t TexturedMicroProgramAddress = 64u;
+        constexpr std::uint64_t UntexturedTriangleRegisterList = static_cast<std::uint64_t>(GIF_REG_RGBAQ) << 0u
+            | (static_cast<std::uint64_t>(GIF_REG_XYZ2) << 4u);
         constexpr std::uint64_t TexturedTriangleRegisterList = static_cast<std::uint64_t>(GIF_REG_RGBAQ)
             | (static_cast<std::uint64_t>(GIF_REG_UV) << 4u)
             | (static_cast<std::uint64_t>(GIF_REG_XYZ2) << 8u);
@@ -91,6 +104,9 @@ namespace helengine::ps2 {
             float FaceNormal[4];
             float LightDirection[4];
             float LightConstants[4];
+            float WorldViewProjectionMatrix[16];
+            float GsScale[4];
+            float GsOffset[4];
         };
 
         struct Ps2VuTexturedClipVertex final {
@@ -98,14 +114,100 @@ namespace helengine::ps2 {
             ::float2 TexCoord = ::float2(0.0f, 0.0f);
         };
 
+        struct Ps2VuFlatColor final {
+            std::uint8_t Red = 0xFF;
+            std::uint8_t Green = 0xFF;
+            std::uint8_t Blue = 0xFF;
+            std::uint8_t Alpha = 0x80;
+        };
+
+        void PopulateTriangleGifPacketTemplate(
+            const Ps2VuOpaqueBatch& batch,
+            const Ps2VuFlatColor& flatColor,
+            GSGLOBAL* gsGlobal,
+            Ps2VuLitTrianglePayload& payload);
+
+        std::uint64_t ResolveTexturedVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection);
+
         static_assert((sizeof(Ps2VuLitTrianglePayload) % 16u) == 0u);
         constexpr std::size_t LitTrianglePayloadQwordCount = sizeof(Ps2VuLitTrianglePayload) / 16u;
+        static_assert((offsetof(Ps2VuLitTrianglePayload, LightingPalette) / 16u) == 0u);
+        static_assert((offsetof(Ps2VuLitTrianglePayload, GifPacketTemplate) / 16u) == LitTriangleGifPacketQwordOffset);
+        static_assert((offsetof(Ps2VuLitTrianglePayload, WorldMatrix) / 16u) == LitTriangleWorldMatrixQwordOffset);
+        static_assert((offsetof(Ps2VuLitTrianglePayload, ViewMatrix) / 16u) == LitTriangleViewMatrixQwordOffset);
+        static_assert((offsetof(Ps2VuLitTrianglePayload, ProjectionMatrix) / 16u) == LitTriangleProjectionMatrixQwordOffset);
+        static_assert((offsetof(Ps2VuLitTrianglePayload, Viewport) / 16u) == LitTriangleViewportQwordOffset);
+        static_assert((offsetof(Ps2VuLitTrianglePayload, SourceTriangle) / 16u) == LitTriangleSourceTriangleQwordOffset);
+        static_assert((offsetof(Ps2VuLitTrianglePayload, FaceNormal) / 16u) == LitTriangleFaceNormalQwordOffset);
+        static_assert((offsetof(Ps2VuLitTrianglePayload, LightDirection) / 16u) == LitTriangleLightDirectionQwordOffset);
+        static_assert((offsetof(Ps2VuLitTrianglePayload, LightConstants) / 16u) == LitTriangleLightConstantsQwordOffset);
+        static_assert((offsetof(Ps2VuLitTrianglePayload, WorldViewProjectionMatrix) / 16u) == LitTriangleWorldViewProjectionMatrixQwordOffset);
+        static_assert((offsetof(Ps2VuLitTrianglePayload, GsScale) / 16u) == LitTriangleGsScaleQwordOffset);
+        static_assert((offsetof(Ps2VuLitTrianglePayload, GsOffset) / 16u) == LitTriangleGsOffsetQwordOffset);
+
+        void PopulateTrianglePayloadFromSetup(
+            const Ps2VuOpaqueBatch& batch,
+            const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup,
+            GSGLOBAL* gsGlobal,
+            Ps2VuLitTrianglePayload& payload) {
+            const ::float3 faceNormal(
+                triangleSetup.FaceNormal[0],
+                triangleSetup.FaceNormal[1],
+                triangleSetup.FaceNormal[2]);
+            const ::float3 lightDirection(
+                triangleSetup.LightDirection[0],
+                triangleSetup.LightDirection[1],
+                triangleSetup.LightDirection[2]);
+            const std::uint64_t triangleColor = ResolveTexturedVertexColor(*batch.Material, faceNormal, lightDirection);
+            Ps2VuFlatColor flatColor {};
+            flatColor.Red = static_cast<std::uint8_t>(triangleColor & 0xFFu);
+            flatColor.Green = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
+            flatColor.Blue = static_cast<std::uint8_t>((triangleColor >> 16u) & 0xFFu);
+            flatColor.Alpha = static_cast<std::uint8_t>((triangleColor >> 24u) & 0xFFu);
+            PopulateTriangleGifPacketTemplate(
+                batch,
+                flatColor,
+                gsGlobal,
+                payload);
+            std::memcpy(payload.WorldMatrix, triangleSetup.WorldMatrix, sizeof(triangleSetup.WorldMatrix));
+            std::memcpy(payload.ViewMatrix, triangleSetup.ViewMatrix, sizeof(triangleSetup.ViewMatrix));
+            std::memcpy(payload.ProjectionMatrix, triangleSetup.ProjectionMatrix, sizeof(triangleSetup.ProjectionMatrix));
+            std::memcpy(payload.Viewport, triangleSetup.Viewport, sizeof(triangleSetup.Viewport));
+            std::memcpy(payload.SourceTriangle.PositionA, triangleSetup.SourceTriangle.PositionA, sizeof(triangleSetup.SourceTriangle.PositionA));
+            std::memcpy(payload.SourceTriangle.PositionB, triangleSetup.SourceTriangle.PositionB, sizeof(triangleSetup.SourceTriangle.PositionB));
+            std::memcpy(payload.SourceTriangle.PositionC, triangleSetup.SourceTriangle.PositionC, sizeof(triangleSetup.SourceTriangle.PositionC));
+            std::memcpy(payload.SourceTriangle.NormalA, triangleSetup.SourceTriangle.NormalA, sizeof(triangleSetup.SourceTriangle.NormalA));
+            std::memcpy(payload.SourceTriangle.NormalB, triangleSetup.SourceTriangle.NormalB, sizeof(triangleSetup.SourceTriangle.NormalB));
+            std::memcpy(payload.SourceTriangle.NormalC, triangleSetup.SourceTriangle.NormalC, sizeof(triangleSetup.SourceTriangle.NormalC));
+            std::memcpy(payload.SourceTriangle.TexCoordA, triangleSetup.SourceTriangle.TexCoordA, sizeof(triangleSetup.SourceTriangle.TexCoordA));
+            std::memcpy(payload.SourceTriangle.TexCoordB, triangleSetup.SourceTriangle.TexCoordB, sizeof(triangleSetup.SourceTriangle.TexCoordB));
+            std::memcpy(payload.SourceTriangle.TexCoordC, triangleSetup.SourceTriangle.TexCoordC, sizeof(triangleSetup.SourceTriangle.TexCoordC));
+            std::memcpy(payload.FaceNormal, triangleSetup.FaceNormal, sizeof(triangleSetup.FaceNormal));
+            std::memcpy(payload.LightDirection, triangleSetup.LightDirection, sizeof(triangleSetup.LightDirection));
+            std::memcpy(payload.LightConstants, triangleSetup.LightConstants, sizeof(triangleSetup.LightConstants));
+            std::memcpy(payload.WorldViewProjectionMatrix, triangleSetup.WorldViewProjectionMatrix, sizeof(triangleSetup.WorldViewProjectionMatrix));
+            std::memcpy(payload.GsScale, triangleSetup.GsScale, sizeof(triangleSetup.GsScale));
+            std::memcpy(payload.GsOffset, triangleSetup.GsOffset, sizeof(triangleSetup.GsOffset));
+        }
 
         std::uint32_t BuildVifCode(std::uint16_t immediate, std::uint8_t number, std::uint8_t command, bool irq) {
             return static_cast<std::uint32_t>(immediate)
                 | (static_cast<std::uint32_t>(number) << 16u)
                 | (static_cast<std::uint32_t>(command) << 24u)
                 | (irq ? 0x80000000u : 0u);
+        }
+
+        void PopulateGifColorQword(
+            Ps2VuGifQword& qword,
+            std::uint8_t red,
+            std::uint8_t green,
+            std::uint8_t blue,
+            std::uint8_t alpha) {
+            std::uint32_t* colorWords = reinterpret_cast<std::uint32_t*>(&qword);
+            colorWords[0] = red;
+            colorWords[1] = green;
+            colorWords[2] = blue;
+            colorWords[3] = alpha;
         }
 
         packet2_t* CreatePacketOrThrow(std::uint16_t qwords, Packet2Mode mode) {
@@ -119,6 +221,22 @@ namespace helengine::ps2 {
 
         std::uint32_t ResolveMaximumDepth([[maybe_unused]] GSGLOBAL* gsGlobal) {
             return 1u << 23;
+        }
+
+        std::uint64_t ResolveOpaqueUntexturedTestRegister(GSGLOBAL* gsGlobal) {
+            const bool rendererDepthTestEnabled = gsGlobal != nullptr && gsGlobal->ZBuffering == GS_SETTING_ON;
+            const std::uint32_t rendererZTestMethod = rendererDepthTestEnabled
+                ? ZTEST_METHOD_GREATER_EQUAL
+                : ZTEST_METHOD_ALLPASS;
+            return GS_SET_TEST(
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                rendererDepthTestEnabled ? DRAW_ENABLE : DRAW_DISABLE,
+                rendererZTestMethod);
         }
 
         double ResolveMillisecondsFromClockTicks(std::clock_t startTicks, std::clock_t endTicks) {
@@ -272,6 +390,79 @@ namespace helengine::ps2 {
             return GS_SETREG_XYZ2(gsX, gsY, gsZ);
         }
 
+        void PopulateIdentityMatrix(float* matrix) {
+            std::memset(matrix, 0, sizeof(float) * 16u);
+            matrix[0] = 1.0f;
+            matrix[5] = 1.0f;
+            matrix[10] = 1.0f;
+            matrix[15] = 1.0f;
+        }
+
+        void PopulateDiagnosticOpaqueTrianglePayload(
+            const Ps2VuOpaqueBatch& batch,
+            const ::float4& viewport,
+            const ::float3& normalizedLightDirection,
+            Ps2VuLitTrianglePayload& payload) {
+            Ps2VuFlatColor flatColor {};
+            flatColor.Red = batch.Material->GetBaseColorR();
+            flatColor.Green = batch.Material->GetBaseColorG();
+            flatColor.Blue = batch.Material->GetBaseColorB();
+            flatColor.Alpha = batch.Material->GetBaseColorA();
+            PopulateTriangleGifPacketTemplate(batch, flatColor, nullptr, payload);
+            PopulateIdentityMatrix(payload.WorldMatrix);
+            PopulateIdentityMatrix(payload.ViewMatrix);
+            PopulateIdentityMatrix(payload.ProjectionMatrix);
+            PopulateIdentityMatrix(payload.WorldViewProjectionMatrix);
+            payload.Viewport[0] = viewport.X;
+            payload.Viewport[1] = viewport.Y;
+            payload.Viewport[2] = viewport.Z;
+            payload.Viewport[3] = viewport.W;
+            payload.SourceTriangle.PositionA[0] = -0.5f;
+            payload.SourceTriangle.PositionA[1] = -0.5f;
+            payload.SourceTriangle.PositionA[2] = 0.5f;
+            payload.SourceTriangle.PositionA[3] = 1.0f;
+            payload.SourceTriangle.PositionB[0] = -0.5f;
+            payload.SourceTriangle.PositionB[1] = 0.5f;
+            payload.SourceTriangle.PositionB[2] = 0.5f;
+            payload.SourceTriangle.PositionB[3] = 1.0f;
+            payload.SourceTriangle.PositionC[0] = 0.5f;
+            payload.SourceTriangle.PositionC[1] = -0.5f;
+            payload.SourceTriangle.PositionC[2] = 0.5f;
+            payload.SourceTriangle.PositionC[3] = 1.0f;
+            payload.SourceTriangle.NormalA[0] = 0.0f;
+            payload.SourceTriangle.NormalA[1] = 0.0f;
+            payload.SourceTriangle.NormalA[2] = -1.0f;
+            payload.SourceTriangle.NormalA[3] = 0.0f;
+            payload.SourceTriangle.NormalB[0] = 0.0f;
+            payload.SourceTriangle.NormalB[1] = 0.0f;
+            payload.SourceTriangle.NormalB[2] = -1.0f;
+            payload.SourceTriangle.NormalB[3] = 0.0f;
+            payload.SourceTriangle.NormalC[0] = 0.0f;
+            payload.SourceTriangle.NormalC[1] = 0.0f;
+            payload.SourceTriangle.NormalC[2] = -1.0f;
+            payload.SourceTriangle.NormalC[3] = 0.0f;
+            payload.FaceNormal[0] = 0.0f;
+            payload.FaceNormal[1] = 0.0f;
+            payload.FaceNormal[2] = -1.0f;
+            payload.FaceNormal[3] = 0.0f;
+            payload.LightDirection[0] = normalizedLightDirection.X;
+            payload.LightDirection[1] = normalizedLightDirection.Y;
+            payload.LightDirection[2] = normalizedLightDirection.Z;
+            payload.LightDirection[3] = 0.0f;
+            payload.LightConstants[0] = LightingDiffuseScale;
+            payload.LightConstants[1] = LightingAmbientBias;
+            payload.LightConstants[2] = LightingPaletteScale;
+            payload.LightConstants[3] = 0.0f;
+            payload.GsScale[0] = viewport.Z * 0.5f;
+            payload.GsScale[1] = viewport.W * -0.5f;
+            payload.GsScale[2] = -4194304.0f;
+            payload.GsScale[3] = 0.0f;
+            payload.GsOffset[0] = 2048.0f + viewport.X + (viewport.Z * 0.5f);
+            payload.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
+            payload.GsOffset[2] = 4194304.0f;
+            payload.GsOffset[3] = 0.0f;
+        }
+
         ::float3 NormalizeOrFallback(const ::float3& value, const ::float3& fallback) {
             const float lengthSquared = ::float3::Dot(value, value);
             if (lengthSquared <= 0.000001f) {
@@ -315,58 +506,78 @@ namespace helengine::ps2 {
 
             for (std::size_t paletteIndex = 0; paletteIndex < LightingPaletteEntryCount; paletteIndex++) {
                 const float normalizedShade = static_cast<float>(paletteIndex) / LightingPaletteScale;
-                payload.LightingPalette[paletteIndex].Low = GS_SETREG_RGBAQ(
+                PopulateGifColorQword(
+                    payload.LightingPalette[paletteIndex],
                     ScaleColorChannel(baseColorR, normalizedShade),
                     ScaleColorChannel(baseColorG, normalizedShade),
                     ScaleColorChannel(baseColorB, normalizedShade),
-                    baseColorA,
-                    0x00);
-                payload.LightingPalette[paletteIndex].High = static_cast<std::uint64_t>(GIF_REG_RGBAQ);
+                    baseColorA);
             }
         }
 
         void PopulateTriangleGifPacketTemplate(
             const Ps2VuOpaqueBatch& batch,
-            std::uint64_t positionARegister,
-            std::uint64_t positionBRegister,
-            std::uint64_t positionCRegister,
+            const Ps2VuFlatColor& resolvedFlatColor,
+            GSGLOBAL* gsGlobal,
             Ps2VuLitTrianglePayload& payload) {
-            std::unique_ptr<packet2_t, decltype(&packet2_free)> gifPacket(CreatePacketOrThrow(16u, P2_MODE_NORMAL), &packet2_free);
             prim_t prim = {};
             prim.type = PRIM_TRIANGLE;
-            prim.shading = PRIM_SHADE_GOURAUD;
+            prim.shading = PRIM_SHADE_FLAT;
             prim.mapping = 0;
             prim.fogging = 0;
             prim.blending = 0;
             prim.antialiasing = 0;
             prim.mapping_type = PRIM_MAP_ST;
             prim.colorfix = PRIM_UNFIXED;
-            const std::uint8_t baseColorR = batch.Material->GetBaseColorR();
-            const std::uint8_t baseColorG = batch.Material->GetBaseColorG();
-            const std::uint8_t baseColorB = batch.Material->GetBaseColorB();
             const std::uint8_t baseColorA = batch.Material->GetBaseColorA();
             color_t flatColor = {};
-            flatColor.r = baseColorR;
-            flatColor.g = baseColorG;
-            flatColor.b = baseColorB;
-            flatColor.a = baseColorA;
-            packet2_update(gifPacket.get(), draw_prim_start(gifPacket.get()->base, 0, &prim, &flatColor));
-            packet2_add_u64(gifPacket.get(), positionARegister);
-            packet2_add_u64(gifPacket.get(), positionBRegister);
-            packet2_add_u64(gifPacket.get(), positionCRegister);
-            packet2_pad128(gifPacket.get(), 0);
-            packet2_update(gifPacket.get(), draw_prim_end(gifPacket.get()->next, 1, static_cast<u64>(GIF_REG_XYZ2) << 0));
-            const std::size_t gifPacketByteCount = static_cast<std::size_t>(packet2_get_qw_count(gifPacket.get())) * 16u;
-            if (gifPacketByteCount != TriangleGifPacketTemplateByteCount) {
-                throw std::runtime_error(
-                    "PS2 lit triangle GIF template size changed unexpectedly. bytes="
-                    + std::to_string(gifPacketByteCount)
-                    + " qwords="
-                    + std::to_string(packet2_get_qw_count(gifPacket.get())));
+            if (EnableVuFlatColorDiagnostics) {
+                flatColor.r = 0xFF;
+                flatColor.g = 0x20;
+                flatColor.b = 0x20;
+                flatColor.a = baseColorA;
             }
-
+            else {
+                flatColor.r = resolvedFlatColor.Red;
+                flatColor.g = resolvedFlatColor.Green;
+                flatColor.b = resolvedFlatColor.Blue;
+                flatColor.a = resolvedFlatColor.Alpha;
+            }
+            lod_t lod = {};
+            lod.mag_filter = LOD_MAG_NEAREST;
+            lod.min_filter = LOD_MIN_NEAREST;
             std::memset(&payload, 0, sizeof(Ps2VuLitTrianglePayload));
             PopulateLightingPalette(batch, payload);
+            std::unique_ptr<packet2_t, decltype(&packet2_free)> gifPacket(CreatePacketOrThrow(32u, P2_MODE_NORMAL), &packet2_free);
+            packet2_utils_gif_add_set(gifPacket.get(), 1);
+            packet2_add_2x_s64(
+                gifPacket.get(),
+                ResolveOpaqueUntexturedTestRegister(gsGlobal),
+                GS_REG_TEST);
+            packet2_utils_gif_add_set(gifPacket.get(), 1);
+            packet2_utils_gs_add_lod(gifPacket.get(), &lod);
+            packet2_utils_gs_add_prim_giftag(gifPacket.get(), &prim, 3u, UntexturedTriangleRegisterList, 2u, 0);
+            std::memset(gifPacket.get()->next, 0, 6u * 16u);
+            Ps2VuGifQword* triangleRegisters = reinterpret_cast<Ps2VuGifQword*>(gifPacket.get()->next);
+            PopulateGifColorQword(
+                triangleRegisters[0],
+                flatColor.r,
+                flatColor.g,
+                flatColor.b,
+                flatColor.a);
+            PopulateGifColorQword(
+                triangleRegisters[2],
+                flatColor.r,
+                flatColor.g,
+                flatColor.b,
+                flatColor.a);
+            PopulateGifColorQword(
+                triangleRegisters[4],
+                flatColor.r,
+                flatColor.g,
+                flatColor.b,
+                flatColor.a);
+            packet2_advance_next(gifPacket.get(), 6u * 16u);
             std::memcpy(payload.GifPacketTemplate, gifPacket.get()->base, TriangleGifPacketTemplateByteCount);
             if (EnableVuGifTemplateLayoutDiagnostics) {
                 throw std::runtime_error(
@@ -537,12 +748,13 @@ namespace helengine::ps2 {
         const std::clock_t triangleSetupStartTicks = std::clock();
         if (EnableVuFixedTriangleDiagnostics) {
             Ps2VuLitTrianglePayload payload {};
-            PopulateTriangleGifPacketTemplate(
-                batch,
-                BuildFixedTrianglePositionRegister(FixedTriangleAX, FixedTriangleAY, FixedTriangleZ, gsGlobal),
-                BuildFixedTrianglePositionRegister(FixedTriangleBX, FixedTriangleBY, FixedTriangleZ, gsGlobal),
-                BuildFixedTrianglePositionRegister(FixedTriangleCX, FixedTriangleCY, FixedTriangleZ, gsGlobal),
-                payload);
+            const std::uint64_t triangleColor = ResolveTexturedVertexColor(*batch.Material, ::float3(0.0f, 0.0f, -1.0f), normalizedLightDirection);
+            Ps2VuFlatColor flatColor {};
+            flatColor.Red = static_cast<std::uint8_t>(triangleColor & 0xFFu);
+            flatColor.Green = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
+            flatColor.Blue = static_cast<std::uint8_t>((triangleColor >> 16u) & 0xFFu);
+            flatColor.Alpha = static_cast<std::uint8_t>((triangleColor >> 24u) & 0xFFu);
+            PopulateTriangleGifPacketTemplate(batch, flatColor, gsGlobal, payload);
             payload.FaceNormal[0] = 0.0f;
             payload.FaceNormal[1] = 0.0f;
             payload.FaceNormal[2] = -1.0f;
@@ -562,6 +774,32 @@ namespace helengine::ps2 {
             SubmittedTriangleVertexA0 = ::float4(FixedTriangleAX, FixedTriangleAY, FixedTriangleZ, 0.0f);
             SubmittedTriangleVertexA1 = ::float4(FixedTriangleBX, FixedTriangleBY, FixedTriangleZ, 0.0f);
             SubmittedTriangleVertexA2 = ::float4(FixedTriangleCX, FixedTriangleCY, FixedTriangleZ, 0.0f);
+        } else if (!textured) {
+            Ps2VuOpaqueUntexturedSetupBuilder setupBuilder;
+            setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal);
+            LastTriangleSetupMilliseconds = setupBuilder.GetLastTriangleSetupMilliseconds();
+            LastTrianglePrepMilliseconds = setupBuilder.GetLastTrianglePrepMilliseconds();
+            LastTriangleEmitMilliseconds = setupBuilder.GetLastTriangleEmitMilliseconds();
+            SubmittedTriangleCount = setupBuilder.GetSubmittedTriangleCount();
+            SubmittedScreenBounds = setupBuilder.GetSubmittedScreenBounds();
+            SubmittedTriangleBoundsA = setupBuilder.GetSubmittedTriangleBoundsA();
+            SubmittedTriangleBoundsB = setupBuilder.GetSubmittedTriangleBoundsB();
+            SubmittedTriangleVertexA0 = setupBuilder.GetSubmittedTriangleVertexA0();
+            SubmittedTriangleVertexA1 = setupBuilder.GetSubmittedTriangleVertexA1();
+            SubmittedTriangleVertexA2 = setupBuilder.GetSubmittedTriangleVertexA2();
+            SubmittedTriangleVertexB0 = setupBuilder.GetSubmittedTriangleVertexB0();
+            SubmittedTriangleVertexB1 = setupBuilder.GetSubmittedTriangleVertexB1();
+            SubmittedTriangleVertexB2 = setupBuilder.GetSubmittedTriangleVertexB2();
+            const std::vector<Ps2VuOpaqueUntexturedTriangleSetup>& triangleSetups = setupBuilder.GetTriangleSetups();
+            trianglePayloads.reserve(triangleSetups.size());
+            for (const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup : triangleSetups) {
+                Ps2VuLitTrianglePayload payload {};
+                PopulateTrianglePayloadFromSetup(batch, triangleSetup, gsGlobal, payload);
+                trianglePayloads.push_back(payload);
+                if (EnableVuSingleDispatchDiagnostic) {
+                    break;
+                }
+            }
         } else {
             std::vector<Ps2VuTexturedClipVertex> clippedTexturedVertices;
             clippedTexturedVertices.reserve(4u);
@@ -625,32 +863,32 @@ namespace helengine::ps2 {
                 const ::float3 sourceNormalC = runtimeNormals != nullptr && sourceIndexC < runtimeNormals->size()
                     ? (*runtimeNormals)[sourceIndexC]
                     : packedNormalC;
+                const ::float4 positionA(packedPositionA.X, packedPositionA.Y, packedPositionA.Z, 1.0f);
+                const ::float4 positionB(packedPositionB.X, packedPositionB.Y, packedPositionB.Z, 1.0f);
+                const ::float4 positionC(packedPositionC.X, packedPositionC.Y, packedPositionC.Z, 1.0f);
+                const ::float3 worldPositionA = TransformPosition(positionA, world);
+                const ::float3 worldPositionB = TransformPosition(positionB, world);
+                const ::float3 worldPositionC = TransformPosition(positionC, world);
+                const ::float4 worldPositionA4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
+                const ::float4 worldPositionB4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
+                const ::float4 worldPositionC4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
+                const ::float4 faceNormal4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f);
+                const ::float3 worldFaceNormal = NormalizeOrFallback(
+                    TransformPosition(faceNormal4, world),
+                    ::float3(0.0f, 0.0f, -1.0f));
+                const ::float3 worldNormalA = NormalizeOrFallback(
+                    TransformPosition(::float4(sourceNormalA.X, sourceNormalA.Y, sourceNormalA.Z, 0.0f), world),
+                    ::float3(0.0f, 0.0f, -1.0f));
+                const ::float3 worldNormalB = NormalizeOrFallback(
+                    TransformPosition(::float4(sourceNormalB.X, sourceNormalB.Y, sourceNormalB.Z, 0.0f), world),
+                    ::float3(0.0f, 0.0f, -1.0f));
+                const ::float3 worldNormalC = NormalizeOrFallback(
+                    TransformPosition(::float4(sourceNormalC.X, sourceNormalC.Y, sourceNormalC.Z, 0.0f), world),
+                    ::float3(0.0f, 0.0f, -1.0f));
                 const std::clock_t trianglePrepEndTicks = std::clock();
                 LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
                 const std::clock_t triangleEmitStartTicks = std::clock();
                 if (textured) {
-                    const ::float4 positionA(packedPositionA.X, packedPositionA.Y, packedPositionA.Z, 1.0f);
-                    const ::float4 positionB(packedPositionB.X, packedPositionB.Y, packedPositionB.Z, 1.0f);
-                    const ::float4 positionC(packedPositionC.X, packedPositionC.Y, packedPositionC.Z, 1.0f);
-                    const ::float3 worldPositionA = TransformPosition(positionA, world);
-                    const ::float3 worldPositionB = TransformPosition(positionB, world);
-                    const ::float3 worldPositionC = TransformPosition(positionC, world);
-                    const ::float4 worldPositionA4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
-                    const ::float4 worldPositionB4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
-                    const ::float4 worldPositionC4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
-                    const ::float4 faceNormal4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f);
-                    const ::float3 worldFaceNormal = NormalizeOrFallback(
-                        TransformPosition(faceNormal4, world),
-                        ::float3(0.0f, 0.0f, -1.0f));
-                    const ::float3 worldNormalA = NormalizeOrFallback(
-                        TransformPosition(::float4(sourceNormalA.X, sourceNormalA.Y, sourceNormalA.Z, 0.0f), world),
-                        ::float3(0.0f, 0.0f, -1.0f));
-                    const ::float3 worldNormalB = NormalizeOrFallback(
-                        TransformPosition(::float4(sourceNormalB.X, sourceNormalB.Y, sourceNormalB.Z, 0.0f), world),
-                        ::float3(0.0f, 0.0f, -1.0f));
-                    const ::float3 worldNormalC = NormalizeOrFallback(
-                        TransformPosition(::float4(sourceNormalC.X, sourceNormalC.Y, sourceNormalC.Z, 0.0f), world),
-                        ::float3(0.0f, 0.0f, -1.0f));
                     const ::float3 viewPositionA = TransformPosition(worldPositionA4, view);
                     const ::float3 viewPositionB = TransformPosition(worldPositionB4, view);
                     const ::float3 viewPositionC = TransformPosition(worldPositionC4, view);
@@ -673,11 +911,9 @@ namespace helengine::ps2 {
                         viewPositionC,
                         sourceTexCoordC };
                     ClipTexturedTriangleAgainstNearPlane(texturedVertexA, texturedVertexB, texturedVertexC, nearPlaneDistance, clippedTexturedVertices);
-                } else {
-                    ClipTriangleAgainstNearPlane(viewPositionA, viewPositionB, viewPositionC, nearPlaneDistance, clippedVertices);
                 }
 
-                const std::size_t clippedVertexCount = textured ? clippedTexturedVertices.size() : clippedVertices.size();
+                const std::size_t clippedVertexCount = clippedTexturedVertices.size();
                 if (clippedVertexCount < 3u) {
                     continue;
                 }
@@ -695,9 +931,9 @@ namespace helengine::ps2 {
                     std::uint64_t positionARegister = 0;
                     std::uint64_t positionBRegister = 0;
                     std::uint64_t positionCRegister = 0;
-                    const ::float3& clippedPositionA = textured ? clippedTexturedVertices[0].ViewPosition : clippedVertices[0];
-                    const ::float3& clippedPositionB = textured ? clippedTexturedVertices[clippedIndex].ViewPosition : clippedVertices[clippedIndex];
-                    const ::float3& clippedPositionC = textured ? clippedTexturedVertices[clippedIndex + 1u].ViewPosition : clippedVertices[clippedIndex + 1u];
+                    const ::float3& clippedPositionA = clippedTexturedVertices[0].ViewPosition;
+                    const ::float3& clippedPositionB = clippedTexturedVertices[clippedIndex].ViewPosition;
+                    const ::float3& clippedPositionC = clippedTexturedVertices[clippedIndex + 1u].ViewPosition;
                     if (!TryBuildVertexPositionRegister(clippedPositionA, projection, viewport, gsGlobal, screenAX, screenAY, screenAZ, positionARegister)
                         || !TryBuildVertexPositionRegister(clippedPositionB, projection, viewport, gsGlobal, screenBX, screenBY, screenBZ, positionBRegister)
                         || !TryBuildVertexPositionRegister(clippedPositionC, projection, viewport, gsGlobal, screenCX, screenCY, screenCZ, positionCRegister)) {
@@ -709,167 +945,52 @@ namespace helengine::ps2 {
                         continue;
                     }
 
-                    if (textured) {
-                        const ::float3 triangleWorldNormal = NormalizeOrFallback(
-                            ::float3(
-                                worldNormalA.X + worldNormalB.X + worldNormalC.X,
-                                worldNormalA.Y + worldNormalB.Y + worldNormalC.Y,
-                                worldNormalA.Z + worldNormalB.Z + worldNormalC.Z),
-                            worldFaceNormal);
-                        const std::uint64_t triangleColor = EnableTexturedWhiteColorDiagnostics
-                            ? GS_SETREG_RGBAQ(
-                                batch.Material->GetBaseColorR(),
-                                batch.Material->GetBaseColorG(),
-                                batch.Material->GetBaseColorB(),
-                                batch.Material->GetBaseColorA(),
-                                0x00)
-                            : ResolveTexturedVertexColor(*batch.Material, triangleWorldNormal, normalizedLightDirection);
-                        texturedTrianglePackets.push_back(
-                            BuildTexturedTriangleGifPacketBytes(
-                                textureWidth,
-                                textureHeight,
-                                triangleColor,
-                        clippedTexturedVertices[0],
-                        clippedTexturedVertices[clippedIndex],
-                        clippedTexturedVertices[clippedIndex + 1u],
-                        positionARegister,
-                        positionBRegister,
-                        positionCRegister));
-                        const float minX = std::min({ screenAX, screenBX, screenCX });
-                        const float minY = std::min({ screenAY, screenBY, screenCY });
-                        const float maxX = std::max({ screenAX, screenBX, screenCX });
-                        const float maxY = std::max({ screenAY, screenBY, screenCY });
-                        if (SubmittedTriangleCount == 0u) {
-                            SubmittedScreenBounds = ::float4(minX, minY, maxX, maxY);
-                            SubmittedTriangleBoundsA = ::float4(minX, minY, maxX, maxY);
-                            SubmittedTriangleVertexA0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
-                            SubmittedTriangleVertexA1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
-                            SubmittedTriangleVertexA2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
-                        } else {
-                            SubmittedScreenBounds.X = std::min(SubmittedScreenBounds.X, minX);
-                            SubmittedScreenBounds.Y = std::min(SubmittedScreenBounds.Y, minY);
-                            SubmittedScreenBounds.Z = std::max(SubmittedScreenBounds.Z, maxX);
-                            SubmittedScreenBounds.W = std::max(SubmittedScreenBounds.W, maxY);
-                            if (SubmittedTriangleCount == 1u) {
-                                SubmittedTriangleBoundsB = ::float4(minX, minY, maxX, maxY);
-                                SubmittedTriangleVertexB0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
-                                SubmittedTriangleVertexB1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
-                                SubmittedTriangleVertexB2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
-                            }
-                        }
+                    const ::float3 triangleWorldNormal = NormalizeOrFallback(
+                        ::float3(
+                            worldNormalA.X + worldNormalB.X + worldNormalC.X,
+                            worldNormalA.Y + worldNormalB.Y + worldNormalC.Y,
+                            worldNormalA.Z + worldNormalB.Z + worldNormalC.Z),
+                        worldFaceNormal);
+                    const std::uint64_t triangleColor = EnableTexturedWhiteColorDiagnostics
+                        ? GS_SETREG_RGBAQ(
+                            batch.Material->GetBaseColorR(),
+                            batch.Material->GetBaseColorG(),
+                            batch.Material->GetBaseColorB(),
+                            batch.Material->GetBaseColorA(),
+                            0x00)
+                        : ResolveTexturedVertexColor(*batch.Material, triangleWorldNormal, normalizedLightDirection);
+                    texturedTrianglePackets.push_back(
+                        BuildTexturedTriangleGifPacketBytes(
+                            textureWidth,
+                            textureHeight,
+                            triangleColor,
+                            clippedTexturedVertices[0],
+                            clippedTexturedVertices[clippedIndex],
+                            clippedTexturedVertices[clippedIndex + 1u],
+                            positionARegister,
+                            positionBRegister,
+                            positionCRegister));
+                    const float minX = std::min({ screenAX, screenBX, screenCX });
+                    const float minY = std::min({ screenAY, screenBY, screenCY });
+                    const float maxX = std::max({ screenAX, screenBX, screenCX });
+                    const float maxY = std::max({ screenAY, screenBY, screenCY });
+                    if (SubmittedTriangleCount == 0u) {
+                        SubmittedScreenBounds = ::float4(minX, minY, maxX, maxY);
+                        SubmittedTriangleBoundsA = ::float4(minX, minY, maxX, maxY);
+                        SubmittedTriangleVertexA0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
+                        SubmittedTriangleVertexA1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
+                        SubmittedTriangleVertexA2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
                     } else {
-                        Ps2VuLitTrianglePayload payload {};
-                        PopulateLightingPalette(batch, payload);
-                        payload.WorldMatrix[0] = world.M11;
-                        payload.WorldMatrix[1] = world.M12;
-                        payload.WorldMatrix[2] = world.M13;
-                        payload.WorldMatrix[3] = world.M14;
-                        payload.WorldMatrix[4] = world.M21;
-                        payload.WorldMatrix[5] = world.M22;
-                        payload.WorldMatrix[6] = world.M23;
-                        payload.WorldMatrix[7] = world.M24;
-                        payload.WorldMatrix[8] = world.M31;
-                        payload.WorldMatrix[9] = world.M32;
-                        payload.WorldMatrix[10] = world.M33;
-                        payload.WorldMatrix[11] = world.M34;
-                        payload.WorldMatrix[12] = world.M41;
-                        payload.WorldMatrix[13] = world.M42;
-                        payload.WorldMatrix[14] = world.M43;
-                        payload.WorldMatrix[15] = world.M44;
-                        payload.ViewMatrix[0] = view.M11;
-                        payload.ViewMatrix[1] = view.M12;
-                        payload.ViewMatrix[2] = view.M13;
-                        payload.ViewMatrix[3] = view.M14;
-                        payload.ViewMatrix[4] = view.M21;
-                        payload.ViewMatrix[5] = view.M22;
-                        payload.ViewMatrix[6] = view.M23;
-                        payload.ViewMatrix[7] = view.M24;
-                        payload.ViewMatrix[8] = view.M31;
-                        payload.ViewMatrix[9] = view.M32;
-                        payload.ViewMatrix[10] = view.M33;
-                        payload.ViewMatrix[11] = view.M34;
-                        payload.ViewMatrix[12] = view.M41;
-                        payload.ViewMatrix[13] = view.M42;
-                        payload.ViewMatrix[14] = view.M43;
-                        payload.ViewMatrix[15] = view.M44;
-                        payload.ProjectionMatrix[0] = projection.M11;
-                        payload.ProjectionMatrix[1] = projection.M12;
-                        payload.ProjectionMatrix[2] = projection.M13;
-                        payload.ProjectionMatrix[3] = projection.M14;
-                        payload.ProjectionMatrix[4] = projection.M21;
-                        payload.ProjectionMatrix[5] = projection.M22;
-                        payload.ProjectionMatrix[6] = projection.M23;
-                        payload.ProjectionMatrix[7] = projection.M24;
-                        payload.ProjectionMatrix[8] = projection.M31;
-                        payload.ProjectionMatrix[9] = projection.M32;
-                        payload.ProjectionMatrix[10] = projection.M33;
-                        payload.ProjectionMatrix[11] = projection.M34;
-                        payload.ProjectionMatrix[12] = projection.M41;
-                        payload.ProjectionMatrix[13] = projection.M42;
-                        payload.ProjectionMatrix[14] = projection.M43;
-                        payload.ProjectionMatrix[15] = projection.M44;
-                        payload.Viewport[0] = viewport.X;
-                        payload.Viewport[1] = viewport.Y;
-                        payload.Viewport[2] = viewport.Z;
-                        payload.Viewport[3] = viewport.W;
-                        payload.SourceTriangle.PositionA[0] = packedPositionA.X;
-                        payload.SourceTriangle.PositionA[1] = packedPositionA.Y;
-                        payload.SourceTriangle.PositionA[2] = packedPositionA.Z;
-                        payload.SourceTriangle.PositionA[3] = 1.0f;
-                        payload.SourceTriangle.PositionB[0] = packedPositionB.X;
-                        payload.SourceTriangle.PositionB[1] = packedPositionB.Y;
-                        payload.SourceTriangle.PositionB[2] = packedPositionB.Z;
-                        payload.SourceTriangle.PositionB[3] = 1.0f;
-                        payload.SourceTriangle.PositionC[0] = packedPositionC.X;
-                        payload.SourceTriangle.PositionC[1] = packedPositionC.Y;
-                        payload.SourceTriangle.PositionC[2] = packedPositionC.Z;
-                        payload.SourceTriangle.PositionC[3] = 1.0f;
-                        payload.SourceTriangle.NormalA[0] = sourceNormalA.X;
-                        payload.SourceTriangle.NormalA[1] = sourceNormalA.Y;
-                        payload.SourceTriangle.NormalA[2] = sourceNormalA.Z;
-                        payload.SourceTriangle.NormalA[3] = 0.0f;
-                        payload.SourceTriangle.NormalB[0] = sourceNormalB.X;
-                        payload.SourceTriangle.NormalB[1] = sourceNormalB.Y;
-                        payload.SourceTriangle.NormalB[2] = sourceNormalB.Z;
-                        payload.SourceTriangle.NormalB[3] = 0.0f;
-                        payload.SourceTriangle.NormalC[0] = sourceNormalC.X;
-                        payload.SourceTriangle.NormalC[1] = sourceNormalC.Y;
-                        payload.SourceTriangle.NormalC[2] = sourceNormalC.Z;
-                        payload.SourceTriangle.NormalC[3] = 0.0f;
-                        payload.SourceTriangle.TexCoordA[0] = 0.0f;
-                        payload.SourceTriangle.TexCoordA[1] = 0.0f;
-                        payload.SourceTriangle.TexCoordA[2] = 0.0f;
-                        payload.SourceTriangle.TexCoordA[3] = 0.0f;
-                        payload.SourceTriangle.TexCoordB[0] = 0.0f;
-                        payload.SourceTriangle.TexCoordB[1] = 0.0f;
-                        payload.SourceTriangle.TexCoordB[2] = 0.0f;
-                        payload.SourceTriangle.TexCoordB[3] = 0.0f;
-                        payload.SourceTriangle.TexCoordC[0] = 0.0f;
-                        payload.SourceTriangle.TexCoordC[1] = 0.0f;
-                        payload.SourceTriangle.TexCoordC[2] = 0.0f;
-                        payload.SourceTriangle.TexCoordC[3] = 0.0f;
-                        payload.FaceNormal[0] = faceNormal.X;
-                        payload.FaceNormal[1] = faceNormal.Y;
-                        payload.FaceNormal[2] = faceNormal.Z;
-                        payload.FaceNormal[3] = 0.0f;
-                        payload.LightDirection[0] = normalizedLightDirection.X;
-                        payload.LightDirection[1] = normalizedLightDirection.Y;
-                        payload.LightDirection[2] = normalizedLightDirection.Z;
-                        payload.LightDirection[3] = 0.0f;
-                        payload.LightConstants[0] = LightingDiffuseScale;
-                        payload.LightConstants[1] = LightingAmbientBias;
-                        payload.LightConstants[2] = LightingPaletteScale;
-                        payload.LightConstants[3] = 0.0f;
-                        trianglePayloads.push_back(payload);
-                        SubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
-                        SubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
-                        SubmittedTriangleBoundsB = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
-                        SubmittedTriangleVertexA0 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
-                        SubmittedTriangleVertexA1 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
-                        SubmittedTriangleVertexA2 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
-                        SubmittedTriangleVertexB0 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
-                        SubmittedTriangleVertexB1 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
-                        SubmittedTriangleVertexB2 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+                        SubmittedScreenBounds.X = std::min(SubmittedScreenBounds.X, minX);
+                        SubmittedScreenBounds.Y = std::min(SubmittedScreenBounds.Y, minY);
+                        SubmittedScreenBounds.Z = std::max(SubmittedScreenBounds.Z, maxX);
+                        SubmittedScreenBounds.W = std::max(SubmittedScreenBounds.W, maxY);
+                        if (SubmittedTriangleCount == 1u) {
+                            SubmittedTriangleBoundsB = ::float4(minX, minY, maxX, maxY);
+                            SubmittedTriangleVertexB0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
+                            SubmittedTriangleVertexB1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
+                            SubmittedTriangleVertexB2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
+                        }
                     }
                     SubmittedTriangleCount++;
                 }

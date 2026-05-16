@@ -375,6 +375,17 @@ public static class Ps2PlatformDefinitionFactory {
                     PlatformMediaLayoutKind.InstallTree,
                     allowPhysicalDuplication: true,
                     preferLocalityOverDeduplication: true)
-            ]);
+            ],
+            new RuntimeGenerationContract(
+                RuntimeMaterialResolutionMode.CookedPlatformOwned,
+                false,
+                PackagedPathPolicy.RootedOrContentRelative),
+            new PlatformHostDebugCapability(
+                true,
+                PlatformHostDebugRunnerKind.NativeExecutable,
+                true,
+                true,
+                false,
+                "ps2-host-debugger"));
     }
 }

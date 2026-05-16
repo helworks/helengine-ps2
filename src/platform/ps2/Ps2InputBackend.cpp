@@ -11,7 +11,6 @@ namespace helengine::ps2 {
         : Port(0),
           Slot(0),
           IsPadAvailable(false),
-          ReceiveInputInBackground(false),
           ShowGreenFrame(false),
           CurrentButtons(),
           PreviousButtons(),
@@ -38,14 +37,6 @@ namespace helengine::ps2 {
         }
 
         return IsPadAvailable;
-    }
-
-    bool Ps2InputBackend::get_ReceiveInputInBackground() {
-        return ReceiveInputInBackground;
-    }
-
-    void Ps2InputBackend::set_ReceiveInputInBackground(bool value) {
-        ReceiveInputInBackground = value;
     }
 
     InputFrameState Ps2InputBackend::CaptureFrame() {

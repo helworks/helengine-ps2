@@ -17,6 +17,7 @@ typedef struct gsTexture GSTEXTURE;
 
 class CameraComponent;
 class ModelAsset;
+class PlatformMaterialAsset;
 class Ps2MaterialAsset;
 class RenderTarget;
 class RuntimeMaterial;
@@ -34,7 +35,7 @@ namespace helengine::ps2 {
     public:
         Ps2RenderManager3D();
 
-        ::RuntimeMaterial* BuildMaterialFromCooked(::Ps2MaterialAsset* materialAsset);
+        ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset) override;
         ::RuntimeMaterial* BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset) override;
         ::RuntimeModel* BuildModelFromRaw(::ModelAsset* data) override;
         ::RenderTarget* CreateRenderTarget(int32_t width, int32_t height) override;
@@ -60,6 +61,8 @@ namespace helengine::ps2 {
         double GetLastProxySyncMilliseconds() const;
         double GetLastFramePlanMilliseconds() const;
         double GetLastVuBatchBuildMilliseconds() const;
+        double GetLastVuWaitMilliseconds() const;
+        double GetLastVuSubmitMilliseconds() const;
         double GetLastVuPacketEncodeMilliseconds() const;
         double GetLastVuTriangleSetupMilliseconds() const;
         double GetLastVuPacketAssemblyMilliseconds() const;
@@ -157,6 +160,8 @@ namespace helengine::ps2 {
         double LastProxySyncMilliseconds;
         double LastFramePlanMilliseconds;
         double LastVuBatchBuildMilliseconds;
+        double LastVuWaitMilliseconds;
+        double LastVuSubmitMilliseconds;
         double LastVuPacketEncodeMilliseconds;
         double LastVuTriangleSetupMilliseconds;
         double LastVuPacketAssemblyMilliseconds;

@@ -92,6 +92,16 @@ namespace {
     double FrameTimingDraw2dSeconds = 0.0;
     double FrameTimingDrawSeconds = 0.0;
     double FrameTimingPresentSeconds = 0.0;
+    double FrameTimingProxySyncMilliseconds = 0.0;
+    double FrameTimingFramePlanMilliseconds = 0.0;
+    double FrameTimingVuBatchBuildMilliseconds = 0.0;
+    double FrameTimingVuBatchDispatchCount = 0.0;
+    double FrameTimingVuTrianglePrepMilliseconds = 0.0;
+    double FrameTimingVuTriangleEmitMilliseconds = 0.0;
+    double FrameTimingVuPacketAssemblyMilliseconds = 0.0;
+    double FrameTimingVuWaitMilliseconds = 0.0;
+    double FrameTimingVuSubmitMilliseconds = 0.0;
+    double FrameTimingVuPacketEncodeMilliseconds = 0.0;
     int FrameTimingFrameCount = 0;
     bool FrameTimingSampleCompleted = false;
     bool FrameTimingOverlayPending = false;
@@ -113,7 +123,25 @@ namespace {
         return static_cast<double>(endTicks - startTicks) / static_cast<double>(CLOCKS_PER_SEC);
     }
 
+    void RecordRenderManagerTimingSample(const helengine::ps2::Ps2RenderManager3D& renderManager3DBackend) {
+        if (!EnableFrameTimingDiagnostics) {
+            return;
+        }
+
+        FrameTimingProxySyncMilliseconds += renderManager3DBackend.GetLastProxySyncMilliseconds();
+        FrameTimingFramePlanMilliseconds += renderManager3DBackend.GetLastFramePlanMilliseconds();
+        FrameTimingVuBatchBuildMilliseconds += renderManager3DBackend.GetLastVuBatchBuildMilliseconds();
+        FrameTimingVuBatchDispatchCount += static_cast<double>(renderManager3DBackend.GetLastVuBatchDispatchCount());
+        FrameTimingVuTrianglePrepMilliseconds += renderManager3DBackend.GetLastVuTrianglePrepMilliseconds();
+        FrameTimingVuTriangleEmitMilliseconds += renderManager3DBackend.GetLastVuTriangleEmitMilliseconds();
+        FrameTimingVuPacketAssemblyMilliseconds += renderManager3DBackend.GetLastVuPacketAssemblyMilliseconds();
+        FrameTimingVuWaitMilliseconds += renderManager3DBackend.GetLastVuWaitMilliseconds();
+        FrameTimingVuSubmitMilliseconds += renderManager3DBackend.GetLastVuSubmitMilliseconds();
+        FrameTimingVuPacketEncodeMilliseconds += renderManager3DBackend.GetLastVuPacketEncodeMilliseconds();
+    }
+
     void RecordFrameTimingSample(
+        const helengine::ps2::Ps2RenderManager3D& renderManager3DBackend,
         double updateSeconds,
         double draw3dSeconds,
         double gifWaitSeconds,
@@ -142,6 +170,16 @@ namespace {
         const double averageDraw2dMilliseconds = (FrameTimingDraw2dSeconds / sampledFrameCount) * 1000.0;
         const double averageDrawMilliseconds = (FrameTimingDrawSeconds / sampledFrameCount) * 1000.0;
         const double averagePresentMilliseconds = (FrameTimingPresentSeconds / sampledFrameCount) * 1000.0;
+        const double averageProxySyncMilliseconds = FrameTimingProxySyncMilliseconds / sampledFrameCount;
+        const double averageFramePlanMilliseconds = FrameTimingFramePlanMilliseconds / sampledFrameCount;
+        const double averageVuBatchBuildMilliseconds = FrameTimingVuBatchBuildMilliseconds / sampledFrameCount;
+        const double averageVuBatchDispatchCount = FrameTimingVuBatchDispatchCount / sampledFrameCount;
+        const double averageVuTrianglePrepMilliseconds = FrameTimingVuTrianglePrepMilliseconds / sampledFrameCount;
+        const double averageVuTriangleEmitMilliseconds = FrameTimingVuTriangleEmitMilliseconds / sampledFrameCount;
+        const double averageVuPacketAssemblyMilliseconds = FrameTimingVuPacketAssemblyMilliseconds / sampledFrameCount;
+        const double averageVuWaitMilliseconds = FrameTimingVuWaitMilliseconds / sampledFrameCount;
+        const double averageVuSubmitMilliseconds = FrameTimingVuSubmitMilliseconds / sampledFrameCount;
+        const double averageVuPacketEncodeMilliseconds = FrameTimingVuPacketEncodeMilliseconds / sampledFrameCount;
         const double totalSeconds = FrameTimingUpdateSeconds + FrameTimingDrawSeconds + FrameTimingPresentSeconds;
         const double averageFramesPerSecond = totalSeconds <= 0.0 ? 0.0 : sampledFrameCount / totalSeconds;
         BootLog(
@@ -160,19 +198,22 @@ namespace {
             + " fps="
             + std::to_string(averageFramesPerSecond));
         FrameTimingOverlayLine1 =
-            "Upd: "
-            + std::to_string(averageUpdateMilliseconds)
-            + " 3D: "
-            + std::to_string(averageDraw3dMilliseconds)
-            + " GIF: "
-            + std::to_string(averageGifWaitMilliseconds);
+            std::string(renderManager3DBackend.IsUsingLegacyCpuOpaquePath() ? "OpaqueCPU " : "OpaqueVU2 ")
+            + "Ow: "
+            + std::to_string(renderManager3DBackend.GetLastOpaqueWorldCount())
+            + " Od: "
+            + std::to_string(renderManager3DBackend.GetLastOpaqueDynamicCount())
+            + " Disp: "
+            + std::to_string(averageVuBatchDispatchCount);
         FrameTimingOverlayLine2 =
-            "2D: "
-            + std::to_string(averageDraw2dMilliseconds)
-            + " Drw: "
+            "RMM: "
+            + std::to_string(renderManager3DBackend.GetLastVuRejectedMissingMaterialCount())
+            + " RMP: "
+            + std::to_string(renderManager3DBackend.GetLastVuRejectedMissingPackedModelCount())
+            + " Tri: "
+            + std::to_string(renderManager3DBackend.GetLastSubmittedTriangleCount())
+            + " 3D: "
             + std::to_string(averageDrawMilliseconds)
-            + " Pre: "
-            + std::to_string(averagePresentMilliseconds)
             + " FPS: "
             + std::to_string(averageFramesPerSecond);
         FrameTimingOverlayPending = true;
@@ -184,6 +225,16 @@ namespace {
         FrameTimingDraw2dSeconds = 0.0;
         FrameTimingDrawSeconds = 0.0;
         FrameTimingPresentSeconds = 0.0;
+        FrameTimingProxySyncMilliseconds = 0.0;
+        FrameTimingFramePlanMilliseconds = 0.0;
+        FrameTimingVuBatchBuildMilliseconds = 0.0;
+        FrameTimingVuBatchDispatchCount = 0.0;
+        FrameTimingVuTrianglePrepMilliseconds = 0.0;
+        FrameTimingVuTriangleEmitMilliseconds = 0.0;
+        FrameTimingVuPacketAssemblyMilliseconds = 0.0;
+        FrameTimingVuWaitMilliseconds = 0.0;
+        FrameTimingVuSubmitMilliseconds = 0.0;
+        FrameTimingVuPacketEncodeMilliseconds = 0.0;
         FrameTimingFrameCount = 0;
     }
 
@@ -777,6 +828,7 @@ namespace helengine::ps2 {
             SceneAsset* startupScene = static_cast<SceneAsset*>(startupAsset);
             if (EngineCore != nullptr && EngineCore->get_SceneLoadService() != nullptr) {
                 EngineCore->get_SceneLoadService()->Load(startupScene);
+                BootLog("startup scene load returned from scene load service");
                 BootLog(std::string("startup scene loaded: ") + startupScenePhysicalPath);
                 return true;
             }
@@ -811,6 +863,8 @@ namespace helengine::ps2 {
             return;
         }
 
+        bool loggedFirstUpdateComplete = false;
+        bool loggedFirstDrawComplete = false;
         while (true) {
             try {
                 const std::clock_t frameUpdateStartTicks = std::clock();
@@ -822,6 +876,10 @@ namespace helengine::ps2 {
                 if (EngineCore != 0) {
                     try {
                         EngineCore->Update();
+                        if (!loggedFirstUpdateComplete) {
+                            BootLog("first update completed");
+                            loggedFirstUpdateComplete = true;
+                        }
                     } catch (Exception* exception) {
                         BootLog(std::string("frame update exception: ") + (exception != nullptr ? exception->what() : "null"));
                         delete exception;
@@ -876,6 +934,10 @@ namespace helengine::ps2 {
                 if (EngineCore != nullptr) {
                     try {
                         EngineCore->Draw();
+                        if (!loggedFirstDrawComplete) {
+                            BootLog("first draw completed");
+                            loggedFirstDrawComplete = true;
+                        }
                     } catch (Exception* exception) {
                         BootLog(std::string("frame draw3d exception: ") + (exception != nullptr ? exception->what() : "null"));
                         delete exception;
@@ -1042,34 +1104,15 @@ namespace helengine::ps2 {
                 if (FrameTimingOverlayPending) {
                     FrameTimingOverlayPresented = true;
                 }
+                RecordRenderManagerTimingSample(RenderManager3DBackend);
                 RecordFrameTimingSample(
+                    RenderManager3DBackend,
                     ResolveSecondsFromClockTicks(frameUpdateStartTicks, frameUpdateEndTicks),
                     ResolveSecondsFromClockTicks(frameUpdateEndTicks, frameDraw3dEndTicks),
                     ResolveSecondsFromClockTicks(frameDraw3dEndTicks, frameGifWaitEndTicks),
                     ResolveSecondsFromClockTicks(frameGifWaitEndTicks, frameDrawEndTicks),
                     ResolveSecondsFromClockTicks(frameUpdateEndTicks, frameDrawEndTicks),
                     ResolveSecondsFromClockTicks(frameDrawEndTicks, framePresentEndTicks));
-                if (FrameTimingSampleCompleted) {
-                    FrameTimingOverlayLine1 =
-                        std::string(RenderManager3DBackend.IsUsingLegacyCpuOpaquePath() ? "OpaqueCPU " : "OpaqueVU2 ")
-                        + "Prx: "
-                        + std::to_string(RenderManager3DBackend.GetLastProxySyncMilliseconds())
-                        + " Pln: "
-                        + std::to_string(RenderManager3DBackend.GetLastFramePlanMilliseconds())
-                        + " Prep: "
-                        + std::to_string(RenderManager3DBackend.GetLastVuTrianglePrepMilliseconds());
-                    FrameTimingOverlayLine2 =
-                        "Emit: "
-                        + std::to_string(RenderManager3DBackend.GetLastVuTriangleEmitMilliseconds())
-                        + " Asm: "
-                        + std::to_string(RenderManager3DBackend.GetLastVuPacketAssemblyMilliseconds())
-                        + " Pkt: "
-                        + std::to_string(RenderManager3DBackend.GetLastVuPacketEncodeMilliseconds())
-                        + " 3D: "
-                        + std::to_string(ResolveSecondsFromClockTicks(frameUpdateEndTicks, frameDrawEndTicks) * 1000.0)
-                        + " Pre: "
-                        + std::to_string(ResolveSecondsFromClockTicks(frameDrawEndTicks, framePresentEndTicks) * 1000.0);
-                }
                 if (EnableCubeRuntimeDiagnostics && CubeDiagnosticsShown) {
                     if (!CubeRuntimeDiagnosticWatchActive) {
                         CubeRuntimeDiagnosticWatchActive = true;

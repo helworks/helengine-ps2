@@ -36,6 +36,15 @@ public class Ps2PlatformAssetBuilderTests {
         Assert.Contains(builder.Definition.MaterialSchemas, schema => schema.SchemaId == "ps2-unlit-textured");
         Assert.Contains(builder.Definition.MaterialSchemas, schema => schema.SchemaId == "ps2-simple-lit-textured");
         Assert.Contains(builder.Definition.MaterialSchemas, schema => schema.SchemaId == "ps2-showcase-lit-textured");
+        Assert.Equal(RuntimeMaterialResolutionMode.CookedPlatformOwned, builder.Definition.RuntimeGenerationContract.MaterialResolutionMode);
+        Assert.False(builder.Definition.RuntimeGenerationContract.SupportsRenderManager2DTextureReleaseFlush);
+        Assert.Equal(PackagedPathPolicy.RootedOrContentRelative, builder.Definition.RuntimeGenerationContract.PackagedPathPolicy);
+        Assert.True(builder.Definition.HostDebugCapability.SupportsHostDebug);
+        Assert.Equal(PlatformHostDebugRunnerKind.NativeExecutable, builder.Definition.HostDebugCapability.RunnerKind);
+        Assert.True(builder.Definition.HostDebugCapability.RequiresPackagedExportArtifacts);
+        Assert.True(builder.Definition.HostDebugCapability.SupportsSingleStepSceneLoad);
+        Assert.False(builder.Definition.HostDebugCapability.SupportsSingleStepDraw);
+        Assert.Equal("ps2-host-debugger", builder.Definition.HostDebugCapability.RunnerId);
     }
 
     /// <summary>
@@ -260,6 +269,8 @@ public class Ps2PlatformAssetBuilderTests {
                 "project",
                 "1.0.0",
                 "1.0.0",
+                "ps2",
+                "1.0.0",
                 "Scenes/Main.helen",
                 [
                     new PlatformBuildScene(
@@ -404,10 +415,6 @@ public class Ps2PlatformAssetBuilderTests {
                 3,
                 "project",
                 "1.0.0",
-                "1.0.0",
-                "ps2",
-                "1.0.0",
-                "ps2",
                 "1.0.0",
                 "ps2",
                 "1.0.0",
@@ -594,6 +601,8 @@ public class Ps2PlatformAssetBuilderTests {
                 "project",
                 "1.0.0",
                 "1.0.0",
+                "ps2",
+                "1.0.0",
                 "Scenes/Main.helen",
                 [
                     new PlatformBuildScene(
@@ -769,6 +778,8 @@ public class Ps2PlatformAssetBuilderTests {
                 "project",
                 "1.0.0",
                 "1.0.0",
+                "ps2",
+                "1.0.0",
                 "Scenes/Main.helen",
                 [
                     new PlatformBuildScene(
@@ -927,6 +938,8 @@ public class Ps2PlatformAssetBuilderTests {
                 3,
                 "project",
                 "1.0.0",
+                "1.0.0",
+                "ps2",
                 "1.0.0",
                 "Scenes/Main.helen",
                 [

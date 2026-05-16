@@ -14,10 +14,6 @@ namespace helengine::ps2 {
 
         bool Initialize();
 
-        bool get_ReceiveInputInBackground() override;
-
-        void set_ReceiveInputInBackground(bool value) override;
-
         InputFrameState CaptureFrame() override;
 
         bool ShouldShowGreenFrame() const;
@@ -32,7 +28,6 @@ namespace helengine::ps2 {
         int Port;
         int Slot;
         bool IsPadAvailable;
-        bool ReceiveInputInBackground;
         bool ShowGreenFrame;
         Ps2PadButtons CurrentButtons;
         Ps2PadButtons PreviousButtons;

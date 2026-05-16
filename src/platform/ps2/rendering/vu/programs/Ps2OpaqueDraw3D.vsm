@@ -1,4 +1,14 @@
-; Flat diffuse-lit opaque VU1 microprogram for the spinning cube lighting milestone.
+; Opaque untextured VU1 microprogram.
+; Scope for this step:
+; - read three source positions
+; - transform them with the precomputed WVP matrix
+; - convert them to GS XYZ2 values
+; - patch the existing helper-generated packet
+; - xgkick
+; Non-goals:
+; - no VU lighting
+; - no VU culling
+; - no packet layout changes
 
 		.vu
 		.align 4
@@ -8,21 +18,52 @@ Ps2OpaqueDraw3D_CodeStart:
 __ps2_opaque_draw_3d:
          NOP                                                        xtop VI02
          NOP                                                        iaddiu VI03, VI02, 0x00000010
-         NOP                                                        lq.xyzw VF04xyzw, 22(VI02)
-         NOP                                                        lq.xyzw VF05xyzw, 23(VI02)
-         NOP                                                        lq.xyzw VF06xyzw, 24(VI02)
-         mulax.x        ACC, VF04, VF05                             NOP
-         madday.x       ACC, VF04, VF05                             NOP
-         maddz.x        VF07, VF04, VF05                            NOP
-         maxx.x         VF07, VF07, VF00                            NOP
-         mulx.x         VF07, VF07, VF06                            NOP
-         addy.x         VF07, VF07, VF06                            NOP
-         mulz.x         VF07, VF07, VF06                            NOP
-         ftoi0.x        VF07, VF07                                  NOP
-         NOP                                                        mtir VI04, VF07x
-         NOP                                                        iadd VI04, VI02, VI04
-         NOP                                                        lq.xyzw VF08xyzw, 0(VI04)
-         NOP                                                        sq.xyzw VF08xyzw, 18(VI02)
+         NOP                                                        lq VF04, 52(VI02)
+         NOP                                                        lq VF05, 53(VI02)
+         NOP                                                        lq VF06, 54(VI02)
+         NOP                                                        lq VF07, 55(VI02)
+         NOP                                                        lq VF08, 56(VI02)
+         NOP                                                        lq VF09, 57(VI02)
+         NOP                                                        lq VF01, 40(VI02)
+         NOP                                                        lq VF02, 41(VI02)
+         NOP                                                        lq VF03, 42(VI02)
+         mulax         ACC,VF04,VF01x                               NOP
+         madday        ACC,VF05,VF01y                               NOP
+         maddaz        ACC,VF06,VF01z                               NOP
+         maddw         VF01,VF07,VF01w                              NOP
+         mulax         ACC,VF04,VF02x                               NOP
+         madday        ACC,VF05,VF02y                               NOP
+         maddaz        ACC,VF06,VF02z                               NOP
+         maddw         VF02,VF07,VF02w                              NOP
+         mulax         ACC,VF04,VF03x                               NOP
+         madday        ACC,VF05,VF03y                               NOP
+         maddaz        ACC,VF06,VF03z                               NOP
+         maddw         VF03,VF07,VF03w                              NOP
+         NOP                                                        div           Q,VF00w,VF01w
+         mulq.xyz      VF01, VF01, Q                                waitq
+         mul.xyz       VF01, VF01, VF08                             NOP
+         add.xyz       VF01, VF01, VF09                             NOP
+         ftoi4.xy      VF01, VF01                                   NOP
+         ftoi0.z       VF01, VF01                                   NOP
+         NOP                                                        div           Q,VF00w,VF02w
+         mulq.xyz      VF02, VF02, Q                                waitq
+         mul.xyz       VF02, VF02, VF08                             NOP
+         add.xyz       VF02, VF02, VF09                             NOP
+         ftoi4.xy      VF02, VF02                                   NOP
+         ftoi0.z       VF02, VF02                                   NOP
+         NOP                                                        div           Q,VF00w,VF03w
+         mulq.xyz      VF03, VF03, Q                                waitq
+         mul.xyz       VF03, VF03, VF08                             NOP
+         add.xyz       VF03, VF03, VF09                             NOP
+         ftoi4.xy      VF03, VF03                                   NOP
+         ftoi0.z       VF03, VF03                                   NOP
+         NOP                                                        iaddiu VI04, VI00, 0x00000000
+         NOP                                                        isw.w VI04, 22(VI02)
+         NOP                                                        isw.w VI04, 24(VI02)
+         NOP                                                        isw.w VI04, 26(VI02)
+         NOP                                                        sq.xyz VF01, 22(VI02)
+         NOP                                                        sq.xyz VF03, 24(VI02)
+         NOP                                                        sq.xyz VF02, 26(VI02)
          NOP                                                        xgkick VI03
          NOP[E]                                                     NOP
          NOP                                                        NOP
