@@ -29,7 +29,7 @@
 #include "ModelAsset.hpp"
 #include "ObjectManager.hpp"
 #include "PlatformMaterialAsset.hpp"
-#include "TextureAsset.hpp"
+#include "Ps2TextureAsset.hpp"
 #include "Ps2MaterialAsset.hpp"
 #include "Ps2MaterialLightingMode.hpp"
 #include "MaterialBlendMode.hpp"
@@ -303,7 +303,6 @@ namespace helengine::ps2 {
                         clippedVertices.push_back(InterpolateClipVertex(previous, current, amount));
                     }
                 }
-
                 if (currentInside) {
                     clippedVertices.push_back(current);
                 }
@@ -313,8 +312,11 @@ namespace helengine::ps2 {
             }
         }
 
-        GSTEXTURE* BuildTextureFromAsset(GSGLOBAL* gsGlobal, ::TextureAsset* data) {
-            if (gsGlobal == nullptr || data == nullptr || data->Colors == nullptr || data->Colors->Length <= 0 || data->Width <= 0 || data->Height <= 0) {
+        GSTEXTURE* BuildTextureFromAsset(GSGLOBAL* gsGlobal, ::Ps2TextureAsset* data) {
+            if (gsGlobal == nullptr || data == nullptr || data->PixelData == nullptr || data->PixelData->Length <= 0 || data->Width <= 0 || data->Height <= 0) {
+                return nullptr;
+            }
+            if (data->Format != ::Ps2TextureFormat::Rgba32) {
                 return nullptr;
             }
 
@@ -325,13 +327,13 @@ namespace helengine::ps2 {
             texture->Clut = nullptr;
             texture->VramClut = 0;
             texture->Filter = GS_FILTER_NEAREST;
-            texture->Mem = static_cast<u32*>(memalign(128, static_cast<std::size_t>(data->Colors->Length)));
+            texture->Mem = static_cast<u32*>(memalign(128, static_cast<std::size_t>(data->PixelData->Length)));
             if (texture->Mem == nullptr) {
                 delete texture;
                 return nullptr;
             }
 
-            std::memcpy(texture->Mem, data->Colors->Data, static_cast<std::size_t>(data->Colors->Length));
+            std::memcpy(texture->Mem, data->PixelData->Data, static_cast<std::size_t>(data->PixelData->Length));
             texture->Vram = gsKit_vram_alloc(
                 gsGlobal,
                 gsKit_texture_size(texture->Width, texture->Height, texture->PSM),
@@ -368,7 +370,7 @@ namespace helengine::ps2 {
                 }
             });
             ::Asset* asset = ::AssetSerializer::Deserialize(stream);
-            ::TextureAsset* textureAsset = he_cpp_try_cast<::TextureAsset>(asset);
+            ::Ps2TextureAsset* textureAsset = he_cpp_try_cast<::Ps2TextureAsset>(asset);
             GSTEXTURE* texture = BuildTextureFromAsset(gsGlobal, textureAsset);
             if (texture == nullptr) {
                 return nullptr;
@@ -389,7 +391,6 @@ namespace helengine::ps2 {
 
             gsKit_set_primalpha(gsGlobal, GS_SETREG_ALPHA(0, 2, 2, 1, 0x80), 0);
             gsGlobal->PrimAlphaEnable = GS_SETTING_ON;
-
             for (const Ps2HdrGlowTriangle& triangle : DeferredHdrGlowTriangles) {
                 const float glowScale = HdrGlowScale + (triangle.GlowStrength * HdrGlowScaleVariance);
                 const float glowDepthBias = HdrGlowDepthBias + (triangle.GlowStrength * HdrGlowDepthBiasVariance);

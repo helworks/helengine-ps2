@@ -17,6 +17,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     readonly IPs2NativeBuildExecutor NativeBuildExecutor;
     readonly Ps2MaterialCooker MaterialCooker;
     readonly Ps2PackedMeshCooker PackedMeshCooker;
+    readonly Ps2PlatformCookWorkItemExecutor PlatformCookWorkItemExecutor;
     readonly Ps2DiscLayoutWriter DiscLayoutWriter;
     readonly Ps2RuntimeAssetPathManifestWriter RuntimeAssetPathManifestWriter;
     readonly Ps2CookedAssetPathRewriter CookedAssetPathRewriter;
@@ -25,6 +26,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         NativeBuildExecutor = new Ps2NativeBuildExecutor();
         MaterialCooker = new Ps2MaterialCooker();
         PackedMeshCooker = new Ps2PackedMeshCooker();
+        PlatformCookWorkItemExecutor = new Ps2PlatformCookWorkItemExecutor();
         DiscLayoutWriter = new Ps2DiscLayoutWriter();
         RuntimeAssetPathManifestWriter = new Ps2RuntimeAssetPathManifestWriter();
         CookedAssetPathRewriter = new Ps2CookedAssetPathRewriter();
@@ -43,6 +45,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         NativeBuildExecutor = nativeBuildExecutor ?? throw new ArgumentNullException(nameof(nativeBuildExecutor));
         MaterialCooker = new Ps2MaterialCooker();
         PackedMeshCooker = new Ps2PackedMeshCooker();
+        PlatformCookWorkItemExecutor = new Ps2PlatformCookWorkItemExecutor();
         DiscLayoutWriter = new Ps2DiscLayoutWriter();
         RuntimeAssetPathManifestWriter = new Ps2RuntimeAssetPathManifestWriter();
         CookedAssetPathRewriter = new Ps2CookedAssetPathRewriter();
@@ -98,6 +101,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         List<PlatformBuildItemOutcome> sceneOutcomes = BuildSceneOutcomes(request.Manifest.Scenes);
         List<PlatformBuildItemOutcome> looseAssetOutcomes = BuildLooseAssetOutcomes(request.Manifest.LooseAssets);
         StageCookedArtifacts(request, diagnostics, diagnosticReporter, progressReporter, cancellationToken);
+        PlatformCookWorkItemExecutor.Execute(request, diagnostics, diagnosticReporter, progressReporter, cancellationToken);
 
         if (diagnostics.Count == 0) {
             try {

@@ -42,6 +42,7 @@
 #include "RuntimeSceneCatalog.hpp"
 #include "RuntimeSceneCatalogEntry.hpp"
 #include "RuntimeTexture.hpp"
+#include "Ps2TextureAsset.hpp"
 #include "system/io/file.hpp"
 #include "system/io/path.hpp"
 #include "TextLayoutUtils.hpp"
@@ -408,6 +409,77 @@ namespace {
     };
 
     std::unordered_map<const ::RuntimeTexture*, Ps2TextureRecord> TextureRecords;
+    std::unordered_map<const ::FontAsset*, Ps2TextureRecord> FontTextureRecords;
+
+    bool PopulateTextureRecordFromPs2TextureAsset(::Ps2TextureAsset* data, Ps2TextureRecord& record) {
+        if (data == nullptr || data->PixelData == nullptr || data->PixelData->Length <= 0 || data->Width <= 0 || data->Height <= 0) {
+            return false;
+        }
+        if (data->Format != ::Ps2TextureFormat::Rgba32) {
+            return false;
+        }
+
+        record.Texture.Width = data->Width;
+        record.Texture.Height = data->Height;
+        record.Texture.PSM = GS_PSM_CT32;
+        record.Texture.Clut = nullptr;
+        record.Texture.VramClut = 0;
+        record.Texture.Filter = GS_FILTER_NEAREST;
+        record.Texture.Mem = static_cast<u32*>(memalign(128, static_cast<size_t>(data->PixelData->Length)));
+        if (record.Texture.Mem == nullptr) {
+            return false;
+        }
+
+        std::memcpy(record.Texture.Mem, data->PixelData->Data, static_cast<size_t>(data->PixelData->Length));
+        record.Pixels = record.Texture.Mem;
+        return true;
+    }
+
+    Ps2TextureRecord* ResolveFontTextureRecord(::FontAsset* font) {
+        if (font == nullptr) {
+            return nullptr;
+        }
+
+        ::RuntimeTexture* runtimeTexture = font->get_Texture();
+        if (runtimeTexture != nullptr) {
+            auto textureIt = TextureRecords.find(runtimeTexture);
+            if (textureIt != TextureRecords.end()) {
+                return &textureIt->second;
+            }
+        }
+
+        const std::string cookedAtlasTextureRelativePath = font->get_CookedAtlasTextureRelativePath();
+        if (cookedAtlasTextureRelativePath.empty()) {
+            return nullptr;
+        }
+
+        auto fontTextureIt = FontTextureRecords.find(font);
+        if (fontTextureIt != FontTextureRecords.end()) {
+            return &fontTextureIt->second;
+        }
+
+        ::Core* core = ::Core::get_Instance();
+        if (core == nullptr || core->get_ContentManager() == nullptr) {
+            return nullptr;
+        }
+
+        const std::string fullPath = ::Path::GetFullPath(::Path::Combine(core->get_ContentManager()->get_RootDirectory(), cookedAtlasTextureRelativePath));
+        ::FileStream* stream = ::File::OpenRead(fullPath);
+        [[maybe_unused]] auto streamGuard = he_cpp_make_scope_exit([stream]() {
+            if (stream != nullptr) {
+                stream->Dispose();
+            }
+        });
+        ::Asset* asset = ::AssetSerializer::Deserialize(stream);
+        ::Ps2TextureAsset* textureAsset = he_cpp_try_cast<::Ps2TextureAsset>(asset);
+        Ps2TextureRecord record;
+        if (!PopulateTextureRecordFromPs2TextureAsset(textureAsset, record)) {
+            return nullptr;
+        }
+
+        auto insertedRecord = FontTextureRecords.emplace(font, record);
+        return &insertedRecord.first->second;
+    }
 
     void UploadVuOpaqueMicroProgram() {
         const u32 packetSize = packet2_utils_get_packet_size_for_program(&Ps2OpaqueDraw3D_CodeStart, &Ps2OpaqueDraw3D_CodeEnd) + 1;
@@ -555,17 +627,16 @@ namespace {
             }
 
             ::FontAsset* font = text->get_Font();
-            if (font == nullptr || font->get_FontInfo() == nullptr || font->get_Texture() == nullptr) {
+            if (font == nullptr || font->get_FontInfo() == nullptr) {
                 return;
             }
 
-            auto textureIt = TextureRecords.find(font->get_Texture());
-            if (textureIt == TextureRecords.end()) {
+            Ps2TextureRecord* record = ResolveFontTextureRecord(font);
+            if (record == nullptr) {
                 return;
             }
 
-            Ps2TextureRecord& record = textureIt->second;
-            if (!EnsureTextureUploaded(record)) {
+            if (!EnsureTextureUploaded(*record)) {
                 return;
             }
 
@@ -614,16 +685,16 @@ namespace {
                     continue;
                 }
 
-                const double pixelWidth = glyph.SourceRect.Z * static_cast<double>(record.Texture.Width) * fontScale;
-                const double pixelHeight = glyph.SourceRect.W * static_cast<double>(record.Texture.Height) * fontScale;
-                const double sourceX = glyph.SourceRect.X * static_cast<double>(record.Texture.Width);
-                const double sourceY = glyph.SourceRect.Y * static_cast<double>(record.Texture.Height);
+                const double pixelWidth = glyph.SourceRect.Z * static_cast<double>(record->Texture.Width) * fontScale;
+                const double pixelHeight = glyph.SourceRect.W * static_cast<double>(record->Texture.Height) * fontScale;
+                const double sourceX = glyph.SourceRect.X * static_cast<double>(record->Texture.Width);
+                const double sourceY = glyph.SourceRect.Y * static_cast<double>(record->Texture.Height);
                 const double drawX = baseX + offsetX;
                 const double drawY = baseY + std::round(offsetY) + (static_cast<double>(glyph.OffsetY) * fontScale);
 
                 gsKit_prim_sprite_texture(
                     ActiveGsGlobal,
-                    &record.Texture,
+                    &record->Texture,
                     static_cast<float>(drawX),
                     static_cast<float>(drawY),
                     static_cast<float>(sourceX),
