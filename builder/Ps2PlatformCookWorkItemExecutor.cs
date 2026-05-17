@@ -2,6 +2,7 @@ using helengine.baseplatform.Builders;
 using helengine.baseplatform.Manifest;
 using helengine.baseplatform.Reporting;
 using helengine.baseplatform.Requests;
+using helengine.editor;
 using helengine.files;
 
 namespace helengine.ps2.builder;
@@ -108,7 +109,7 @@ public sealed class Ps2PlatformCookWorkItemExecutor {
     /// <param name="workItem">Texture-like work item to execute.</param>
     void ExecuteTextureWorkItem(PlatformBuildRequest request, PlatformCookWorkItem workItem) {
         TextureAsset sourceTexture = ResolveSourceTexture(workItem);
-        Ps2TextureCookSettings settings = Ps2TextureCookSettingsSerializer.Deserialize(workItem.SerializedPlatformSettings);
+        TextureAssetProcessorSettings settings = Ps2TextureCookSettingsSerializer.Deserialize(workItem.SerializedPlatformSettings);
         Ps2TextureAsset cookedTexture = RuntimeTextureCooker.Cook(sourceTexture, settings);
 
         string destinationPath = Path.Combine(request.WorkingRoot, "ps2-staging", NormalizeRelativePath(workItem.OutputRelativePath));

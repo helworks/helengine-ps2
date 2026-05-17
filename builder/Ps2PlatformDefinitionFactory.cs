@@ -1,5 +1,6 @@
 using helengine.baseplatform.Definitions;
 using helengine.baseplatform.Profiles;
+using helengine.editor;
 
 namespace helengine.ps2.builder;
 
@@ -7,11 +8,6 @@ namespace helengine.ps2.builder;
 /// Creates the typed platform metadata exposed by the PS2 builder.
 /// </summary>
 public static class Ps2PlatformDefinitionFactory {
-    /// <summary>
-    /// Target artifact kind emitted by builder-owned PS2 texture cook work items.
-    /// </summary>
-    const string RuntimeTextureArtifactKind = "ps2-runtime-texture";
-
     /// <summary>
     /// Creates the PS2 platform definition with renderer-family-aware graphics profiles and material schemas.
     /// </summary>
@@ -400,20 +396,62 @@ public static class Ps2PlatformDefinitionFactory {
     /// </summary>
     /// <returns>PS2 asset cook capabilities exposed to the editor.</returns>
     static PlatformAssetCookCapabilityDefinition[] CreateAssetCookCapabilities() {
-        string defaultSerializedSettings = Ps2TextureCookSettingsSerializer.Serialize(Ps2TextureCookSettingsSerializer.CreateDefault());
         return [
             new PlatformAssetCookCapabilityDefinition(
                 "texture",
-                RuntimeTextureArtifactKind,
+                "runtime-texture",
                 PlatformAssetCookOwnershipKind.BuilderOwned,
-                Ps2TextureCookSettingsSerializer.SettingsContractId,
-                defaultSerializedSettings),
+                "ps2-texture",
+                CreateDefaultSerializedTextureCookSettings(),
+                CreateTextureFormatCapabilities()),
             new PlatformAssetCookCapabilityDefinition(
                 "font-atlas-texture",
-                RuntimeTextureArtifactKind,
+                "runtime-texture",
                 PlatformAssetCookOwnershipKind.BuilderOwned,
-                Ps2TextureCookSettingsSerializer.SettingsContractId,
-                defaultSerializedSettings)
+                "ps2-font-atlas-texture",
+                CreateDefaultSerializedFontAtlasTextureCookSettings(),
+                CreateTextureFormatCapabilities())
         ];
+    }
+
+    /// <summary>
+    /// Creates the serialized default PS2 texture settings contract used when assets do not provide an explicit PS2 override.
+    /// </summary>
+    /// <returns>Serialized default PS2 texture settings.</returns>
+    static string CreateDefaultSerializedTextureCookSettings() {
+        return Ps2TextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
+            MaxResolution = 0,
+            ColorFormat = TextureAssetColorFormat.Rgba32,
+            AlphaPrecision = TextureAssetAlphaPrecision.A8
+        });
+    }
+
+    /// <summary>
+    /// Creates the serialized default PS2 font-atlas texture settings contract used when fonts do not provide an explicit PS2 override.
+    /// </summary>
+    /// <returns>Serialized default PS2 font-atlas texture settings.</returns>
+    static string CreateDefaultSerializedFontAtlasTextureCookSettings() {
+        return Ps2TextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
+            MaxResolution = 0,
+            ColorFormat = TextureAssetColorFormat.Rgba32,
+            AlphaPrecision = TextureAssetAlphaPrecision.A8
+        });
+    }
+
+    /// <summary>
+    /// Creates the generic texture format capability metadata supported by the PS2 texture cooker.
+    /// </summary>
+    /// <returns>Texture capability metadata for PS2 builder-owned texture cook contracts.</returns>
+    static PlatformTextureFormatCapabilityDefinition CreateTextureFormatCapabilities() {
+        return new PlatformTextureFormatCapabilityDefinition(
+            [
+                TextureAssetColorFormat.Rgba32
+            ],
+            [
+                TextureAssetAlphaPrecision.A8
+            ],
+            [
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Rgba32, TextureAssetAlphaPrecision.A8)
+            ]);
     }
 }
