@@ -8,6 +8,11 @@ namespace helengine.ps2.builder;
 /// </summary>
 public static class Ps2PlatformDefinitionFactory {
     /// <summary>
+    /// Target artifact kind emitted by builder-owned PS2 texture cook work items.
+    /// </summary>
+    const string RuntimeTextureArtifactKind = "ps2-runtime-texture";
+
+    /// <summary>
     /// Creates the PS2 platform definition with renderer-family-aware graphics profiles and material schemas.
     /// </summary>
     /// <returns>Typed PS2 platform metadata consumed by the editor and builder tests.</returns>
@@ -386,6 +391,29 @@ public static class Ps2PlatformDefinitionFactory {
                 true,
                 true,
                 false,
-                "ps2-host-debugger"));
+                "ps2-host-debugger"),
+            CreateAssetCookCapabilities());
+    }
+
+    /// <summary>
+    /// Creates the builder-owned PS2 asset cook capabilities consumed by the editor build graph.
+    /// </summary>
+    /// <returns>PS2 asset cook capabilities exposed to the editor.</returns>
+    static PlatformAssetCookCapabilityDefinition[] CreateAssetCookCapabilities() {
+        string defaultSerializedSettings = Ps2TextureCookSettingsSerializer.Serialize(Ps2TextureCookSettingsSerializer.CreateDefault());
+        return [
+            new PlatformAssetCookCapabilityDefinition(
+                "texture",
+                RuntimeTextureArtifactKind,
+                PlatformAssetCookOwnershipKind.BuilderOwned,
+                Ps2TextureCookSettingsSerializer.SettingsContractId,
+                defaultSerializedSettings),
+            new PlatformAssetCookCapabilityDefinition(
+                "font-atlas-texture",
+                RuntimeTextureArtifactKind,
+                PlatformAssetCookOwnershipKind.BuilderOwned,
+                Ps2TextureCookSettingsSerializer.SettingsContractId,
+                defaultSerializedSettings)
+        ];
     }
 }

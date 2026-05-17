@@ -6,8 +6,10 @@ using helengine.baseplatform.Reporting;
 using helengine.baseplatform.Requests;
 using helengine.baseplatform.Results;
 using helengine.baseplatform.Targets;
+using helengine.editor;
 using helengine.files;
 using helengine.ps2.builder;
+using System.Reflection;
 using Xunit;
 
 namespace helengine.ps2.builder.tests;
@@ -45,6 +47,284 @@ public class Ps2PlatformAssetBuilderTests {
         Assert.True(builder.Definition.HostDebugCapability.SupportsSingleStepSceneLoad);
         Assert.False(builder.Definition.HostDebugCapability.SupportsSingleStepDraw);
         Assert.Equal("ps2-host-debugger", builder.Definition.HostDebugCapability.RunnerId);
+    }
+
+    /// <summary>
+    /// Verifies that the PS2 builder publishes builder-owned texture cook capabilities with default serialized settings.
+    /// </summary>
+    [Fact]
+    public void Definition_when_ps2_builder_owned_texture_capabilities_are_published_exposes_texture_and_font_atlas_defaults() {
+        Ps2PlatformAssetBuilder builder = new();
+
+        PlatformAssetCookCapabilityDefinition[] capabilities = builder.Definition.AssetCookCapabilities
+            .OrderBy(capability => capability.SourceAssetKind, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Collection(
+            capabilities,
+            fontAtlasCapability => {
+                Assert.Equal("font-atlas-texture", fontAtlasCapability.SourceAssetKind);
+                Assert.Equal("ps2-runtime-texture", fontAtlasCapability.TargetArtifactKind);
+                Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, fontAtlasCapability.OwnershipKind);
+                Assert.Equal("ps2.texture-settings.v1", fontAtlasCapability.SettingsContractId);
+                Assert.False(string.IsNullOrWhiteSpace(fontAtlasCapability.DefaultSerializedPlatformSettings));
+            },
+            textureCapability => {
+                Assert.Equal("texture", textureCapability.SourceAssetKind);
+                Assert.Equal("ps2-runtime-texture", textureCapability.TargetArtifactKind);
+                Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, textureCapability.OwnershipKind);
+                Assert.Equal("ps2.texture-settings.v1", textureCapability.SettingsContractId);
+                Assert.False(string.IsNullOrWhiteSpace(textureCapability.DefaultSerializedPlatformSettings));
+            });
+    }
+
+    /// <summary>
+    /// Verifies that the PS2 builder executes one texture work item and writes the runtime payload to the declared output path.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_WhenTextureCookWorkItemIsPresent_WritesPs2RuntimeTextureToDeclaredOutputPath() {
+        string workingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string outputRoot = Path.Combine(workingRoot, "out");
+        string stagingRoot = Path.Combine(workingRoot, "staging");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+        string sceneOutputPath = Path.Combine(stagingRoot, "cooked", "scenes", "main.hasset");
+        string sourceTexturePath = Path.Combine(workingRoot, "source", "logo.png");
+        string outputRelativePath = "cooked/textures/logo.hasset";
+
+        Directory.CreateDirectory(Path.GetDirectoryName(sourceTexturePath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(sceneOutputPath)!);
+        Directory.CreateDirectory(stagingRoot);
+        Directory.CreateDirectory(generatedCoreRoot);
+        File.WriteAllBytes(sceneOutputPath, helengine.files.AssetSerializer.SerializeToBytes(new SceneAsset()));
+        File.WriteAllBytes(sourceTexturePath, CreateSinglePixelPngBytes());
+        File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "// generated");
+
+        string previousDirectory = Directory.GetCurrentDirectory();
+        try {
+            Directory.SetCurrentDirectory(stagingRoot);
+
+            Ps2PlatformAssetBuilder builder = new(new FakePs2NativeBuildExecutor());
+            PlatformBuildManifest manifest = CreateManifestWithTextureWorkItem(
+                sourceTexturePath,
+                "texture",
+                outputRelativePath,
+                "runtime-texture:logo",
+                Ps2TextureCookSettingsSerializer.Serialize(new Ps2TextureCookSettings {
+                    MaxResolution = 32,
+                    Format = Ps2TextureFormat.Rgba32,
+                    AlphaMode = Ps2TextureAlphaMode.Full
+                }));
+            PlatformBuildRequest request = CreateBuildRequest(manifest, outputRoot, workingRoot, generatedCoreRoot);
+            RecordingProgressReporter progressReporter = new();
+            RecordingDiagnosticReporter diagnosticReporter = new();
+
+            PlatformBuildReport report = await builder.BuildAsync(request, progressReporter, diagnosticReporter, CancellationToken.None);
+
+            Assert.True(report.Succeeded);
+            string stagedTexturePath = Path.Combine(request.WorkingRoot, "ps2-staging", "cooked", "textures", "logo.hasset");
+            Assert.True(File.Exists(stagedTexturePath));
+            using FileStream textureStream = File.OpenRead(stagedTexturePath);
+            Ps2TextureAsset textureAsset = Assert.IsType<Ps2TextureAsset>(AssetSerializer.Deserialize(textureStream));
+            Assert.Equal((ushort)1, textureAsset.Width);
+            Assert.Equal((ushort)1, textureAsset.Height);
+            Assert.Equal(Ps2TextureFormat.Rgba32, textureAsset.Format);
+            Assert.Equal(Ps2TextureAlphaMode.Full, textureAsset.AlphaMode);
+            Assert.NotNull(textureAsset.PixelData);
+            Assert.NotEmpty(textureAsset.PixelData);
+        } finally {
+            Directory.SetCurrentDirectory(previousDirectory);
+
+            if (Directory.Exists(workingRoot)) {
+                Directory.Delete(workingRoot, true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies that the PS2 builder can execute one texture work item using the published capability default settings payload.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_WhenTextureCookWorkItemUsesCapabilityDefaults_WritesPs2RuntimeTextureWithDefaultSettings() {
+        string workingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string outputRoot = Path.Combine(workingRoot, "out");
+        string stagingRoot = Path.Combine(workingRoot, "staging");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+        string sceneOutputPath = Path.Combine(stagingRoot, "cooked", "scenes", "main.hasset");
+        string sourceTexturePath = Path.Combine(workingRoot, "source", "default-logo.png");
+        string outputRelativePath = "cooked/textures/default-logo.hasset";
+
+        Directory.CreateDirectory(Path.GetDirectoryName(sourceTexturePath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(sceneOutputPath)!);
+        Directory.CreateDirectory(stagingRoot);
+        Directory.CreateDirectory(generatedCoreRoot);
+        File.WriteAllBytes(sceneOutputPath, helengine.files.AssetSerializer.SerializeToBytes(new SceneAsset()));
+        File.WriteAllBytes(sourceTexturePath, CreateSinglePixelPngBytes());
+        File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "// generated");
+
+        string previousDirectory = Directory.GetCurrentDirectory();
+        try {
+            Directory.SetCurrentDirectory(stagingRoot);
+
+            Ps2PlatformAssetBuilder builder = new(new FakePs2NativeBuildExecutor());
+            PlatformAssetCookCapabilityDefinition textureCapability = Assert.Single(
+                builder.Definition.AssetCookCapabilities,
+                capability => capability.SourceAssetKind == "texture");
+            PlatformBuildManifest manifest = CreateManifestWithTextureWorkItem(
+                sourceTexturePath,
+                "texture",
+                outputRelativePath,
+                "runtime-texture:logo",
+                textureCapability.DefaultSerializedPlatformSettings);
+            PlatformBuildRequest request = CreateBuildRequest(manifest, outputRoot, workingRoot, generatedCoreRoot);
+            RecordingProgressReporter progressReporter = new();
+            RecordingDiagnosticReporter diagnosticReporter = new();
+
+            PlatformBuildReport report = await builder.BuildAsync(request, progressReporter, diagnosticReporter, CancellationToken.None);
+
+            Assert.True(report.Succeeded);
+            string stagedTexturePath = Path.Combine(request.WorkingRoot, "ps2-staging", "cooked", "textures", "default-logo.hasset");
+            Assert.True(File.Exists(stagedTexturePath));
+            using FileStream textureStream = File.OpenRead(stagedTexturePath);
+            Ps2TextureAsset textureAsset = Assert.IsType<Ps2TextureAsset>(AssetSerializer.Deserialize(textureStream));
+            Assert.Equal(Ps2TextureFormat.Rgba32, textureAsset.Format);
+            Assert.Equal(Ps2TextureAlphaMode.Full, textureAsset.AlphaMode);
+        } finally {
+            Directory.SetCurrentDirectory(previousDirectory);
+
+            if (Directory.Exists(workingRoot)) {
+                Directory.Delete(workingRoot, true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies that the PS2 builder executes one editor-owned font-atlas texture work item into the declared runtime output path.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_WhenFontAtlasTextureCookWorkItemIsPresent_WritesPs2RuntimeTextureToDeclaredOutputPath() {
+        string workingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string outputRoot = Path.Combine(workingRoot, "out");
+        string stagingRoot = Path.Combine(workingRoot, "staging");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+        string sceneOutputPath = Path.Combine(stagingRoot, "cooked", "scenes", "main.hasset");
+        string sourceTexturePath = Path.Combine(workingRoot, "source", "body-atlas.png");
+        string outputRelativePath = "cooked/fonts/body-atlas.ps2tex";
+
+        Directory.CreateDirectory(Path.GetDirectoryName(sourceTexturePath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(sceneOutputPath)!);
+        Directory.CreateDirectory(stagingRoot);
+        Directory.CreateDirectory(generatedCoreRoot);
+        File.WriteAllBytes(sceneOutputPath, helengine.files.AssetSerializer.SerializeToBytes(new SceneAsset()));
+        File.WriteAllBytes(sourceTexturePath, CreateSinglePixelPngBytes());
+        File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "// generated");
+
+        string previousDirectory = Directory.GetCurrentDirectory();
+        try {
+            Directory.SetCurrentDirectory(stagingRoot);
+
+            Ps2PlatformAssetBuilder builder = new(new FakePs2NativeBuildExecutor());
+            PlatformAssetCookCapabilityDefinition textureCapability = Assert.Single(
+                builder.Definition.AssetCookCapabilities,
+                capability => capability.SourceAssetKind == "font-atlas-texture");
+            PlatformBuildManifest manifest = CreateManifestWithTextureWorkItem(
+                sourceTexturePath,
+                "font-atlas-texture",
+                outputRelativePath,
+                "runtime-texture:body-atlas",
+                textureCapability.DefaultSerializedPlatformSettings);
+            PlatformBuildRequest request = CreateBuildRequest(manifest, outputRoot, workingRoot, generatedCoreRoot);
+            RecordingProgressReporter progressReporter = new();
+            RecordingDiagnosticReporter diagnosticReporter = new();
+
+            PlatformBuildReport report = await builder.BuildAsync(request, progressReporter, diagnosticReporter, CancellationToken.None);
+
+            Assert.True(report.Succeeded);
+            string stagedTexturePath = Path.Combine(request.WorkingRoot, "ps2-staging", "cooked", "fonts", "body-atlas.ps2tex");
+            Assert.True(File.Exists(stagedTexturePath));
+            using FileStream textureStream = File.OpenRead(stagedTexturePath);
+            Ps2TextureAsset textureAsset = Assert.IsType<Ps2TextureAsset>(AssetSerializer.Deserialize(textureStream));
+            Assert.Equal((ushort)1, textureAsset.Width);
+            Assert.Equal((ushort)1, textureAsset.Height);
+            Assert.Equal(Ps2TextureFormat.Rgba32, textureAsset.Format);
+            Assert.Equal(Ps2TextureAlphaMode.Full, textureAsset.AlphaMode);
+        } finally {
+            Directory.SetCurrentDirectory(previousDirectory);
+
+            if (Directory.Exists(workingRoot)) {
+                Directory.Delete(workingRoot, true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies that one real editor-owned PS2 manifest emits texture work items and that the PS2 builder consumes them into PS2-native packaged outputs.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_WhenManifestComesFromEditorCookService_ConsumesPs2TextureWorkItemsAndPackagesPs2NativeOutputs() {
+        string workingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string projectRoot = Path.Combine(workingRoot, "project");
+        string buildRoot = Path.Combine(workingRoot, "editor-build");
+        string outputRoot = Path.Combine(workingRoot, "out");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+        string sceneId = "Scenes/Main.helen";
+        string textureRelativePath = "Textures/Cube00.png";
+        string fontRelativePath = "Fonts/Body.hefont";
+
+        Directory.CreateDirectory(Path.Combine(projectRoot, "assets"));
+        Directory.CreateDirectory(Path.Combine(projectRoot, "cache", "shader-cache"));
+        Directory.CreateDirectory(buildRoot);
+        Directory.CreateDirectory(generatedCoreRoot);
+        File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "// generated");
+
+        string textureSourcePath = ResolveProjectAssetPath(projectRoot, textureRelativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(textureSourcePath)!);
+        File.WriteAllBytes(textureSourcePath, CreateSinglePixelPngBytes());
+        WritePackagedSourceFontAsset(projectRoot, fontRelativePath);
+        WriteSceneAssetWithSpriteAndFont(projectRoot, sceneId, textureRelativePath, fontRelativePath);
+
+        Ps2PlatformAssetBuilder builder = new(new FakePs2NativeBuildExecutor());
+        PlatformBuildManifest manifest = InvokeEditorPlatformAssetCookServiceCook(projectRoot, buildRoot, builder.Definition, builder);
+        PlatformCookWorkItem textureWorkItem = Assert.Single(
+            manifest.PlatformCookWorkItems,
+            workItem => string.Equals(workItem.SourceAssetKind, "texture", StringComparison.OrdinalIgnoreCase));
+        PlatformCookWorkItem fontAtlasWorkItem = Assert.Single(
+            manifest.PlatformCookWorkItems,
+            workItem => string.Equals(workItem.SourceAssetKind, "font-atlas-texture", StringComparison.OrdinalIgnoreCase));
+
+        string previousDirectory = Directory.GetCurrentDirectory();
+        try {
+            Directory.SetCurrentDirectory(buildRoot);
+
+            PlatformBuildRequest request = CreateBuildRequest(manifest, outputRoot, workingRoot, generatedCoreRoot);
+            RecordingProgressReporter progressReporter = new();
+            RecordingDiagnosticReporter diagnosticReporter = new();
+
+            PlatformBuildReport report = await builder.BuildAsync(request, progressReporter, diagnosticReporter, CancellationToken.None);
+
+            Assert.True(report.Succeeded, string.Join(Environment.NewLine, report.Diagnostics.Select(diagnostic => diagnostic.Message)));
+
+            using FileStream textureStream = File.OpenRead(ResolveRelativeOutputPathInDirectory(Path.Combine(workingRoot, "ps2-staging"), textureWorkItem.OutputRelativePath));
+            Ps2TextureAsset runtimeTexture = Assert.IsType<Ps2TextureAsset>(AssetSerializer.Deserialize(textureStream));
+            Assert.Equal(Ps2TextureFormat.Rgba32, runtimeTexture.Format);
+
+            using FileStream fontAtlasStream = File.OpenRead(ResolveRelativeOutputPathInDirectory(Path.Combine(workingRoot, "ps2-staging"), fontAtlasWorkItem.OutputRelativePath));
+            Ps2TextureAsset fontAtlasTexture = Assert.IsType<Ps2TextureAsset>(AssetSerializer.Deserialize(fontAtlasStream));
+            Assert.Equal(Ps2TextureFormat.Rgba32, fontAtlasTexture.Format);
+
+            PlatformBuildArtifact cookedFontArtifact = Assert.Single(
+                manifest.CookedArtifacts,
+                artifact => artifact.RelativePath.EndsWith(".hefont", StringComparison.OrdinalIgnoreCase));
+            using FileStream cookedFontStream = File.OpenRead(ResolveRelativeOutputPathInDirectory(buildRoot, cookedFontArtifact.RelativePath));
+            FontAsset cookedFont = helengine.files.FontAssetBinarySerializer.Deserialize(cookedFontStream);
+            Assert.Equal(fontAtlasWorkItem.OutputRelativePath, cookedFont.CookedAtlasTextureRelativePath);
+            Assert.Null(cookedFont.SourceTextureAsset);
+        } finally {
+            Directory.SetCurrentDirectory(previousDirectory);
+
+            if (Directory.Exists(workingRoot)) {
+                Directory.Delete(workingRoot, true);
+            }
+        }
     }
 
     /// <summary>
@@ -1239,6 +1519,43 @@ public class Ps2PlatformAssetBuilderTests {
         return stream.ToArray();
     }
 
+    static byte[] BuildTaggedTextComponentPayload(string fontRelativePath) {
+        EditorTaggedSceneComponentFieldWriter writer = new();
+        writer.WriteField("FontReference", fieldWriter => SceneComponentBinaryFieldEncoding.WriteOptionalReference(fieldWriter, new SceneAssetReference {
+            SourceKind = SceneAssetReferenceSourceKind.FileSystem,
+            RelativePath = fontRelativePath,
+            ProviderId = string.Empty,
+            AssetId = string.Empty
+        }));
+        writer.WriteField("Text", fieldWriter => fieldWriter.WriteString("Demo Disc"));
+        writer.WriteField("WrapText", fieldWriter => fieldWriter.WriteByte(0));
+        writer.WriteField("Size", fieldWriter => fieldWriter.WriteInt2(new int2(320, 64)));
+        writer.WriteField("Color", fieldWriter => SceneComponentBinaryFieldEncoding.WriteByte4(fieldWriter, new byte4(255, 255, 255, 255)));
+        writer.WriteField("SourceRect", fieldWriter => fieldWriter.WriteFloat4(new float4(0f, 0f, 1f, 1f)));
+        writer.WriteField("Rotation", fieldWriter => fieldWriter.WriteSingle(0f));
+        writer.WriteField("RenderOrder2D", fieldWriter => fieldWriter.WriteByte(1));
+        writer.WriteField("LayerMask", fieldWriter => fieldWriter.WriteByte(1));
+        writer.WriteField("SelectionEnabled", fieldWriter => fieldWriter.WriteByte(0));
+        return writer.BuildPayload();
+    }
+
+    static byte[] BuildTaggedSpriteComponentPayload(string textureRelativePath) {
+        EditorTaggedSceneComponentFieldWriter writer = new();
+        writer.WriteField("TextureReference", fieldWriter => SceneComponentBinaryFieldEncoding.WriteOptionalReference(fieldWriter, new SceneAssetReference {
+            SourceKind = SceneAssetReferenceSourceKind.FileSystem,
+            RelativePath = textureRelativePath,
+            ProviderId = string.Empty,
+            AssetId = string.Empty
+        }));
+        writer.WriteField("SourceRect", fieldWriter => fieldWriter.WriteFloat4(new float4(0f, 0f, 1f, 1f)));
+        writer.WriteField("Size", fieldWriter => fieldWriter.WriteInt2(new int2(64, 64)));
+        writer.WriteField("Color", fieldWriter => SceneComponentBinaryFieldEncoding.WriteByte4(fieldWriter, new byte4(255, 255, 255, 255)));
+        writer.WriteField("Rotation", fieldWriter => fieldWriter.WriteSingle(0f));
+        writer.WriteField("RenderOrder2D", fieldWriter => fieldWriter.WriteByte(0));
+        writer.WriteField("LayerMask", fieldWriter => fieldWriter.WriteByte(1));
+        return writer.BuildPayload();
+    }
+
     static byte[] BuildMeshComponentPayload(string modelRelativePath, string materialRelativePath) {
         using MemoryStream stream = new();
         using EngineBinaryWriter writer = EngineBinaryWriter.Create(stream, EngineBinaryEndianness.LittleEndian);
@@ -1330,6 +1647,328 @@ public class Ps2PlatformAssetBuilderTests {
         writer.WriteString(reference.RelativePath);
         writer.WriteString(reference.ProviderId);
         writer.WriteString(reference.AssetId);
+    }
+
+    /// <summary>
+    /// Resolves one runtime-relative output path beneath one base directory.
+    /// </summary>
+    /// <param name="baseDirectory">Base directory that owns the runtime-relative file.</param>
+    /// <param name="relativePath">Runtime-relative path stored in manifests and work items.</param>
+    /// <returns>Absolute filesystem path for the runtime-relative file.</returns>
+    static string ResolveRelativeOutputPathInDirectory(string baseDirectory, string relativePath) {
+        if (string.IsNullOrWhiteSpace(baseDirectory)) {
+            throw new ArgumentException("Base directory must be provided.", nameof(baseDirectory));
+        }
+        if (string.IsNullOrWhiteSpace(relativePath)) {
+            throw new ArgumentException("Relative path must be provided.", nameof(relativePath));
+        }
+
+        return Path.Combine(baseDirectory, relativePath.Replace('/', Path.DirectorySeparatorChar));
+    }
+
+    /// <summary>
+    /// Writes one minimal Wavefront OBJ source file that the editor cook service can import for mesh packaging.
+    /// </summary>
+    /// <param name="projectRoot">Project root that owns the source asset.</param>
+    /// <param name="modelRelativePath">Project-relative model path to create.</param>
+    static void WriteSourceModelAsset(string projectRoot, string modelRelativePath) {
+        string sourceModelPath = ResolveProjectAssetPath(projectRoot, modelRelativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(sourceModelPath)!);
+        File.WriteAllText(sourceModelPath, "o Triangle\nv 0 0 0\nv 1 0 0\nv 0 1 0\nvt 0 0\nvt 1 0\nvt 0 1\nvn 0 0 1\nf 1/1/1 2/2/1 3/3/1\n");
+    }
+
+    /// <summary>
+    /// Writes one packaged source font asset into the project assets root so the editor cook service can externalize its atlas through a PS2 work item.
+    /// </summary>
+    /// <param name="projectRoot">Project root that owns the source asset.</param>
+    /// <param name="fontRelativePath">Project-relative source font path to create.</param>
+    static void WritePackagedSourceFontAsset(string projectRoot, string fontRelativePath) {
+        string fontSourcePath = ResolveProjectAssetPath(projectRoot, fontRelativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(fontSourcePath)!);
+
+        FontAsset fontAsset = new SingleGlyphFontImporter().ImportFont(new MemoryStream(new byte[] { 0x01 }));
+        using FileStream stream = new(fontSourcePath, FileMode.Create, FileAccess.Write, FileShare.None);
+        helengine.files.FontAssetBinarySerializer.Serialize(stream, fontAsset);
+    }
+
+    /// <summary>
+    /// Writes one material settings document that resolves through the PS2 builder's standard-shader translation path.
+    /// </summary>
+    /// <param name="projectRoot">Project root that owns the source asset.</param>
+    /// <param name="materialRelativePath">Project-relative material path to write.</param>
+    /// <param name="diffuseTextureAssetId">Imported texture asset id referenced by the material.</param>
+    static void WritePs2StandardMaterialAsset(string projectRoot, string materialRelativePath, string diffuseTextureAssetId) {
+        string materialPath = ResolveProjectAssetPath(projectRoot, materialRelativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(materialPath)!);
+
+        MaterialAssetImportSettings settings = new() {
+            Importer = new AssetImporterSettings {
+                ImporterId = "helengine.material",
+                SourceChecksum = string.Empty,
+                AssetId = materialRelativePath
+            },
+            Processor = new MaterialAssetProcessorPlatformSettings()
+        };
+        settings.Processor.Platforms["ps2"] = new MaterialAssetProcessorSettings {
+            SchemaId = "standard-shader",
+            FieldValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
+                ["use-custom-shader"] = "false",
+                ["texture-id"] = diffuseTextureAssetId ?? string.Empty,
+                ["casts-shadow"] = "true",
+                ["receives-shadow"] = "true",
+                ["base-color"] = "#FFFFFFFF"
+            }
+        };
+
+        MaterialAssetSettingsService settingsService = new();
+        settingsService.Save(materialPath, settings);
+    }
+
+    /// <summary>
+    /// Writes one scene asset that references a source texture and a packaged source font through tagged sprite and text component payloads.
+    /// </summary>
+    /// <param name="projectRoot">Project root that owns the source scene.</param>
+    /// <param name="sceneId">Scene asset identifier to write.</param>
+    /// <param name="textureRelativePath">Project-relative texture path referenced by the sprite component.</param>
+    /// <param name="fontRelativePath">Project-relative font path referenced by the text component.</param>
+    static void WriteSceneAssetWithSpriteAndFont(
+        string projectRoot,
+        string sceneId,
+        string textureRelativePath,
+        string fontRelativePath) {
+        string scenePath = ResolveProjectAssetPath(projectRoot, sceneId);
+        Directory.CreateDirectory(Path.GetDirectoryName(scenePath)!);
+
+        SceneAsset sceneAsset = new() {
+            Id = sceneId,
+            RootEntities = [
+                new SceneEntityAsset {
+                    Id = 1u,
+                    Name = "SpriteRoot",
+                    LocalPosition = float3.Zero,
+                    LocalScale = float3.One,
+                    LocalOrientation = float4.Identity,
+                    Components = [
+                        new SceneComponentAssetRecord {
+                            ComponentTypeId = "helengine.SpriteComponent",
+                            ComponentIndex = 0,
+                            Payload = BuildTaggedSpriteComponentPayload(textureRelativePath)
+                        }
+                    ],
+                    Children = Array.Empty<SceneEntityAsset>()
+                },
+                new SceneEntityAsset {
+                    Id = 2u,
+                    Name = "TextRoot",
+                    LocalPosition = float3.Zero,
+                    LocalScale = float3.One,
+                    LocalOrientation = float4.Identity,
+                    Components = [
+                        new SceneComponentAssetRecord {
+                            ComponentTypeId = "helengine.TextComponent",
+                            ComponentIndex = 0,
+                            Payload = BuildTaggedTextComponentPayload(fontRelativePath)
+                        }
+                    ],
+                    Children = Array.Empty<SceneEntityAsset>()
+                }
+            ]
+        };
+
+        File.WriteAllBytes(scenePath, helengine.files.AssetSerializer.SerializeToBytes(sceneAsset));
+    }
+
+    /// <summary>
+    /// Writes one source texture file and returns the editor-generated imported texture asset id for the selected target platform.
+    /// </summary>
+    /// <param name="projectRoot">Project root that owns the source asset.</param>
+    /// <param name="textureRelativePath">Project-relative texture path to create.</param>
+    /// <param name="extension">Registered texture importer extension for the test asset.</param>
+    /// <param name="platformId">Current target platform id used while generating import settings.</param>
+    /// <returns>Importer-resolved texture asset id for the written source texture.</returns>
+    static string WriteSourceTextureAssetAndReturnAssetId(string projectRoot, string textureRelativePath, string extension, string platformId) {
+        string textureSourcePath = ResolveProjectAssetPath(projectRoot, textureRelativePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(textureSourcePath)!);
+        File.WriteAllBytes(textureSourcePath, [1, 2, 3, 4]);
+
+        ContentManager contentManager = new(projectRoot);
+        AssetImportManager assetImportManager = new(projectRoot, contentManager);
+        assetImportManager.CurrentPlatformId = platformId;
+        assetImportManager.RegisterTextureImporter(new TextureImporterRegistration("test-texture", new SinglePixelTextureImporter(), [extension]));
+
+        TextureAssetImportSettings settings;
+        Assert.True(assetImportManager.TryLoadOrCreateTextureImportSettings(textureSourcePath, out settings));
+        Assert.NotNull(settings);
+        Assert.NotNull(settings.Importer);
+        Assert.False(string.IsNullOrWhiteSpace(settings.Importer.AssetId));
+        return settings.Importer.AssetId;
+    }
+
+    /// <summary>
+    /// Invokes the editor-owned platform asset cook service through reflection so PS2 builder tests can verify the real manifest-to-builder flow without widening editor internals.
+    /// </summary>
+    /// <param name="projectRoot">Project root that owns the source assets.</param>
+    /// <param name="buildRoot">Build root where the editor cook service writes cooked artifacts.</param>
+    /// <param name="platformDefinition">Platform definition supplied to the cook service.</param>
+    /// <param name="materialBuilder">Builder used when translating schema-driven material settings.</param>
+    /// <returns>Editor-owned build manifest emitted by the cook service.</returns>
+    static PlatformBuildManifest InvokeEditorPlatformAssetCookServiceCook(
+        string projectRoot,
+        string buildRoot,
+        PlatformDefinition platformDefinition,
+        helengine.baseplatform.Builders.IPlatformAssetBuilder materialBuilder) {
+        Assembly editorAssembly = typeof(TextureImporterRegistration).Assembly;
+        Type serviceType = editorAssembly.GetType("helengine.editor.EditorPlatformAssetCookService", true)
+            ?? throw new InvalidOperationException("EditorPlatformAssetCookService type was not found.");
+        object service = Activator.CreateInstance(
+            serviceType,
+            projectRoot,
+            "1.0.0-engine",
+            "game",
+            "1.0.0",
+            new IAssetImporterRegistration[] {
+                new TextureImporterRegistration("test-texture", new SinglePixelTextureImporter(), [".png"]),
+                new FontImporterRegistration("test-font", new SingleGlyphFontImporter(), [".hefont"])
+            },
+            new SingleGlyphFontImporter().ImportFont(new MemoryStream(new byte[] { 0x01 })),
+            null,
+            null) ?? throw new InvalidOperationException("EditorPlatformAssetCookService could not be created.");
+        MethodInfo cookMethod = serviceType.GetMethod("Cook", BindingFlags.Instance | BindingFlags.Public)
+            ?? throw new InvalidOperationException("EditorPlatformAssetCookService.Cook was not found.");
+        object manifest = cookMethod.Invoke(
+            service,
+            [
+                platformDefinition,
+                new[] { "Main" },
+                buildRoot,
+                new[] { "ps2" },
+                materialBuilder,
+                string.Empty,
+                string.Empty
+            ]) ?? throw new InvalidOperationException("EditorPlatformAssetCookService.Cook returned null.");
+
+        return Assert.IsType<PlatformBuildManifest>(manifest);
+    }
+
+    /// <summary>
+    /// Resolves one project-relative source asset path beneath the project `assets` directory.
+    /// </summary>
+    /// <param name="projectRoot">Project root that owns the source assets.</param>
+    /// <param name="relativePath">Project-relative asset path.</param>
+    /// <returns>Absolute path beneath the project `assets` directory.</returns>
+    static string ResolveProjectAssetPath(string projectRoot, string relativePath) {
+        if (string.IsNullOrWhiteSpace(projectRoot)) {
+            throw new ArgumentException("Project root must be provided.", nameof(projectRoot));
+        }
+        if (string.IsNullOrWhiteSpace(relativePath)) {
+            throw new ArgumentException("Relative path must be provided.", nameof(relativePath));
+        }
+
+        return Path.Combine(projectRoot, "assets", relativePath.Replace('/', Path.DirectorySeparatorChar));
+    }
+
+    /// <summary>
+    /// Creates a manifest that carries one PS2 texture cook work item and no staged cooked artifacts.
+    /// </summary>
+    /// <param name="sourceTexturePath">Absolute source image path.</param>
+    /// <param name="outputRelativePath">Runtime-relative output path the builder must write.</param>
+    /// <param name="serializedSettings">Serialized PS2 texture settings payload.</param>
+    /// <returns>Manifest configured for one texture work item.</returns>
+    static PlatformBuildManifest CreateManifestWithTextureWorkItem(
+        string sourceTexturePath,
+        string sourceAssetKind,
+        string outputRelativePath,
+        string outputLogicalArtifactId,
+        string serializedSettings) {
+        return new PlatformBuildManifest(
+            3,
+            "project",
+            "1.0.0",
+            "1.0.0",
+            "ps2",
+            "1.0.0",
+            "Scenes/Main.helen",
+            [
+                new PlatformBuildScene(
+                    "Scenes/Main.helen",
+                    "Main",
+                    "cooked/scenes/main.hasset",
+                    Array.Empty<PlatformBuildPayloadReference>(),
+                    [
+                        new KeyValuePair<string, string>("cooked-relative-path", "cooked/scenes/main.hasset")
+                    ])
+            ],
+            Array.Empty<PlatformBuildAsset>(),
+            [
+                new PlatformBuildArtifact("cooked/scenes/main.hasset", "scene:main", "sha256:scene", "scene", "ps2-default")
+            ],
+            Array.Empty<PlatformBuildCodeModule>(),
+            Array.Empty<PlatformArtifactPlacement>(),
+            new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+            [
+                new PlatformCookWorkItem(
+                    sourceAssetKind + ":logo",
+                    sourceTexturePath,
+                    sourceAssetKind,
+                    "ps2",
+                    "ps2-runtime-texture",
+                    outputRelativePath,
+                    outputLogicalArtifactId,
+                    "sha256:source",
+                    "sha256:settings",
+                    serializedSettings,
+                    Array.Empty<PlatformCookWorkItemMetadata>())
+            ]);
+    }
+
+    /// <summary>
+    /// Creates the standard PS2 build request used by builder tests that operate on staged work-item outputs.
+    /// </summary>
+    /// <param name="manifest">Build manifest supplied to the builder.</param>
+    /// <param name="outputRoot">Root output directory for the build.</param>
+    /// <param name="workingRoot">Working directory used by the builder.</param>
+    /// <param name="generatedCoreRoot">Generated core root supplied to the builder.</param>
+    /// <returns>Configured PS2 build request.</returns>
+    static PlatformBuildRequest CreateBuildRequest(
+        PlatformBuildManifest manifest,
+        string outputRoot,
+        string workingRoot,
+        string generatedCoreRoot) {
+        return new PlatformBuildRequest(
+            manifest,
+            [
+                new PlatformBuildTargetVariant("ps2-default", "ps2", "ps2", "ps2-default")
+            ],
+            [
+                new PlatformCookProfile(
+                    "ps2-default",
+                    "PS2 Default",
+                    new PlatformCookProfileCapabilities(
+                        "ps2",
+                        "raw",
+                        "pcm",
+                        "ps2-scene-v1",
+                        PlatformSerializationEndianness.LittleEndian))
+            ],
+            outputRoot,
+            workingRoot,
+            "ps2-default",
+            "ps2-standard-forward",
+            "default",
+            new Dictionary<string, string>(),
+            new Dictionary<string, string>(),
+            new Dictionary<string, string>(),
+            generatedCoreRoot,
+            "ps2-install-tree",
+            "disc-layout");
+    }
+
+    /// <summary>
+    /// Creates a one-pixel PNG payload used by work-item execution tests.
+    /// </summary>
+    /// <returns>One-pixel PNG file bytes.</returns>
+    static byte[] CreateSinglePixelPngBytes() {
+        return Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==");
     }
 
     sealed class FakePs2NativeBuildExecutor : IPs2NativeBuildExecutor {

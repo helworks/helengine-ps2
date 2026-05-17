@@ -39,6 +39,21 @@ public sealed class Ps2BootHostSourceTests {
     }
 
     /// <summary>
+    /// Ensures the PS2 boot host resolves packaged font atlases through the PS2-native texture runtime path when one font omits embedded raw atlas bytes.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenLoadingPackagedFontAtlases_UsesPs2TextureAssetRuntimePath() {
+        string sourcePath = ResolveBootHostSourcePath();
+        Assert.True(File.Exists(sourcePath), $"Expected boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("font->get_CookedAtlasTextureRelativePath()", source, StringComparison.Ordinal);
+        Assert.Contains("he_cpp_try_cast<::Ps2TextureAsset>(asset)", source, StringComparison.Ordinal);
+        Assert.Contains("FontTextureRecords", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Resolves the checked-in PS2 boot host source path from the test output directory.
     /// </summary>
     /// <returns>Absolute path to the PS2 boot host source file.</returns>
