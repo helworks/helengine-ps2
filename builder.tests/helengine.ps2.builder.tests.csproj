@@ -23,10 +23,12 @@
   <ItemGroup>
     <ProjectReference Include="..\builder\helengine.ps2.builder.csproj" />
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.baseplatform\helengine.baseplatform.csproj" />
+    <ProjectReference Include="$(HelengineRoot)\engine\helengine.editor\helengine.editor.csproj" />
   </ItemGroup>
 
   <Target Name="ValidateHelengineRoot" BeforeTargets="CollectPackageReferences">
     <Error Condition="!Exists('$(HelengineRoot)\engine\helengine.baseplatform\helengine.baseplatform.csproj')" Text="helengine checkout not found. Set the HelengineRoot MSBuild property or HELENGINE_ROOT environment variable to a valid helengine checkout." />
+    <Error Condition="!Exists('$(HelengineRoot)\engine\helengine.editor\helengine.editor.csproj')" Text="helengine editor project not found. Set the HelengineRoot MSBuild property or HELENGINE_ROOT environment variable to a valid helengine checkout." />
   </Target>
 
 </Project>
