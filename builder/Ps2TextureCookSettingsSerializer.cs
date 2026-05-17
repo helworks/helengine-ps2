@@ -1,4 +1,5 @@
 using System.Text.Json;
+using helengine.editor;
 
 namespace helengine.ps2.builder;
 
@@ -7,33 +8,20 @@ namespace helengine.ps2.builder;
 /// </summary>
 public static class Ps2TextureCookSettingsSerializer {
     /// <summary>
-    /// Stable settings contract identifier published through the PS2 asset cook capabilities.
-    /// </summary>
-    public const string SettingsContractId = "ps2.texture-settings.v1";
-
-    /// <summary>
-    /// Builds the default PS2 texture cook settings used when the source asset has no explicit PS2 override.
-    /// </summary>
-    /// <returns>Default PS2 texture cook settings.</returns>
-    public static Ps2TextureCookSettings CreateDefault() {
-        return new Ps2TextureCookSettings {
-            MaxResolution = 0,
-            Format = Ps2TextureFormat.Rgba32,
-            AlphaMode = Ps2TextureAlphaMode.Full
-        };
-    }
-
-    /// <summary>
     /// Serializes one PS2 texture settings payload into the stable string form carried by platform cook work items.
     /// </summary>
     /// <param name="settings">Settings payload to serialize.</param>
     /// <returns>Serialized PS2 texture settings string.</returns>
-    public static string Serialize(Ps2TextureCookSettings settings) {
+    public static string Serialize(TextureAssetProcessorSettings settings) {
         if (settings == null) {
             throw new ArgumentNullException(nameof(settings));
         }
 
-        return JsonSerializer.Serialize(settings);
+        return JsonSerializer.Serialize(new Dictionary<string, object> {
+            ["maxResolution"] = settings.MaxResolution,
+            ["colorFormat"] = settings.ColorFormat.ToString(),
+            ["alphaPrecision"] = settings.AlphaPrecision.ToString()
+        });
     }
 
     /// <summary>
@@ -41,16 +29,35 @@ public static class Ps2TextureCookSettingsSerializer {
     /// </summary>
     /// <param name="serializedSettings">Serialized settings string.</param>
     /// <returns>Deserialized PS2 texture settings payload.</returns>
-    public static Ps2TextureCookSettings Deserialize(string serializedSettings) {
+    public static TextureAssetProcessorSettings Deserialize(string serializedSettings) {
         if (string.IsNullOrWhiteSpace(serializedSettings)) {
             throw new ArgumentException("Serialized PS2 texture settings are required.", nameof(serializedSettings));
         }
 
-        Ps2TextureCookSettings settings = JsonSerializer.Deserialize<Ps2TextureCookSettings>(serializedSettings);
-        if (settings == null) {
-            throw new InvalidOperationException("Serialized PS2 texture settings did not produce a payload.");
+        using JsonDocument document = JsonDocument.Parse(serializedSettings);
+        JsonElement root = document.RootElement;
+        int maxResolution = root.TryGetProperty("maxResolution", out JsonElement maxResolutionElement)
+            ? maxResolutionElement.GetInt32()
+            : 0;
+        string colorFormatName = root.TryGetProperty("colorFormat", out JsonElement colorFormatElement)
+            ? colorFormatElement.GetString() ?? TextureAssetColorFormat.Rgba32.ToString()
+            : TextureAssetColorFormat.Rgba32.ToString();
+        string alphaPrecisionName = root.TryGetProperty("alphaPrecision", out JsonElement alphaPrecisionElement)
+            ? alphaPrecisionElement.GetString() ?? TextureAssetAlphaPrecision.A8.ToString()
+            : TextureAssetAlphaPrecision.A8.ToString();
+
+        if (!Enum.TryParse(colorFormatName, true, out TextureAssetColorFormat colorFormat)) {
+            throw new InvalidOperationException($"Unsupported PS2 texture color format '{colorFormatName}'.");
         }
 
-        return settings;
+        if (!Enum.TryParse(alphaPrecisionName, true, out TextureAssetAlphaPrecision alphaPrecision)) {
+            throw new InvalidOperationException($"Unsupported PS2 texture alpha precision '{alphaPrecisionName}'.");
+        }
+
+        return new TextureAssetProcessorSettings {
+            MaxResolution = maxResolution,
+            ColorFormat = colorFormat,
+            AlphaPrecision = alphaPrecision
+        };
     }
 }

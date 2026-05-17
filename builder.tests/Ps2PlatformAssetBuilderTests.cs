@@ -64,17 +64,44 @@ public class Ps2PlatformAssetBuilderTests {
             capabilities,
             fontAtlasCapability => {
                 Assert.Equal("font-atlas-texture", fontAtlasCapability.SourceAssetKind);
-                Assert.Equal("ps2-runtime-texture", fontAtlasCapability.TargetArtifactKind);
+                Assert.Equal("runtime-texture", fontAtlasCapability.TargetArtifactKind);
                 Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, fontAtlasCapability.OwnershipKind);
-                Assert.Equal("ps2.texture-settings.v1", fontAtlasCapability.SettingsContractId);
-                Assert.False(string.IsNullOrWhiteSpace(fontAtlasCapability.DefaultSerializedPlatformSettings));
+                Assert.Equal("ps2-font-atlas-texture", fontAtlasCapability.SettingsContractId);
+                Assert.Equal("{\"maxResolution\":0,\"colorFormat\":\"Rgba32\",\"alphaPrecision\":\"A8\"}", fontAtlasCapability.DefaultSerializedPlatformSettings);
             },
             textureCapability => {
                 Assert.Equal("texture", textureCapability.SourceAssetKind);
-                Assert.Equal("ps2-runtime-texture", textureCapability.TargetArtifactKind);
+                Assert.Equal("runtime-texture", textureCapability.TargetArtifactKind);
                 Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, textureCapability.OwnershipKind);
-                Assert.Equal("ps2.texture-settings.v1", textureCapability.SettingsContractId);
-                Assert.False(string.IsNullOrWhiteSpace(textureCapability.DefaultSerializedPlatformSettings));
+                Assert.Equal("ps2-texture", textureCapability.SettingsContractId);
+                Assert.Equal("{\"maxResolution\":0,\"colorFormat\":\"Rgba32\",\"alphaPrecision\":\"A8\"}", textureCapability.DefaultSerializedPlatformSettings);
+            });
+    }
+
+    /// <summary>
+    /// Verifies that the PS2 builder publishes generic texture-format capability metadata for both image textures and font atlas textures.
+    /// </summary>
+    [Fact]
+    public void Definition_when_ps2_builder_owned_texture_capabilities_are_published_exposes_generic_texture_format_metadata() {
+        Ps2PlatformAssetBuilder builder = new();
+
+        Assert.Collection(
+            builder.Definition.AssetCookCapabilities.OrderBy(capability => capability.SourceAssetKind, StringComparer.Ordinal),
+            capability => {
+                Assert.Equal("font-atlas-texture", capability.SourceAssetKind);
+                Assert.Equal("runtime-texture", capability.TargetArtifactKind);
+                Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, capability.OwnershipKind);
+                Assert.Equal("ps2-font-atlas-texture", capability.SettingsContractId);
+                Assert.Equal("{\"maxResolution\":0,\"colorFormat\":\"Rgba32\",\"alphaPrecision\":\"A8\"}", capability.DefaultSerializedPlatformSettings);
+                AssertPs2TextureFormatCapabilities(capability.TextureFormatCapabilities);
+            },
+            capability => {
+                Assert.Equal("texture", capability.SourceAssetKind);
+                Assert.Equal("runtime-texture", capability.TargetArtifactKind);
+                Assert.Equal(PlatformAssetCookOwnershipKind.BuilderOwned, capability.OwnershipKind);
+                Assert.Equal("ps2-texture", capability.SettingsContractId);
+                Assert.Equal("{\"maxResolution\":0,\"colorFormat\":\"Rgba32\",\"alphaPrecision\":\"A8\"}", capability.DefaultSerializedPlatformSettings);
+                AssertPs2TextureFormatCapabilities(capability.TextureFormatCapabilities);
             });
     }
 
@@ -109,10 +136,10 @@ public class Ps2PlatformAssetBuilderTests {
                 "texture",
                 outputRelativePath,
                 "runtime-texture:logo",
-                Ps2TextureCookSettingsSerializer.Serialize(new Ps2TextureCookSettings {
+                Ps2TextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
                     MaxResolution = 32,
-                    Format = Ps2TextureFormat.Rgba32,
-                    AlphaMode = Ps2TextureAlphaMode.Full
+                    ColorFormat = TextureAssetColorFormat.Rgba32,
+                    AlphaPrecision = TextureAssetAlphaPrecision.A8
                 }));
             PlatformBuildRequest request = CreateBuildRequest(manifest, outputRoot, workingRoot, generatedCoreRoot);
             RecordingProgressReporter progressReporter = new();
@@ -138,6 +165,26 @@ public class Ps2PlatformAssetBuilderTests {
                 Directory.Delete(workingRoot, true);
             }
         }
+    }
+
+    /// <summary>
+    /// Verifies one PS2 texture cook capability advertises the expected supported formats and valid combinations.
+    /// </summary>
+    /// <param name="textureFormatCapabilities">Texture capability metadata to validate.</param>
+    static void AssertPs2TextureFormatCapabilities(PlatformTextureFormatCapabilityDefinition textureFormatCapabilities) {
+        Assert.NotNull(textureFormatCapabilities);
+        Assert.Equal(
+            [TextureAssetColorFormat.Rgba32],
+            textureFormatCapabilities.SupportedColorFormats);
+        Assert.Equal(
+            [TextureAssetAlphaPrecision.A8],
+            textureFormatCapabilities.SupportedAlphaPrecisions);
+        Assert.Collection(
+            textureFormatCapabilities.SupportedCombinations,
+            combination => {
+                Assert.Equal(TextureAssetColorFormat.Rgba32, combination.ColorFormat);
+                Assert.Equal(TextureAssetAlphaPrecision.A8, combination.AlphaPrecision);
+            });
     }
 
     /// <summary>
@@ -1911,7 +1958,7 @@ public class Ps2PlatformAssetBuilderTests {
                     sourceTexturePath,
                     sourceAssetKind,
                     "ps2",
-                    "ps2-runtime-texture",
+                    "runtime-texture",
                     outputRelativePath,
                     outputLogicalArtifactId,
                     "sha256:source",
