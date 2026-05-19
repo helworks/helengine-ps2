@@ -158,7 +158,7 @@ $(BUILD_DIR)/platform/ps2/Ps2BootHost.o: $(GENERATED_CORE_STAGE_STAMP)
 $(BUILD_DIR)/platform/ps2/Ps2InputBackend.o: $(GENERATED_CORE_STAGE_STAMP)
 $(BUILD_DIR)/platform/ps2/rendering/%.o: $(GENERATED_CORE_STAGE_STAMP)
 
-$(BUILD_DIR)/generated/helengine_core_amalgamated.o: $(GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp $(GENERATED_CORE_STAGE_STAMP)
+$(BUILD_DIR)/generated/helengine_core_amalgamated.o: $(GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp $(GENERATED_CORE_STAGE_STAMP)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
@@ -186,8 +186,8 @@ $(HOST_GENERATED_CORE_STAGE_STAMP): $(shell find $(HELENGINE_CORE_CPP_ROOT) -typ
 	@rm -rf $(HOST_GENERATED_CORE_STAGE_ROOT)
 	@mkdir -p $(HOST_GENERATED_CORE_STAGE_ROOT)
 	@cp -R $(HELENGINE_CORE_CPP_ROOT)/. $(HOST_GENERATED_CORE_STAGE_ROOT)/
-	@grep -v 'system/io/file-stream.cpp' $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp | grep -v 'system/io/file.cpp' > $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp.tmp
-	@mv $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp.tmp $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp
+	@grep -v 'system/io/file-stream.cpp' $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp | grep -v 'system/io/file.cpp' > $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp.tmp
+	@mv $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp.tmp $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp
 	@touch $@
 
 $(HOST_DEBUGGER_BUILD_DIR)/%.o: $(HOST_DEBUGGER_DIR)/%.cpp $(HOST_GENERATED_CORE_STAGE_STAMP)
@@ -200,7 +200,7 @@ $(HOST_DEBUGGER_BUILD_DIR)/ps2-runtime/%.o: $(SOURCE_DIR)/%.cpp $(HOST_GENERATED
 
 $(HOST_DEBUGGER_BUILD_DIR)/generated/helengine_core_amalgamated.o: $(HOST_GENERATED_CORE_STAGE_STAMP)
 	@mkdir -p $(dir $@)
-	$(HOST_CXX) $(HOST_CPPFLAGS) $(HOST_CXXFLAGS) -c $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp -o $@
+	$(HOST_CXX) $(HOST_CPPFLAGS) $(HOST_CXXFLAGS) -c $(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp -o $@
 
 $(HOST_DEBUGGER_BUILD_DIR)/generated/runtime/runtime_ps2_asset_path_manifest.o: $(HOST_GENERATED_CORE_STAGE_STAMP)
 	@mkdir -p $(dir $@)

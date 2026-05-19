@@ -84,10 +84,10 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
-    /// Verifies that the opaque untextured VU program performs clip-flag generation in the microprogram instead of leaving visibility entirely to CPU-side triangle handling.
+    /// Verifies that the compact untextured VU path preserves the host-built flat-color GIF template instead of overwriting RGBAQ slots in the microprogram.
     /// </summary>
     [Fact]
-    public void Ps2OpaqueDraw3DProgram_WhenUsingVuClipCullPath_ShouldUseClipwForTriangleVisibility() {
+    public void Ps2OpaqueDraw3DProgram_WhenUsingCompactUntexturedPath_ShouldNotOverwriteTriangleRgbaqSlots() {
         string repositoryRootPath = ResolveRepositoryRoot();
         string programPath = Path.Combine(
             repositoryRootPath,
@@ -101,7 +101,72 @@ public sealed class Ps2NativeBuildExecutorTests {
 
         string source = File.ReadAllText(programPath);
 
-        Assert.Contains("clipw.xyz", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("sq VF12, 21(VI00)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("sq VF12, 23(VI00)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("sq VF12, 25(VI00)", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the compact untextured VU path keeps flat color host-owned and does not execute VU-side face-normal lighting math.
+    /// </summary>
+    [Fact]
+    public void Ps2OpaqueDraw3DProgram_WhenUsingCompactUntexturedPath_ShouldAvoidVuLightingMath() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string programPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "programs",
+            "Ps2OpaqueDraw3D.vsm");
+
+        string source = File.ReadAllText(programPath);
+
+        Assert.DoesNotContain("opmula.xyz", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("opmsub.xyz", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("lq VF16, 30(VI00)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("lq VF19, 33(VI00)", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the last visible rotating cube_test VU baseline stays on the earlier transform-only path instead of the later VU clip-flag variant that regressed to a black frame.
+    /// </summary>
+    [Fact]
+    public void Ps2OpaqueDraw3DProgram_WhenUsingLastVisibleCubeTestBaseline_ShouldStayOnTransformOnlyPath() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string programPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "programs",
+            "Ps2OpaqueDraw3D.vsm");
+
+        string source = File.ReadAllText(programPath);
+
+        Assert.DoesNotContain("clipw.xyz", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("fcand", source, StringComparison.Ordinal);
+        Assert.Contains("iaddiu VI04, VI00, 0x00000000", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the PS2 native build consumes the editor's generated-core unity translation unit name instead of the retired amalgamated file name.
+    /// </summary>
+    [Fact]
+    public void Ps2NativeBuildExecutor_WhenUsingCurrentEditorGeneratedCoreOutput_ShouldCompileUnityTranslationUnit() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string makefilePath = Path.Combine(repositoryRootPath, "Makefile");
+
+        string source = File.ReadAllText(makefilePath);
+
+        Assert.Contains("$(GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp", source, StringComparison.Ordinal);
+        Assert.Contains("$(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("$(GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("$(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -496,6 +561,43 @@ glyph.SourceX = glyph.SourceX * widthScale;
     }
 
     /// <summary>
+    /// Verifies that generated FPS component headers declare the private overlay helper referenced by the translated PS2 source.
+    /// </summary>
+    [Fact]
+    public void NormalizeGeneratedCoreSource_WhenFpsComponentHeaderMissesOverlayHelperDeclaration_InsertsDeclaration() {
+        const string source = """
+private:
+    std::string FormatFpsValue(double fps);
+
+    std::string FormatRenderFpsText(double renderFps, double drawMilliseconds);
+
+    void RefreshOverlayActivation();
+""";
+
+        string normalizedSource = InvokeNormalizeGeneratedCoreSource("FPSComponent.hpp", source);
+
+        Assert.Contains("std::string FormatOverlaySecondaryLine(std::string baseRenderText);", normalizedSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that generated FPS component sources call the overlay helper through the component instance so the PS2 native compiler can resolve the private member.
+    /// </summary>
+    [Fact]
+    public void NormalizeGeneratedCoreSource_WhenFpsComponentSourceCallsOverlayHelperUnqualified_RewritesToThisCall() {
+        const string source = """
+if (this->RenderTextComponent != nullptr)
+{
+this->RenderTextComponent->set_Text(FormatOverlaySecondaryLine(this->RenderFpsText));
+}
+""";
+
+        string normalizedSource = InvokeNormalizeGeneratedCoreSource("FPSComponent.cpp", source);
+
+        Assert.Contains("this->RenderTextComponent->set_Text(this->FormatOverlaySecondaryLine(this->RenderFpsText));", normalizedSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("set_Text(FormatOverlaySecondaryLine(", normalizedSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that generated light-component includes are normalized when the current engine rewrite emits the invalid `LightType::hpp` form.
     /// </summary>
     [Fact]
@@ -512,10 +614,10 @@ glyph.SourceX = glyph.SourceX * widthScale;
     }
 
     /// <summary>
-    /// Verifies that generated PS2 direct-disc file streams become readable owned memory streams instead of zero-byte streams.
+    /// Verifies that generated PS2 direct-disc file streams become readable owned memory streams without injecting constructor fields that the generated header does not declare.
     /// </summary>
     [Fact]
-    public void NormalizeGeneratedCoreSource_WhenPs2FileStreamUsesDirectDiscBuffer_MarksMemoryBufferReadableOwnedAndReadOnly() {
+    public void NormalizeGeneratedCoreSource_WhenPs2FileStreamUsesDirectDiscBuffer_MarksMemoryBufferReadableOwnedAndReadOnlyWithoutInjectingUndefinedFields() {
         const string source = """
 FileStream::FileStream(const uint8_t* data, size_t dataLength)
     : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(true), writable(false) {
@@ -538,8 +640,9 @@ FileStream::FileStream(const char* path, FileMode mode)
 
         string normalizedSource = InvokeNormalizeGeneratedCoreSource(Path.Combine("system", "io", "file-stream.cpp"), source);
 
-        Assert.Contains("usesMemoryBuffer(true), ownsMemoryBuffer(true), writable(false)", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("usesMemoryBuffer(false), ownsMemoryBuffer(false), writable(true)", normalizedSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("usesMemoryBuffer", normalizedSource, StringComparison.Ordinal);
+        Assert.Contains(": file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(true), writable(false)", normalizedSource, StringComparison.Ordinal);
+        Assert.Contains(": file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(false), writable(true)", normalizedSource, StringComparison.Ordinal);
         Assert.Contains("ownsMemoryBuffer = true;", normalizedSource, StringComparison.Ordinal);
         Assert.Contains("writable = false;", normalizedSource, StringComparison.Ordinal);
     }

@@ -553,7 +553,8 @@ public sealed class Ps2CookedAssetPathRewriter {
         if (reference == null) {
             return false;
         }
-        if (reference.SourceKind != SceneAssetReferenceSourceKind.FileSystem) {
+        if (reference.SourceKind != SceneAssetReferenceSourceKind.FileSystem
+            && reference.SourceKind != SceneAssetReferenceSourceKind.Generated) {
             return false;
         }
         if (string.IsNullOrWhiteSpace(reference.RelativePath)) {

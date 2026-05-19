@@ -82,6 +82,8 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
         NormalizeGeneratedCoreFile(generatedCoreRootPath, "LightComponent.cpp");
         NormalizeGeneratedCoreFile(generatedCoreRootPath, "PointLightComponent.cpp");
         NormalizeGeneratedCoreFile(generatedCoreRootPath, "SpotLightComponent.cpp");
+        NormalizeGeneratedCoreFile(generatedCoreRootPath, "FPSComponent.hpp");
+        NormalizeGeneratedCoreFile(generatedCoreRootPath, "FPSComponent.cpp");
         NormalizeGeneratedCoreFile(generatedCoreRootPath, Path.Combine("system", "io", "file-stream.hpp"));
         NormalizeGeneratedCoreFile(generatedCoreRootPath, Path.Combine("system", "io", "file-stream.cpp"));
         NormalizeGeneratedCoreFile(generatedCoreRootPath, "Core.cpp");
@@ -209,26 +211,18 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             return normalizedContents;
         }
 
-        if (string.Equals(fileName, Path.Combine("system", "io", "file-stream.hpp"), StringComparison.OrdinalIgnoreCase)) {
-            normalizedContents = normalizedContents.Replace(
-                "    bool usesMemoryBuffer;\n    std::vector<uint8_t> memoryBuffer;\n    bool ownsMemoryBuffer;\n",
-                "    bool usesMemoryBuffer;\n    bool ownsMemoryBuffer;\n",
-                StringComparison.Ordinal);
-            return normalizedContents;
+        if (string.Equals(fileName, "FPSComponent.hpp", StringComparison.OrdinalIgnoreCase)) {
+            return NormalizeFpsComponentHeaderSource(normalizedContents);
+        }
+
+        if (string.Equals(fileName, "FPSComponent.cpp", StringComparison.OrdinalIgnoreCase)) {
+            return NormalizeFpsComponentSource(normalizedContents);
         }
 
         if (string.Equals(fileName, Path.Combine("system", "io", "file-stream.cpp"), StringComparison.OrdinalIgnoreCase)) {
             normalizedContents = normalizedContents.Replace(
-                "FileStream::FileStream(const uint8_t* data, size_t dataLength)\n    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(true), writable(false) {\n",
-                "FileStream::FileStream(const uint8_t* data, size_t dataLength)\n    : file(nullptr), memoryBuffer(), position(0), length(0), usesMemoryBuffer(true), ownsMemoryBuffer(true), writable(false) {\n",
-                StringComparison.Ordinal);
-            normalizedContents = normalizedContents.Replace(
-                "FileStream::FileStream(const char* path, FileMode mode)\n    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(false), writable(true) {\n",
-                "FileStream::FileStream(const char* path, FileMode mode)\n    : file(nullptr), memoryBuffer(), position(0), length(0), usesMemoryBuffer(false), ownsMemoryBuffer(false), writable(true) {\n",
-                StringComparison.Ordinal);
-            normalizedContents = normalizedContents.Replace(
                 "        memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);\n        usesMemoryBuffer = true;\n        length = memoryBuffer.size();\n        return;\n",
-                "        memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);\n        usesMemoryBuffer = true;\n        ownsMemoryBuffer = true;\n        writable = false;\n        length = memoryBuffer.size();\n        return;\n",
+                "        memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);\n        ownsMemoryBuffer = true;\n        writable = false;\n        length = memoryBuffer.size();\n        return;\n",
                 StringComparison.Ordinal);
             return normalizedContents;
         }
@@ -278,6 +272,36 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
         }
 
         return normalizedContents;
+    }
+
+    /// <summary>
+    /// Normalizes the generated FPS component header so PS2 exports declare the private helper used by the generated source.
+    /// </summary>
+    /// <param name="contents">Generated FPS component header source.</param>
+    /// <returns>Normalized FPS component header source.</returns>
+    static string NormalizeFpsComponentHeaderSource(string contents) {
+        const string declaration = "    std::string FormatOverlaySecondaryLine(std::string baseRenderText);\n";
+        if (contents.Contains(declaration, StringComparison.Ordinal)) {
+            return contents;
+        }
+
+        return ReplaceRequired(
+            contents,
+            "    std::string FormatRenderFpsText(double renderFps, double drawMilliseconds);\n",
+            "    std::string FormatRenderFpsText(double renderFps, double drawMilliseconds);\n\n" + declaration,
+            "PS2 generated FPSComponent.hpp should declare FormatOverlaySecondaryLine.");
+    }
+
+    /// <summary>
+    /// Normalizes the generated FPS component source so PS2 exports call the private overlay helper through the instance.
+    /// </summary>
+    /// <param name="contents">Generated FPS component source.</param>
+    /// <returns>Normalized FPS component source.</returns>
+    static string NormalizeFpsComponentSource(string contents) {
+        return contents.Replace(
+            "this->RenderTextComponent->set_Text(FormatOverlaySecondaryLine(this->RenderFpsText));",
+            "this->RenderTextComponent->set_Text(this->FormatOverlaySecondaryLine(this->RenderFpsText));",
+            StringComparison.Ordinal);
     }
 
     /// <summary>
