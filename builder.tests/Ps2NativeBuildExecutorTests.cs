@@ -632,7 +632,7 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
-    /// Verifies that VU submission does not immediately block on VIF1 completion after the packet is sent.
+    /// Verifies that VU submission waits before packet dispatch and does not immediately block after the packet is sent.
     /// </summary>
     [Fact]
     public void Ps2RenderManager3D_WhenSubmittingVuPacket_ShouldDeferVifCompletionWaitToNextFrame() {
@@ -652,10 +652,96 @@ public sealed class Ps2NativeBuildExecutorTests {
             "            }\n            (void)viewport;");
 
         Assert.Contains("dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);", normalSubmitBranch, StringComparison.Ordinal);
-        Assert.DoesNotContain("dma_channel_wait(DMA_CHANNEL_VIF1, 0);", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.True(
+            normalSubmitBranch.IndexOf("dma_channel_wait(DMA_CHANNEL_VIF1, 0);", StringComparison.Ordinal)
+            < normalSubmitBranch.IndexOf("dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);", StringComparison.Ordinal));
         Assert.Contains("LastVuPacketPhase = 202;", normalSubmitBranch, StringComparison.Ordinal);
         Assert.Contains("const double vuSubmitOnlyMilliseconds = ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);", normalSubmitBranch, StringComparison.Ordinal);
         Assert.Contains("LastVuSubmitMilliseconds += vuSubmitOnlyMilliseconds;", normalSubmitBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that VU packet ownership moves out of the builder after encoding so the renderer can keep submitted DMA packets alive without blocking before the next encode.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenPacketIsSubmitted_ShouldReleasePacketOwnershipToRenderer() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderHeaderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.hpp");
+        string builderSourcePath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string header = ReadSourceText(builderHeaderPath);
+        string source = ReadSourceText(builderSourcePath);
+        string releaseMethod = ExtractSourceRange(
+            source,
+            "packet2_t* Ps2VuVifPacketBuilder::ReleasePacket()",
+            "    std::size_t Ps2VuVifPacketBuilder::GetPacketByteCount() const");
+
+        Assert.Contains("packet2_t* ReleasePacket();", header, StringComparison.Ordinal);
+        Assert.Contains("packet2_t* releasedPacket = Packet;", releaseMethod, StringComparison.Ordinal);
+        Assert.Contains("Packet = nullptr;", releaseMethod, StringComparison.Ordinal);
+        Assert.Contains("return releasedPacket;", releaseMethod, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the VU renderer waits after packet encoding, not before it, so CPU packet assembly can overlap the prior VIF/VU submission.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenEncodingVuPacket_ShouldOverlapPreviousVifSubmission() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string rendererSourcePath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "Ps2RenderManager3D.cpp");
+        string rendererHeaderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "Ps2RenderManager3D.hpp");
+
+        string source = ReadSourceText(rendererSourcePath);
+        string header = ReadSourceText(rendererHeaderPath);
+        string vuPath = ExtractSourceRange(
+            source,
+            "void Ps2RenderManager3D::RenderOpaqueWithVuPath(",
+            "    void Ps2RenderManager3D::DrawOpaqueProxy(");
+        string beforeEncodeWindow = ExtractSourceRange(
+            vuPath,
+            "for (const Ps2VuOpaqueBatch& batch : batches) {",
+            "const std::clock_t vuPacketEncodeStartTicks = std::clock();");
+        string normalSubmitBranch = ExtractSourceRange(
+            vuPath,
+            "} else {\n                LastVuPacketPhase = 201;",
+            "            }\n            (void)viewport;");
+
+        Assert.Contains("~Ps2RenderManager3D() override;", header, StringComparison.Ordinal);
+        Assert.Contains("void ReleaseSubmittedVuPackets();", header, StringComparison.Ordinal);
+        Assert.Contains("std::vector<packet2_t*> SubmittedVuPackets;", header, StringComparison.Ordinal);
+        Assert.DoesNotContain("dma_channel_wait(DMA_CHANNEL_VIF1, 0);", beforeEncodeWindow, StringComparison.Ordinal);
+        Assert.Contains("packet2_t* packet = VuVifPacketBuilder.ReleasePacket();", vuPath, StringComparison.Ordinal);
+        Assert.Contains("const std::clock_t vuCompletionWaitStartTicks = std::clock();", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.Contains("dma_channel_wait(DMA_CHANNEL_VIF1, 0);", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.Contains("ReleaseSubmittedVuPackets();", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.Contains("SubmittedVuPackets.push_back(packet);", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.Contains("packet = nullptr;", normalSubmitBranch, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -700,7 +786,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("double Ps2RenderManager3D::GetLastVuCompletionWaitMilliseconds() const", source, StringComparison.Ordinal);
         Assert.Contains("double Ps2RenderManager3D::GetLastVuSubmitOnlyMilliseconds() const", source, StringComparison.Ordinal);
         Assert.Contains("LastVuInitialWaitMilliseconds = 0.0;\n        LastVuCompletionWaitMilliseconds = 0.0;\n        LastVuSubmitOnlyMilliseconds = 0.0;\n        LastVuWaitMilliseconds = 0.0;\n        LastVuSubmitMilliseconds = 0.0;", vuPath, StringComparison.Ordinal);
-        Assert.Contains("const double vuInitialWaitMilliseconds = ResolveMillisecondsFromClockTicks(vuInitialWaitStartTicks, vuInitialWaitEndTicks);\n            LastVuInitialWaitMilliseconds += vuInitialWaitMilliseconds;\n            LastVuWaitMilliseconds += vuInitialWaitMilliseconds;", vuPath, StringComparison.Ordinal);
+        Assert.Contains("const double vuCompletionWaitMilliseconds = ResolveMillisecondsFromClockTicks(vuCompletionWaitStartTicks, vuCompletionWaitEndTicks);\n                LastVuCompletionWaitMilliseconds += vuCompletionWaitMilliseconds;\n                LastVuWaitMilliseconds += vuCompletionWaitMilliseconds;", normalSubmitBranch, StringComparison.Ordinal);
         Assert.Contains("const double vuSubmitOnlyMilliseconds = ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);\n                LastVuSubmitOnlyMilliseconds += vuSubmitOnlyMilliseconds;\n                LastVuSubmitMilliseconds += vuSubmitOnlyMilliseconds;", normalSubmitBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("EnableVuDirectGifDispatchDiagnostics", normalSubmitBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("dma_channel_wait(DMA_CHANNEL_GIF, 0);", normalSubmitBranch, StringComparison.Ordinal);

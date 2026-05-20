@@ -1299,6 +1299,12 @@ namespace helengine::ps2 {
         return Packet;
     }
 
+    packet2_t* Ps2VuVifPacketBuilder::ReleasePacket() {
+        packet2_t* releasedPacket = Packet;
+        Packet = nullptr;
+        return releasedPacket;
+    }
+
     std::size_t Ps2VuVifPacketBuilder::GetPacketByteCount() const {
         if (Packet == nullptr) {
             return 0;

@@ -34,6 +34,7 @@ namespace helengine::ps2 {
     class Ps2RenderManager3D final : public ::RenderManager3D {
     public:
         Ps2RenderManager3D();
+        ~Ps2RenderManager3D() override;
 
         ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset) override;
         ::RuntimeMaterial* BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset) override;
@@ -86,6 +87,7 @@ namespace helengine::ps2 {
     private:
         void RenderOpaqueWithVuPath(const Ps2FramePlan& plan, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
         void PublishPerformanceOverlayMetrics() const;
+        void ReleaseSubmittedVuPackets();
         ::float4x4 BuildWorldMatrix(const Ps2RenderProxy& proxy) const;
         void DrawOpaqueProxyLegacy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
         void DrawOpaqueProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
@@ -145,6 +147,7 @@ namespace helengine::ps2 {
         bool HdrEnabled;
         GSGLOBAL* GsGlobal;
         std::vector<Ps2RenderProxy> Proxies;
+        std::vector<packet2_t*> SubmittedVuPackets;
         std::size_t LastProxyCount;
         std::size_t LastOpaqueWorldCount;
         std::size_t LastOpaqueDynamicCount;

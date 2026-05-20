@@ -20,6 +20,7 @@ namespace helengine::ps2 {
         void Reset();
         void AddOpaqueBatch(const Ps2VuOpaqueBatch& batch, const ::float4x4& world, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance, const ::float3& lightDirection, GSGLOBAL* gsGlobal, int textureWidth, int textureHeight);
         packet2_t* GetPacket() const;
+        packet2_t* ReleasePacket();
         std::size_t GetPacketByteCount() const;
         const std::vector<std::uint8_t>& GetGifPacketBytes() const;
         std::uint32_t GetLastCompletedPhase() const;
