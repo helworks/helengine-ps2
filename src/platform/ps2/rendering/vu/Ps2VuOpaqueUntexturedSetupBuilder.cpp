@@ -268,12 +268,6 @@ namespace helengine::ps2 {
                 const ::float4 positionA(packedPositionA.X, packedPositionA.Y, packedPositionA.Z, 1.0f);
                 const ::float4 positionB(packedPositionB.X, packedPositionB.Y, packedPositionB.Z, 1.0f);
                 const ::float4 positionC(packedPositionC.X, packedPositionC.Y, packedPositionC.Z, 1.0f);
-                const ::float3 worldPositionA = TransformPosition(positionA, world);
-                const ::float3 worldPositionB = TransformPosition(positionB, world);
-                const ::float3 worldPositionC = TransformPosition(positionC, world);
-                const ::float4 worldPositionA4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
-                const ::float4 worldPositionB4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
-                const ::float4 worldPositionC4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
                 const ::float3 worldFaceNormal = NormalizeOrFallback(
                     TransformPosition(::float4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f), world),
                     ::float3(0.0f, 0.0f, -1.0f));
@@ -320,15 +314,21 @@ namespace helengine::ps2 {
                 std::memcpy(triangleSetup.GsScale, gsScaleWords, sizeof(gsScaleWords));
                 std::memcpy(triangleSetup.GsOffset, gsOffsetWords, sizeof(gsOffsetWords));
                 TriangleSetups.push_back(triangleSetup);
+                const bool captureDebugTriangle = SubmittedTriangleCount < 2u;
                 SubmittedTriangleCount++;
-                if (SubmittedTriangleCount == 1u) {
-                    SubmittedTriangleVertexA0 = ::float4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
-                    SubmittedTriangleVertexA1 = ::float4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
-                    SubmittedTriangleVertexA2 = ::float4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
-                } else if (SubmittedTriangleCount == 2u) {
-                    SubmittedTriangleVertexB0 = ::float4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
-                    SubmittedTriangleVertexB1 = ::float4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
-                    SubmittedTriangleVertexB2 = ::float4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
+                if (captureDebugTriangle) {
+                    const ::float3 worldPositionA = TransformPosition(positionA, world);
+                    const ::float3 worldPositionB = TransformPosition(positionB, world);
+                    const ::float3 worldPositionC = TransformPosition(positionC, world);
+                    if (SubmittedTriangleCount == 1u) {
+                        SubmittedTriangleVertexA0 = ::float4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
+                        SubmittedTriangleVertexA1 = ::float4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
+                        SubmittedTriangleVertexA2 = ::float4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
+                    } else if (SubmittedTriangleCount == 2u) {
+                        SubmittedTriangleVertexB0 = ::float4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
+                        SubmittedTriangleVertexB1 = ::float4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
+                        SubmittedTriangleVertexB2 = ::float4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
+                    }
                 }
                 const std::clock_t triangleEmitEndTicks = std::clock();
                 LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
