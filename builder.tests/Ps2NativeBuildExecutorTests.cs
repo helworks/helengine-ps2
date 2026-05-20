@@ -253,7 +253,7 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
-    /// Verifies that untextured VU setup avoids world-position transforms for triangles that only need packed local positions in the VU input stream.
+    /// Verifies that untextured VU setup keeps debug-probe world-position transforms isolated behind an explicit compile-time gate.
     /// </summary>
     [Fact]
     public void Ps2VuOpaqueUntexturedSetupBuilder_WhenBuildingTriangleSetups_ShouldOnlyTransformDebugProbeTriangles() {
@@ -273,13 +273,42 @@ public sealed class Ps2NativeBuildExecutorTests {
             "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
             "                const std::clock_t triangleEmitEndTicks = std::clock();");
 
-        Assert.Contains("const bool captureDebugTriangle = SubmittedTriangleCount < 2u;", triangleLoop, StringComparison.Ordinal);
+        Assert.Contains("if constexpr (EnableVuTriangleDebugProbeCapture) {", triangleLoop, StringComparison.Ordinal);
+        Assert.Contains("const bool captureDebugTriangle = SubmittedTriangleCount <= 2u;", triangleLoop, StringComparison.Ordinal);
         Assert.Contains("if (captureDebugTriangle) {", triangleLoop, StringComparison.Ordinal);
         Assert.Contains("SubmittedTriangleVertexA0 = ::float4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);", triangleLoop, StringComparison.Ordinal);
         Assert.Contains("else if (SubmittedTriangleCount == 2u)", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("const bool captureDebugTriangle = SubmittedTriangleCount < 2u;", triangleLoop, StringComparison.Ordinal);
         Assert.DoesNotContain("const ::float4 worldPositionA4", triangleLoop, StringComparison.Ordinal);
         Assert.DoesNotContain("const ::float4 worldPositionB4", triangleLoop, StringComparison.Ordinal);
         Assert.DoesNotContain("const ::float4 worldPositionC4", triangleLoop, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that compact untextured setup can compile out debug probe vertex transforms from the normal cube-test hot path.
+    /// </summary>
+    [Fact]
+    public void Ps2VuOpaqueUntexturedSetupBuilder_WhenBuildingCompactTriangleSetups_ShouldGateDebugProbeCapture() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuOpaqueUntexturedSetupBuilder.cpp");
+
+        string source = ReadSourceText(builderPath);
+        string triangleLoop = ExtractSourceRange(
+            source,
+            "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
+            "const std::clock_t triangleSetupEndTicks = std::clock();");
+
+        Assert.Contains("constexpr bool EnableVuTriangleDebugProbeCapture = false;", source, StringComparison.Ordinal);
+        Assert.Contains("if constexpr (EnableVuTriangleDebugProbeCapture) {", triangleLoop, StringComparison.Ordinal);
+        Assert.Contains("const bool captureDebugTriangle = SubmittedTriangleCount <= 2u;", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("const bool captureDebugTriangle = SubmittedTriangleCount < 2u;", triangleLoop, StringComparison.Ordinal);
     }
 
     /// <summary>

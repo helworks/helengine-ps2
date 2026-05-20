@@ -13,6 +13,7 @@ namespace helengine::ps2 {
     namespace {
         constexpr bool EnableVuSingleTrianglePayloadDiagnostics = false;
         constexpr bool EnableVuTrianglePhaseTiming = false;
+        constexpr bool EnableVuTriangleDebugProbeCapture = false;
         constexpr float LightingAmbientBias = 0.25f;
         constexpr float LightingDiffuseScale = 0.75f;
         constexpr float LightingPaletteScale = 15.0f;
@@ -305,20 +306,22 @@ namespace helengine::ps2 {
                     std::memcpy(triangleSetup.GsScale, gsScaleWords, sizeof(gsScaleWords));
                     std::memcpy(triangleSetup.GsOffset, gsOffsetWords, sizeof(gsOffsetWords));
                 }
-                const bool captureDebugTriangle = SubmittedTriangleCount < 2u;
                 SubmittedTriangleCount++;
-                if (captureDebugTriangle) {
-                    const ::float3 worldPositionA = TransformPosition(positionA, world);
-                    const ::float3 worldPositionB = TransformPosition(positionB, world);
-                    const ::float3 worldPositionC = TransformPosition(positionC, world);
-                    if (SubmittedTriangleCount == 1u) {
-                        SubmittedTriangleVertexA0 = ::float4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
-                        SubmittedTriangleVertexA1 = ::float4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
-                        SubmittedTriangleVertexA2 = ::float4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
-                    } else if (SubmittedTriangleCount == 2u) {
-                        SubmittedTriangleVertexB0 = ::float4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
-                        SubmittedTriangleVertexB1 = ::float4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
-                        SubmittedTriangleVertexB2 = ::float4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
+                if constexpr (EnableVuTriangleDebugProbeCapture) {
+                    const bool captureDebugTriangle = SubmittedTriangleCount <= 2u;
+                    if (captureDebugTriangle) {
+                        const ::float3 worldPositionA = TransformPosition(positionA, world);
+                        const ::float3 worldPositionB = TransformPosition(positionB, world);
+                        const ::float3 worldPositionC = TransformPosition(positionC, world);
+                        if (SubmittedTriangleCount == 1u) {
+                            SubmittedTriangleVertexA0 = ::float4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
+                            SubmittedTriangleVertexA1 = ::float4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
+                            SubmittedTriangleVertexA2 = ::float4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
+                        } else if (SubmittedTriangleCount == 2u) {
+                            SubmittedTriangleVertexB0 = ::float4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
+                            SubmittedTriangleVertexB1 = ::float4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
+                            SubmittedTriangleVertexB2 = ::float4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
+                        }
                     }
                 }
                 if constexpr (EnableVuTrianglePhaseTiming) {
