@@ -863,14 +863,13 @@ namespace helengine::ps2 {
         const ::float3 normalizedLightDirection = NormalizeOrFallback(lightDirection, ::float3(0.0f, 0.0f, -1.0f));
         const bool textured = batch.Textured && textureWidth > 0 && textureHeight > 0;
         std::vector<Ps2VuLitTrianglePayload> trianglePayloads;
-        trianglePayloads.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);
         std::vector<std::vector<std::uint8_t>> texturedTrianglePackets;
-        texturedTrianglePackets.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);
         Ps2VuOpaqueUntexturedSetupBuilder setupBuilder;
         const std::vector<Ps2VuOpaqueUntexturedTriangleSetup>* untexturedTriangleSetups = nullptr;
         std::vector<Ps2VuGifTemplateCacheEntry> gifTemplateCache;
         const std::clock_t triangleSetupStartTicks = std::clock();
         if (EnableVuFixedTriangleDiagnostics) {
+            trianglePayloads.reserve(1u);
             Ps2VuLitTrianglePayload payload {};
             const std::uint64_t triangleColor = ResolveTexturedVertexColor(*batch.Material, ::float3(0.0f, 0.0f, -1.0f), normalizedLightDirection);
             Ps2VuFlatColor flatColor {};
@@ -918,6 +917,7 @@ namespace helengine::ps2 {
         } else {
             std::vector<Ps2VuTexturedClipVertex> clippedTexturedVertices;
             clippedTexturedVertices.reserve(4u);
+            texturedTrianglePackets.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);
             const Ps2RuntimeModel* runtimeModel = batch.Proxy != nullptr ? batch.Proxy->GetModel() : nullptr;
             const std::vector<std::uint16_t>* runtimeIndices = runtimeModel != nullptr ? &runtimeModel->GetIndices() : nullptr;
             const std::vector<::float3>* runtimeNormals = runtimeModel != nullptr ? &runtimeModel->GetNormals() : nullptr;

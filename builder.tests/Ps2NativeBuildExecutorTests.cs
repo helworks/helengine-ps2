@@ -271,6 +271,41 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that the normal untextured VU path does not reserve diagnostic or textured staging vectors before it knows those paths are active.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingNormalUntexturedPath_ShouldNotReserveUnusedStagingVectors() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string source = ReadSourceText(builderPath);
+        string beforeBranch = ExtractSourceRange(
+            source,
+            "const bool textured = batch.Textured && textureWidth > 0 && textureHeight > 0;",
+            "if (EnableVuFixedTriangleDiagnostics) {");
+        string fixedDiagnosticBranch = ExtractSourceRange(
+            source,
+            "if (EnableVuFixedTriangleDiagnostics) {",
+            "} else if (!textured) {");
+        string texturedBranch = ExtractSourceRange(
+            source,
+            "} else {",
+            "        }\n        const std::clock_t triangleSetupEndTicks = std::clock();");
+
+        Assert.DoesNotContain("trianglePayloads.reserve", beforeBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("texturedTrianglePackets.reserve", beforeBranch, StringComparison.Ordinal);
+        Assert.Contains("trianglePayloads.reserve(1u);", fixedDiagnosticBranch, StringComparison.Ordinal);
+        Assert.Contains("texturedTrianglePackets.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);", texturedBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that untextured VU template construction writes the fixed GIF qwords directly instead of allocating a gsKit packet for every distinct lit face.
     /// </summary>
     [Fact]
