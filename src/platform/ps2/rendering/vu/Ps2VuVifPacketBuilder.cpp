@@ -276,9 +276,9 @@ namespace helengine::ps2 {
             std::memcpy(triangleInput.FaceNormal, triangleSetup.FaceNormal, sizeof(triangleSetup.FaceNormal));
         }
 
-        void SetTriangleGifTemplateEop(std::array<std::uint8_t, TriangleGifPacketTemplateByteCount>& outputTemplate, bool enabled) {
+        void SetTriangleGifTemplateEop(std::uint8_t* outputTemplate, bool enabled) {
             std::uint64_t giftag = 0;
-            std::uint8_t* giftagBytes = outputTemplate.data() + (TrianglePrimitiveGiftagQwordIndex * 16u);
+            std::uint8_t* giftagBytes = outputTemplate + (TrianglePrimitiveGiftagQwordIndex * 16u);
             std::memcpy(&giftag, giftagBytes, sizeof(giftag));
             if (enabled) {
                 giftag |= GiftagEopBit;
@@ -1217,15 +1217,25 @@ namespace helengine::ps2 {
         } else {
             if (!EnableVuSingleTriangleDispatchFallback) {
                 for (std::size_t triangleIndex = 0u; triangleIndex < untexturedTriangleSetups->size(); triangleIndex += MaxUntexturedBatchTriangleCount) {
-                    Ps2VuUntexturedBatchConstants batchConstants {};
-                    PopulateUntexturedBatchConstants((*untexturedTriangleSetups)[triangleIndex], batchConstants);
-                    std::array<Ps2VuUntexturedTriangleInput, MaxUntexturedBatchTriangleCount> triangleInputs {};
-                    std::array<std::array<std::uint8_t, TriangleGifPacketTemplateByteCount>, MaxUntexturedBatchTriangleCount> outputTemplates {};
+                    packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
+                    Ps2VuUntexturedBatchHeader* batchHeader = reinterpret_cast<Ps2VuUntexturedBatchHeader*>(packet.get()->next);
+                    batchHeader->TriangleCount = MaxUntexturedBatchTriangleCount;
+                    batchHeader->OutputGifQwordOffset = UntexturedBatchHeaderQwordCount;
+                    batchHeader->ConstantsQwordOffset = UntexturedBatchConstantsQwordOffset;
+                    batchHeader->TriangleInputQwordOffset = UntexturedBatchTriangleInputQwordOffset;
+                    packet2_advance_next(packet.get(), sizeof(Ps2VuUntexturedBatchHeader));
+                    std::uint8_t* outputTemplateBytes = reinterpret_cast<std::uint8_t*>(packet.get()->next);
+                    packet2_advance_next(packet.get(), TriangleGifPacketTemplateByteCount * MaxUntexturedBatchTriangleCount);
+                    Ps2VuUntexturedBatchConstants* batchConstants = reinterpret_cast<Ps2VuUntexturedBatchConstants*>(packet.get()->next);
+                    PopulateUntexturedBatchConstants((*untexturedTriangleSetups)[triangleIndex], *batchConstants);
+                    packet2_advance_next(packet.get(), sizeof(Ps2VuUntexturedBatchConstants));
+                    Ps2VuUntexturedTriangleInput* triangleInputs = reinterpret_cast<Ps2VuUntexturedTriangleInput*>(packet.get()->next);
+                    packet2_advance_next(packet.get(), sizeof(Ps2VuUntexturedTriangleInput) * MaxUntexturedBatchTriangleCount);
                     for (std::size_t batchTriangleIndex = 0u; batchTriangleIndex < MaxUntexturedBatchTriangleCount; batchTriangleIndex++) {
                         const std::size_t sourceTriangleIndex = std::min(triangleIndex + batchTriangleIndex, untexturedTriangleSetups->size() - 1u);
                         const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup = (*untexturedTriangleSetups)[sourceTriangleIndex];
                         PopulateUntexturedTriangleInput(triangleSetup, triangleInputs[batchTriangleIndex]);
-                        Ps2VuLitTrianglePayload outputTemplate {};
+                        Ps2VuLitTrianglePayload outputTemplatePayload {};
                         const ::float3 faceNormal(
                             triangleSetup.FaceNormal[0],
                             triangleSetup.FaceNormal[1],
@@ -1237,26 +1247,11 @@ namespace helengine::ps2 {
                             lightDirection,
                             gsGlobal,
                             gifTemplateCache,
-                            outputTemplate);
-                        std::memcpy(outputTemplates[batchTriangleIndex].data(), outputTemplate.GifPacketTemplate, TriangleGifPacketTemplateByteCount);
-                        SetTriangleGifTemplateEop(outputTemplates[batchTriangleIndex], batchTriangleIndex == MaxUntexturedBatchTriangleCount - 1u);
+                            outputTemplatePayload);
+                        std::uint8_t* outputTemplate = outputTemplateBytes + (batchTriangleIndex * TriangleGifPacketTemplateByteCount);
+                        std::memcpy(outputTemplate, outputTemplatePayload.GifPacketTemplate, TriangleGifPacketTemplateByteCount);
+                        SetTriangleGifTemplateEop(outputTemplate, batchTriangleIndex == MaxUntexturedBatchTriangleCount - 1u);
                     }
-
-                    packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
-                    Ps2VuUntexturedBatchHeader* batchHeader = reinterpret_cast<Ps2VuUntexturedBatchHeader*>(packet.get()->next);
-                    batchHeader->TriangleCount = MaxUntexturedBatchTriangleCount;
-                    batchHeader->OutputGifQwordOffset = UntexturedBatchHeaderQwordCount;
-                    batchHeader->ConstantsQwordOffset = UntexturedBatchConstantsQwordOffset;
-                    batchHeader->TriangleInputQwordOffset = UntexturedBatchTriangleInputQwordOffset;
-                    packet2_advance_next(packet.get(), sizeof(Ps2VuUntexturedBatchHeader));
-                    for (std::size_t batchTriangleIndex = 0u; batchTriangleIndex < MaxUntexturedBatchTriangleCount; batchTriangleIndex++) {
-                        std::memcpy(packet.get()->next, outputTemplates[batchTriangleIndex].data(), TriangleGifPacketTemplateByteCount);
-                        packet2_advance_next(packet.get(), TriangleGifPacketTemplateByteCount);
-                    }
-                    std::memcpy(packet.get()->next, &batchConstants, sizeof(Ps2VuUntexturedBatchConstants));
-                    packet2_advance_next(packet.get(), sizeof(Ps2VuUntexturedBatchConstants));
-                    std::memcpy(packet.get()->next, triangleInputs.data(), sizeof(Ps2VuUntexturedTriangleInput) * triangleInputs.size());
-                    packet2_advance_next(packet.get(), sizeof(Ps2VuUntexturedTriangleInput) * triangleInputs.size());
                     packet2_utils_vu_close_unpack(packet.get());
                     LastCompletedPhase = 4;
                     if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {

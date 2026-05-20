@@ -460,6 +460,34 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that batched untextured VU packet assembly writes templates and triangle inputs directly into packet memory.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingBatchedUntexturedTriangles_ShouldAvoidTemporaryPacketStagingArrays() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string packetBuilderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string packetSource = ReadSourceText(packetBuilderPath);
+        string compactPacketBranch = ExtractSourceRange(
+            packetSource,
+            "if (!EnableVuSingleTriangleDispatchFallback) {",
+            "            } else {");
+
+        Assert.DoesNotContain("std::array<Ps2VuUntexturedTriangleInput, MaxUntexturedBatchTriangleCount> triangleInputs {}", compactPacketBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::array<std::array<std::uint8_t, TriangleGifPacketTemplateByteCount>, MaxUntexturedBatchTriangleCount> outputTemplates {}", compactPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("std::uint8_t* outputTemplateBytes = reinterpret_cast<std::uint8_t*>(packet.get()->next);", compactPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuUntexturedTriangleInput* triangleInputs = reinterpret_cast<Ps2VuUntexturedTriangleInput*>(packet.get()->next);", compactPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("std::uint8_t* outputTemplate = outputTemplateBytes + (batchTriangleIndex * TriangleGifPacketTemplateByteCount);", compactPacketBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that untextured VU packet encoding reuses resolved GIF templates instead of rebuilding duplicate templates per triangle.
     /// </summary>
     [Fact]
@@ -777,7 +805,9 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("batchHeader->OutputGifQwordOffset = UntexturedBatchHeaderQwordCount;", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("batchHeader->ConstantsQwordOffset = UntexturedBatchConstantsQwordOffset;", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("batchHeader->TriangleInputQwordOffset = UntexturedBatchTriangleInputQwordOffset;", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("std::memcpy(packet.get()->next, outputTemplates[batchTriangleIndex].data(), TriangleGifPacketTemplateByteCount);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("std::uint8_t* outputTemplateBytes = reinterpret_cast<std::uint8_t*>(packet.get()->next);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("std::uint8_t* outputTemplate = outputTemplateBytes + (batchTriangleIndex * TriangleGifPacketTemplateByteCount);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(outputTemplate, outputTemplatePayload.GifPacketTemplate, TriangleGifPacketTemplateByteCount);", normalUntexturedPacketBranch, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -803,10 +833,10 @@ public sealed class Ps2NativeBuildExecutorTests {
 
         Assert.Contains("constexpr std::size_t TrianglePrimitiveGiftagQwordIndex = 4u;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr std::uint64_t GiftagEopBit = 1ull << 15u;", source, StringComparison.Ordinal);
-        Assert.Contains("void SetTriangleGifTemplateEop(std::array<std::uint8_t, TriangleGifPacketTemplateByteCount>& outputTemplate, bool enabled)", source, StringComparison.Ordinal);
+        Assert.Contains("void SetTriangleGifTemplateEop(std::uint8_t* outputTemplate, bool enabled)", source, StringComparison.Ordinal);
         Assert.Contains("giftag &= ~GiftagEopBit;", source, StringComparison.Ordinal);
         Assert.Contains("std::memcpy(giftagBytes, &giftag, sizeof(giftag));", source, StringComparison.Ordinal);
-        Assert.Contains("SetTriangleGifTemplateEop(outputTemplates[batchTriangleIndex], batchTriangleIndex == MaxUntexturedBatchTriangleCount - 1u);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("SetTriangleGifTemplateEop(outputTemplate, batchTriangleIndex == MaxUntexturedBatchTriangleCount - 1u);", normalUntexturedPacketBranch, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -876,11 +906,12 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("struct alignas(16) Ps2VuUntexturedTriangleInput final", layout, StringComparison.Ordinal);
         Assert.Contains("std::uint32_t ConstantsQwordOffset;", layout, StringComparison.Ordinal);
         Assert.Contains("std::uint32_t TriangleInputQwordOffset;", layout, StringComparison.Ordinal);
-        Assert.Contains("Ps2VuUntexturedBatchConstants batchConstants {};", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("std::array<Ps2VuUntexturedTriangleInput, MaxUntexturedBatchTriangleCount> triangleInputs {};", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("PopulateUntexturedBatchConstants((*untexturedTriangleSetups)[triangleIndex], batchConstants);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuUntexturedBatchConstants* batchConstants = reinterpret_cast<Ps2VuUntexturedBatchConstants*>(packet.get()->next);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuUntexturedTriangleInput* triangleInputs = reinterpret_cast<Ps2VuUntexturedTriangleInput*>(packet.get()->next);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("PopulateUntexturedBatchConstants((*untexturedTriangleSetups)[triangleIndex], *batchConstants);", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("PopulateUntexturedTriangleInput(triangleSetup, triangleInputs[batchTriangleIndex]);", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("std::array<Ps2VuLitTrianglePayload, MaxUntexturedBatchTriangleCount>", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::array<Ps2VuUntexturedTriangleInput, MaxUntexturedBatchTriangleCount>", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("std::memcpy(packet.get()->next, &trianglePayload, sizeof(Ps2VuLitTrianglePayload));", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("PopulateTrianglePayloadFromSetup(batch, triangleSetup, gsGlobal, gifTemplateCache, batchPayloads[batchTriangleIndex]);", normalUntexturedPacketBranch, StringComparison.Ordinal);
     }
