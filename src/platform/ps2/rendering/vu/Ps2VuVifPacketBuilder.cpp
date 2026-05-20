@@ -32,6 +32,7 @@ namespace helengine::ps2 {
     namespace {
         constexpr std::uint32_t XtopGifPacketAddress = 0;
         constexpr std::uint32_t MinimumVifPacketOverheadQwords = 32;
+        constexpr std::uint32_t MinimumVifPacketCapacityQwords = 256;
         constexpr std::uint32_t EnableVuPacketPhaseDiagnostics = 0;
         constexpr std::uint32_t VuPacketDiagnosticCutoffPhase = 11;
         constexpr bool EnableVuFixedTriangleDiagnostics = false;
@@ -1221,7 +1222,7 @@ namespace helengine::ps2 {
             ? (emittedTriangleCount / MaxUntexturedBatchTriangleCount)
             : 0u;
         std::uint32_t maxPacketQwordCount = std::max<std::uint32_t>(
-            1024u,
+            MinimumVifPacketCapacityQwords,
             textured
                 ? MinimumVifPacketOverheadQwords + (emittedTriangleCount * 24u)
                 : untexturedBatchCount > 0u

@@ -1042,6 +1042,28 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that compact VU packet allocation uses a tight capacity floor instead of allocating a large debug-sized buffer for every cube batch.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingUntexturedBatch_ShouldUseTightPacketCapacityFloor() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string source = ReadSourceText(builderPath);
+
+        Assert.Contains("constexpr std::uint32_t MinimumVifPacketCapacityQwords = 256;", source, StringComparison.Ordinal);
+        Assert.Contains("MinimumVifPacketCapacityQwords,", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("1024u,\n            textured", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that the untextured VU microprogram loads batch constants once and consumes compact triangle inputs inside the loop.
     /// </summary>
     [Fact]
