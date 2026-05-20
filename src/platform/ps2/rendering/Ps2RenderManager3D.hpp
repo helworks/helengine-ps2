@@ -61,6 +61,9 @@ namespace helengine::ps2 {
         double GetLastProxySyncMilliseconds() const;
         double GetLastFramePlanMilliseconds() const;
         double GetLastVuBatchBuildMilliseconds() const;
+        double GetLastVuInitialWaitMilliseconds() const;
+        double GetLastVuCompletionWaitMilliseconds() const;
+        double GetLastVuSubmitOnlyMilliseconds() const;
         double GetLastVuWaitMilliseconds() const;
         double GetLastVuSubmitMilliseconds() const;
         double GetLastVuPacketEncodeMilliseconds() const;
@@ -161,6 +164,9 @@ namespace helengine::ps2 {
         double LastProxySyncMilliseconds;
         double LastFramePlanMilliseconds;
         double LastVuBatchBuildMilliseconds;
+        double LastVuInitialWaitMilliseconds;
+        double LastVuCompletionWaitMilliseconds;
+        double LastVuSubmitOnlyMilliseconds;
         double LastVuWaitMilliseconds;
         double LastVuSubmitMilliseconds;
         double LastVuPacketEncodeMilliseconds;

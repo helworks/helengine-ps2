@@ -24,7 +24,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "programs",
             "Ps2OpaqueDraw3D.vsm");
 
-        string source = File.ReadAllText(programPath);
+        string source = ReadSourceText(programPath);
 
         Assert.Contains("xtop VI02", source, StringComparison.Ordinal);
         Assert.Contains("iaddiu VI03, VI02, 0x00000010", source, StringComparison.Ordinal);
@@ -47,7 +47,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "programs",
             "Ps2OpaqueDraw3D.vsm");
 
-        string source = File.ReadAllText(programPath);
+        string source = ReadSourceText(programPath);
 
         Assert.Contains("isw.w", source, StringComparison.Ordinal);
         Assert.Contains("22(VI02)", source, StringComparison.Ordinal);
@@ -74,7 +74,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "programs",
             "Ps2OpaqueDraw3D.vsm");
 
-        string source = File.ReadAllText(programPath);
+        string source = ReadSourceText(programPath);
 
         Assert.Contains("sq.xyz VF01, 22(VI02)", source, StringComparison.Ordinal);
         Assert.Contains("sq.xyz VF03, 24(VI02)", source, StringComparison.Ordinal);
@@ -99,7 +99,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "programs",
             "Ps2OpaqueDraw3D.vsm");
 
-        string source = File.ReadAllText(programPath);
+        string source = ReadSourceText(programPath);
 
         Assert.DoesNotContain("sq VF12, 21(VI00)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("sq VF12, 23(VI00)", source, StringComparison.Ordinal);
@@ -122,7 +122,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "programs",
             "Ps2OpaqueDraw3D.vsm");
 
-        string source = File.ReadAllText(programPath);
+        string source = ReadSourceText(programPath);
 
         Assert.DoesNotContain("opmula.xyz", source, StringComparison.Ordinal);
         Assert.DoesNotContain("opmsub.xyz", source, StringComparison.Ordinal);
@@ -146,7 +146,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "programs",
             "Ps2OpaqueDraw3D.vsm");
 
-        string source = File.ReadAllText(programPath);
+        string source = ReadSourceText(programPath);
 
         Assert.DoesNotContain("clipw.xyz", source, StringComparison.Ordinal);
         Assert.DoesNotContain("fcand", source, StringComparison.Ordinal);
@@ -161,7 +161,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         string repositoryRootPath = ResolveRepositoryRoot();
         string makefilePath = Path.Combine(repositoryRootPath, "Makefile");
 
-        string source = File.ReadAllText(makefilePath);
+        string source = ReadSourceText(makefilePath);
 
         Assert.Contains("$(GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp", source, StringComparison.Ordinal);
         Assert.Contains("$(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp", source, StringComparison.Ordinal);
@@ -190,8 +190,8 @@ public sealed class Ps2NativeBuildExecutorTests {
             "rendering",
             "Ps2RenderManager3D.hpp");
 
-        string source = File.ReadAllText(rendererSourcePath);
-        string header = File.ReadAllText(rendererHeaderPath);
+        string source = ReadSourceText(rendererSourcePath);
+        string header = ReadSourceText(rendererHeaderPath);
 
         Assert.Contains("void PublishPerformanceOverlayMetrics() const;", header, StringComparison.Ordinal);
         Assert.Contains("void Ps2RenderManager3D::PublishPerformanceOverlayMetrics() const", source, StringComparison.Ordinal);
@@ -218,7 +218,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "vu",
             "Ps2VuOpaqueUntexturedSetupBuilder.cpp");
 
-        string source = File.ReadAllText(builderPath);
+        string source = ReadSourceText(builderPath);
         string runtimeBranch = ExtractSourceRange(
             source,
             "const Ps2RuntimeModel* runtimeModel = batch.Proxy != nullptr ? batch.Proxy->GetModel() : nullptr;",
@@ -252,7 +252,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "vu",
             "Ps2VuVifPacketBuilder.cpp");
 
-        string source = File.ReadAllText(builderPath);
+        string source = ReadSourceText(builderPath);
         string untexturedSetupBranch = ExtractSourceRange(
             source,
             "setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal);",
@@ -284,7 +284,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "vu",
             "Ps2VuVifPacketBuilder.cpp");
 
-        string source = File.ReadAllText(builderPath);
+        string source = ReadSourceText(builderPath);
         string untexturedSetupBranch = ExtractSourceRange(
             source,
             "setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal);",
@@ -316,7 +316,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "vu",
             "Ps2VuVifPacketBuilder.cpp");
 
-        string source = File.ReadAllText(builderPath);
+        string source = ReadSourceText(builderPath);
         string untexturedSetupBranch = ExtractSourceRange(
             source,
             "setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal);",
@@ -347,7 +347,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "vu",
             "Ps2VuVifPacketBuilder.cpp");
 
-        string source = File.ReadAllText(builderPath);
+        string source = ReadSourceText(builderPath);
         string payloadFromSetup = ExtractSourceRange(
             source,
             "void PopulateTrianglePayloadFromSetup(",
@@ -379,7 +379,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "vu",
             "Ps2VuVifPacketBuilder.cpp");
 
-        string source = File.ReadAllText(builderPath);
+        string source = ReadSourceText(builderPath);
         string normalUntexturedPacketLoop = ExtractSourceRange(
             source,
             "for (const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup : *untexturedTriangleSetups) {",
@@ -405,7 +405,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "vu",
             "Ps2VuVifPacketBuilder.cpp");
 
-        string source = File.ReadAllText(builderPath);
+        string source = ReadSourceText(builderPath);
         string normalUntexturedPacketBranch = ExtractSourceRange(
             source,
             "} else {\n            if (EnableVuTwoTriangleBatchDiagnostic) {",
@@ -439,7 +439,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "programs",
             "Ps2OpaqueDraw3D.vsm");
 
-        string source = File.ReadAllText(programPath);
+        string source = ReadSourceText(programPath);
 
         Assert.Contains("NOP                                                        xtop VI02", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        iaddiu VI05, VI00, 0x00000002", source, StringComparison.Ordinal);
@@ -465,7 +465,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "rendering",
             "Ps2RenderManager3D.cpp");
 
-        string source = File.ReadAllText(rendererPath);
+        string source = ReadSourceText(rendererPath);
         string timedEncodeWindow = ExtractSourceRange(
             source,
             "const std::clock_t vuPacketEncodeStartTicks = std::clock();",
@@ -489,7 +489,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "rendering",
             "Ps2RenderManager3D.cpp");
 
-        string source = File.ReadAllText(rendererPath);
+        string source = ReadSourceText(rendererPath);
         string normalSubmitBranch = ExtractSourceRange(
             source,
             "} else {\n                LastVuPacketPhase = 201;",
@@ -498,7 +498,56 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);", normalSubmitBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("dma_channel_wait(DMA_CHANNEL_VIF1, 0);", normalSubmitBranch, StringComparison.Ordinal);
         Assert.Contains("LastVuPacketPhase = 202;", normalSubmitBranch, StringComparison.Ordinal);
-        Assert.Contains("LastVuSubmitMilliseconds += ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.Contains("const double vuSubmitOnlyMilliseconds = ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.Contains("LastVuSubmitMilliseconds += vuSubmitOnlyMilliseconds;", normalSubmitBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that VU timing separates DMA wait, completion wait, and submit-only costs before aggregating them into the existing overlay values.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenMeasuringVuSubmission_ShouldSplitWaitAndSubmitTiming() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string rendererSourcePath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "Ps2RenderManager3D.cpp");
+        string rendererHeaderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "Ps2RenderManager3D.hpp");
+
+        string source = ReadSourceText(rendererSourcePath);
+        string header = ReadSourceText(rendererHeaderPath);
+        string vuPath = ExtractSourceRange(
+            source,
+            "void Ps2RenderManager3D::RenderOpaqueWithVuPath(",
+            "    void Ps2RenderManager3D::DrawOpaqueProxy(");
+        string normalSubmitBranch = ExtractSourceRange(
+            vuPath,
+            "} else {\n                LastVuPacketPhase = 201;",
+            "            }\n            (void)viewport;");
+
+        Assert.Contains("double GetLastVuInitialWaitMilliseconds() const;", header, StringComparison.Ordinal);
+        Assert.Contains("double GetLastVuCompletionWaitMilliseconds() const;", header, StringComparison.Ordinal);
+        Assert.Contains("double GetLastVuSubmitOnlyMilliseconds() const;", header, StringComparison.Ordinal);
+        Assert.Contains("double LastVuInitialWaitMilliseconds;", header, StringComparison.Ordinal);
+        Assert.Contains("double LastVuCompletionWaitMilliseconds;", header, StringComparison.Ordinal);
+        Assert.Contains("double LastVuSubmitOnlyMilliseconds;", header, StringComparison.Ordinal);
+        Assert.Contains("double Ps2RenderManager3D::GetLastVuInitialWaitMilliseconds() const", source, StringComparison.Ordinal);
+        Assert.Contains("double Ps2RenderManager3D::GetLastVuCompletionWaitMilliseconds() const", source, StringComparison.Ordinal);
+        Assert.Contains("double Ps2RenderManager3D::GetLastVuSubmitOnlyMilliseconds() const", source, StringComparison.Ordinal);
+        Assert.Contains("LastVuInitialWaitMilliseconds = 0.0;\n        LastVuCompletionWaitMilliseconds = 0.0;\n        LastVuSubmitOnlyMilliseconds = 0.0;\n        LastVuWaitMilliseconds = 0.0;\n        LastVuSubmitMilliseconds = 0.0;", vuPath, StringComparison.Ordinal);
+        Assert.Contains("const double vuInitialWaitMilliseconds = ResolveMillisecondsFromClockTicks(vuInitialWaitStartTicks, vuInitialWaitEndTicks);\n            LastVuInitialWaitMilliseconds += vuInitialWaitMilliseconds;\n            LastVuWaitMilliseconds += vuInitialWaitMilliseconds;", vuPath, StringComparison.Ordinal);
+        Assert.Contains("const double vuSubmitOnlyMilliseconds = ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);\n                LastVuSubmitOnlyMilliseconds += vuSubmitOnlyMilliseconds;\n                LastVuSubmitMilliseconds += vuSubmitOnlyMilliseconds;", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("EnableVuDirectGifDispatchDiagnostics", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("dma_channel_wait(DMA_CHANNEL_GIF, 0);", normalSubmitBranch, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -516,7 +565,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "vu",
             "Ps2VuVifPacketBuilder.cpp");
 
-        string source = File.ReadAllText(builderPath);
+        string source = ReadSourceText(builderPath);
         string untexturedBranch = ExtractSourceRange(
             source,
             "} else if (!textured) {",
@@ -541,7 +590,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "vu",
             "Ps2VuVifPacketBuilder.cpp");
 
-        string source = File.ReadAllText(builderPath);
+        string source = ReadSourceText(builderPath);
 
         Assert.Contains("packet2_utils_gif_add_set(gifPacket.get(), 1);", source, StringComparison.Ordinal);
         Assert.Contains("packet2_utils_gs_add_lod(gifPacket.get(), &lod);", source, StringComparison.Ordinal);
@@ -566,7 +615,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             "vu",
             "Ps2VuVifPacketBuilder.cpp");
 
-        string source = File.ReadAllText(builderPath);
+        string source = ReadSourceText(builderPath);
 
         Assert.Contains("gsGlobal != nullptr && gsGlobal->ZBuffering == GS_SETTING_ON", source, StringComparison.Ordinal);
         Assert.Contains("rendererZTestMethod", source, StringComparison.Ordinal);
@@ -1001,6 +1050,15 @@ FileStream::FileStream(const char* path, FileMode mode)
     /// <returns>Absolute repository root path.</returns>
     static string ResolveRepositoryRoot() {
         return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+    }
+
+    /// <summary>
+    /// Reads a source file using stable line endings so source-shape tests are not affected by checkout settings.
+    /// </summary>
+    /// <param name="path">Absolute path to the source file.</param>
+    /// <returns>Source text with Windows line endings normalized to line-feed characters.</returns>
+    static string ReadSourceText(string path) {
+        return File.ReadAllText(path).Replace("\r\n", "\n", StringComparison.Ordinal);
     }
 
     /// <summary>

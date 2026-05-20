@@ -468,6 +468,9 @@ namespace helengine::ps2 {
             LastProxySyncMilliseconds(0.0),
             LastFramePlanMilliseconds(0.0),
             LastVuBatchBuildMilliseconds(0.0),
+            LastVuInitialWaitMilliseconds(0.0),
+            LastVuCompletionWaitMilliseconds(0.0),
+            LastVuSubmitOnlyMilliseconds(0.0),
             LastVuWaitMilliseconds(0.0),
             LastVuSubmitMilliseconds(0.0),
             LastVuPacketEncodeMilliseconds(0.0),
@@ -589,6 +592,11 @@ namespace helengine::ps2 {
         LastProxySyncMilliseconds = 0.0;
         LastFramePlanMilliseconds = 0.0;
         LastVuBatchBuildMilliseconds = 0.0;
+        LastVuInitialWaitMilliseconds = 0.0;
+        LastVuCompletionWaitMilliseconds = 0.0;
+        LastVuSubmitOnlyMilliseconds = 0.0;
+        LastVuWaitMilliseconds = 0.0;
+        LastVuSubmitMilliseconds = 0.0;
         LastVuPacketEncodeMilliseconds = 0.0;
         LastVuTriangleSetupMilliseconds = 0.0;
         LastVuPacketAssemblyMilliseconds = 0.0;
@@ -741,6 +749,9 @@ namespace helengine::ps2 {
         std::vector<Ps2VuOpaqueBatch> batches = VuOpaqueBatchBuilder.Build(plan);
         const std::clock_t vuBatchBuildEndTicks = std::clock();
         LastVuBatchBuildMilliseconds = ResolveMillisecondsFromClockTicks(vuBatchBuildStartTicks, vuBatchBuildEndTicks);
+        LastVuInitialWaitMilliseconds = 0.0;
+        LastVuCompletionWaitMilliseconds = 0.0;
+        LastVuSubmitOnlyMilliseconds = 0.0;
         LastVuWaitMilliseconds = 0.0;
         LastVuSubmitMilliseconds = 0.0;
         ::float3 lightDirection = DefaultForward;
@@ -757,7 +768,9 @@ namespace helengine::ps2 {
             const std::clock_t vuInitialWaitStartTicks = std::clock();
             dma_channel_wait(DMA_CHANNEL_VIF1, 0);
             const std::clock_t vuInitialWaitEndTicks = std::clock();
-            LastVuWaitMilliseconds += ResolveMillisecondsFromClockTicks(vuInitialWaitStartTicks, vuInitialWaitEndTicks);
+            const double vuInitialWaitMilliseconds = ResolveMillisecondsFromClockTicks(vuInitialWaitStartTicks, vuInitialWaitEndTicks);
+            LastVuInitialWaitMilliseconds += vuInitialWaitMilliseconds;
+            LastVuWaitMilliseconds += vuInitialWaitMilliseconds;
             ::float4x4 world = BuildWorldMatrix(*batch.Proxy);
             VuGifStateEncoder.EncodeOpaqueState(batch, GsGlobal);
             VuVifPacketBuilder.Reset();
@@ -872,7 +885,9 @@ namespace helengine::ps2 {
                 dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);
                 LastVuPacketPhase = 202;
                 const std::clock_t vuSubmitEndTicks = std::clock();
-                LastVuSubmitMilliseconds += ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);
+                const double vuSubmitOnlyMilliseconds = ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);
+                LastVuSubmitOnlyMilliseconds += vuSubmitOnlyMilliseconds;
+                LastVuSubmitMilliseconds += vuSubmitOnlyMilliseconds;
                 LastVuPacketPhase = 203;
             }
             (void)viewport;
@@ -985,6 +1000,18 @@ namespace helengine::ps2 {
 
     double Ps2RenderManager3D::GetLastVuBatchBuildMilliseconds() const {
         return LastVuBatchBuildMilliseconds;
+    }
+
+    double Ps2RenderManager3D::GetLastVuInitialWaitMilliseconds() const {
+        return LastVuInitialWaitMilliseconds;
+    }
+
+    double Ps2RenderManager3D::GetLastVuCompletionWaitMilliseconds() const {
+        return LastVuCompletionWaitMilliseconds;
+    }
+
+    double Ps2RenderManager3D::GetLastVuSubmitOnlyMilliseconds() const {
+        return LastVuSubmitOnlyMilliseconds;
     }
 
     double Ps2RenderManager3D::GetLastVuWaitMilliseconds() const {
