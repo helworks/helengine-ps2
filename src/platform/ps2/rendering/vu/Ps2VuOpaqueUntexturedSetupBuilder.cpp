@@ -178,9 +178,6 @@ namespace helengine::ps2 {
             SubmittedTriangleVertexA1 = ::float4(triangleSetup.SourceTriangle.PositionB[0], triangleSetup.SourceTriangle.PositionB[1], triangleSetup.SourceTriangle.PositionB[2], 1.0f);
             SubmittedTriangleVertexA2 = ::float4(triangleSetup.SourceTriangle.PositionC[0], triangleSetup.SourceTriangle.PositionC[1], triangleSetup.SourceTriangle.PositionC[2], 1.0f);
         } else {
-            const Ps2RuntimeModel* runtimeModel = batch.Proxy != nullptr ? batch.Proxy->GetModel() : nullptr;
-            const std::vector<std::uint16_t>* runtimeIndices = runtimeModel != nullptr ? &runtimeModel->GetIndices() : nullptr;
-            const std::vector<::float3>* runtimeNormals = runtimeModel != nullptr ? &runtimeModel->GetNormals() : nullptr;
             const float* packedPositionWords = reinterpret_cast<const float*>(batch.Model->GetPositionBlockBytes());
             const float* packedNormalWords = reinterpret_cast<const float*>(batch.Model->GetNormalBlockBytes());
             TriangleSetups.reserve(triangleVertexCount / 3u);
@@ -247,24 +244,6 @@ namespace helengine::ps2 {
                     packedPositionWords[positionWordIndexC + 0u],
                     packedPositionWords[positionWordIndexC + 1u],
                     packedPositionWords[positionWordIndexC + 2u]);
-                const std::uint16_t sourceIndexA = runtimeIndices != nullptr && vertexIndex < runtimeIndices->size()
-                    ? (*runtimeIndices)[vertexIndex + 0u]
-                    : static_cast<std::uint16_t>(vertexIndex + 0u);
-                const std::uint16_t sourceIndexB = runtimeIndices != nullptr && (vertexIndex + 1u) < runtimeIndices->size()
-                    ? (*runtimeIndices)[vertexIndex + 1u]
-                    : static_cast<std::uint16_t>(vertexIndex + 1u);
-                const std::uint16_t sourceIndexC = runtimeIndices != nullptr && (vertexIndex + 2u) < runtimeIndices->size()
-                    ? (*runtimeIndices)[vertexIndex + 2u]
-                    : static_cast<std::uint16_t>(vertexIndex + 2u);
-                const ::float3 sourceNormalA = runtimeNormals != nullptr && sourceIndexA < runtimeNormals->size()
-                    ? (*runtimeNormals)[sourceIndexA]
-                    : packedNormalA;
-                const ::float3 sourceNormalB = runtimeNormals != nullptr && sourceIndexB < runtimeNormals->size()
-                    ? (*runtimeNormals)[sourceIndexB]
-                    : packedNormalB;
-                const ::float3 sourceNormalC = runtimeNormals != nullptr && sourceIndexC < runtimeNormals->size()
-                    ? (*runtimeNormals)[sourceIndexC]
-                    : packedNormalC;
                 const ::float4 positionA(packedPositionA.X, packedPositionA.Y, packedPositionA.Z, 1.0f);
                 const ::float4 positionB(packedPositionB.X, packedPositionB.Y, packedPositionB.Z, 1.0f);
                 const ::float4 positionC(packedPositionC.X, packedPositionC.Y, packedPositionC.Z, 1.0f);
@@ -292,18 +271,6 @@ namespace helengine::ps2 {
                 triangleSetup.SourceTriangle.PositionC[1] = packedPositionC.Y;
                 triangleSetup.SourceTriangle.PositionC[2] = packedPositionC.Z;
                 triangleSetup.SourceTriangle.PositionC[3] = 1.0f;
-                triangleSetup.SourceTriangle.NormalA[0] = sourceNormalA.X;
-                triangleSetup.SourceTriangle.NormalA[1] = sourceNormalA.Y;
-                triangleSetup.SourceTriangle.NormalA[2] = sourceNormalA.Z;
-                triangleSetup.SourceTriangle.NormalA[3] = 0.0f;
-                triangleSetup.SourceTriangle.NormalB[0] = sourceNormalB.X;
-                triangleSetup.SourceTriangle.NormalB[1] = sourceNormalB.Y;
-                triangleSetup.SourceTriangle.NormalB[2] = sourceNormalB.Z;
-                triangleSetup.SourceTriangle.NormalB[3] = 0.0f;
-                triangleSetup.SourceTriangle.NormalC[0] = sourceNormalC.X;
-                triangleSetup.SourceTriangle.NormalC[1] = sourceNormalC.Y;
-                triangleSetup.SourceTriangle.NormalC[2] = sourceNormalC.Z;
-                triangleSetup.SourceTriangle.NormalC[3] = 0.0f;
                 triangleSetup.FaceNormal[0] = worldFaceNormal.X;
                 triangleSetup.FaceNormal[1] = worldFaceNormal.Y;
                 triangleSetup.FaceNormal[2] = worldFaceNormal.Z;

@@ -222,7 +222,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         string source = ReadSourceText(builderPath);
         string runtimeBranch = ExtractSourceRange(
             source,
-            "const Ps2RuntimeModel* runtimeModel = batch.Proxy != nullptr ? batch.Proxy->GetModel() : nullptr;",
+            "const float* packedPositionWords = reinterpret_cast<const float*>(batch.Model->GetPositionBlockBytes());",
             "const std::clock_t triangleSetupEndTicks = std::clock();");
         string triangleLoop = ExtractSourceRange(
             runtimeBranch,
@@ -266,6 +266,38 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.DoesNotContain("const ::float4 worldPositionA4", triangleLoop, StringComparison.Ordinal);
         Assert.DoesNotContain("const ::float4 worldPositionB4", triangleLoop, StringComparison.Ordinal);
         Assert.DoesNotContain("const ::float4 worldPositionC4", triangleLoop, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the compact untextured VU setup no longer copies per-vertex normal payload fields that the compact batch input does not upload.
+    /// </summary>
+    [Fact]
+    public void Ps2VuOpaqueUntexturedSetupBuilder_WhenBuildingCompactTriangleSetups_ShouldSkipUnusedVertexNormalCopies() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuOpaqueUntexturedSetupBuilder.cpp");
+
+        string source = ReadSourceText(builderPath);
+        string triangleLoop = ExtractSourceRange(
+            source,
+            "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
+            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+
+        Assert.DoesNotContain("const std::vector<::float3>* runtimeNormals", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("const Ps2RuntimeModel* runtimeModel", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("runtimeIndices", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("sourceNormalA", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("sourceNormalB", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("sourceNormalC", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("triangleSetup.SourceTriangle.NormalA", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("triangleSetup.SourceTriangle.NormalB", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("triangleSetup.SourceTriangle.NormalC", triangleLoop, StringComparison.Ordinal);
     }
 
     /// <summary>
