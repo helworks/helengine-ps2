@@ -488,6 +488,61 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that batched untextured packet encoding resolves GIF templates directly into packet memory instead of constructing full triangle payloads.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingBatchedUntexturedTriangles_ShouldPopulateGifTemplatesDirectly() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string packetBuilderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string packetSource = ReadSourceText(packetBuilderPath);
+        string compactPacketBranch = ExtractSourceRange(
+            packetSource,
+            "if (!EnableVuSingleTriangleDispatchFallback) {",
+            "            } else {");
+
+        Assert.Contains("void PopulateTriangleGifPacketTemplateFromCache(", packetSource, StringComparison.Ordinal);
+        Assert.Contains("std::uint8_t* outputTemplate)", packetSource, StringComparison.Ordinal);
+        Assert.Contains("PopulateTriangleGifPacketTemplateFromCache(\n                            batch,\n                            faceNormal,\n                            lightDirection,\n                            gsGlobal,\n                            gifTemplateCache,\n                            outputTemplate);", compactPacketBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2VuLitTrianglePayload outputTemplatePayload {}", compactPacketBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("outputTemplatePayload.GifPacketTemplate", compactPacketBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the compact untextured batch path builds GIF templates without populating the full lit-triangle payload used by the fallback path.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingBatchedUntexturedTriangles_ShouldBuildGifOnlyTemplates() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string packetBuilderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string packetSource = ReadSourceText(packetBuilderPath);
+        string directTemplateCacheBuilder = ExtractSourceRange(
+            packetSource,
+            "std::vector<Ps2VuGifTemplateCacheEntry>& gifTemplateCache,\n            std::uint8_t* outputTemplate) {",
+            "        void PopulateTrianglePayloadFromSetup(");
+
+        Assert.Contains("void PopulateTriangleGifPacketTemplateBytes(", packetSource, StringComparison.Ordinal);
+        Assert.Contains("PopulateTriangleGifPacketTemplateBytes(batch, flatColor, gsGlobal, outputTemplate);", directTemplateCacheBuilder, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2VuLitTrianglePayload templatePayload {}", directTemplateCacheBuilder, StringComparison.Ordinal);
+        Assert.DoesNotContain("PopulateLightingPalette(", directTemplateCacheBuilder, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that untextured VU packet encoding reuses resolved GIF templates instead of rebuilding duplicate templates per triangle.
     /// </summary>
     [Fact]
@@ -572,16 +627,16 @@ public sealed class Ps2NativeBuildExecutorTests {
         string source = ReadSourceText(builderPath);
         string templateBuilder = ExtractSourceRange(
             source,
-            "void PopulateTriangleGifPacketTemplate(",
+            "void PopulateTriangleGifPacketTemplateBytes(",
             "        ::float2 ResolveGsTextureCoordinate");
 
         Assert.Contains("void WriteGifTemplateQword(std::uint8_t* templateBytes, std::size_t qwordIndex, std::uint64_t lowWord, std::uint64_t highWord)", source, StringComparison.Ordinal);
         Assert.Contains("std::uint64_t BuildPackedAdGiftag(std::uint32_t loopCount)", source, StringComparison.Ordinal);
         Assert.Contains("std::uint64_t BuildUntexturedPrimitiveGiftag(const prim_t& prim)", source, StringComparison.Ordinal);
         Assert.Contains("std::uint64_t BuildUntexturedTex1Register()", source, StringComparison.Ordinal);
-        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 0u, BuildPackedAdGiftag(1u), GIF_REG_AD);", templateBuilder, StringComparison.Ordinal);
-        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 1u, ResolveOpaqueUntexturedTestRegister(gsGlobal), GS_REG_TEST);", templateBuilder, StringComparison.Ordinal);
-        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 4u, BuildUntexturedPrimitiveGiftag(prim), UntexturedTriangleRegisterList);", templateBuilder, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(outputTemplate, 0u, BuildPackedAdGiftag(1u), GIF_REG_AD);", templateBuilder, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(outputTemplate, 1u, ResolveOpaqueUntexturedTestRegister(gsGlobal), GS_REG_TEST);", templateBuilder, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(outputTemplate, 4u, BuildUntexturedPrimitiveGiftag(prim), UntexturedTriangleRegisterList);", templateBuilder, StringComparison.Ordinal);
         Assert.DoesNotContain("std::unique_ptr<packet2_t", templateBuilder, StringComparison.Ordinal);
         Assert.DoesNotContain("packet2_utils_gs_add_prim_giftag", templateBuilder, StringComparison.Ordinal);
     }
@@ -807,7 +862,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("batchHeader->TriangleInputQwordOffset = UntexturedBatchTriangleInputQwordOffset;", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("std::uint8_t* outputTemplateBytes = reinterpret_cast<std::uint8_t*>(packet.get()->next);", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("std::uint8_t* outputTemplate = outputTemplateBytes + (batchTriangleIndex * TriangleGifPacketTemplateByteCount);", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("std::memcpy(outputTemplate, outputTemplatePayload.GifPacketTemplate, TriangleGifPacketTemplateByteCount);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("PopulateTriangleGifPacketTemplateFromCache(\n                            batch,\n                            faceNormal,\n                            lightDirection,\n                            gsGlobal,\n                            gifTemplateCache,\n                            outputTemplate);", normalUntexturedPacketBranch, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1182,12 +1237,12 @@ public sealed class Ps2NativeBuildExecutorTests {
 
         string source = ReadSourceText(builderPath);
 
-        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 0u, BuildPackedAdGiftag(1u), GIF_REG_AD);", source, StringComparison.Ordinal);
-        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 1u, ResolveOpaqueUntexturedTestRegister(gsGlobal), GS_REG_TEST);", source, StringComparison.Ordinal);
-        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 2u, BuildPackedAdGiftag(1u), GIF_REG_AD);", source, StringComparison.Ordinal);
-        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 3u, BuildUntexturedTex1Register(), GS_REG_TEX1);", source, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(outputTemplate, 0u, BuildPackedAdGiftag(1u), GIF_REG_AD);", source, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(outputTemplate, 1u, ResolveOpaqueUntexturedTestRegister(gsGlobal), GS_REG_TEST);", source, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(outputTemplate, 2u, BuildPackedAdGiftag(1u), GIF_REG_AD);", source, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(outputTemplate, 3u, BuildUntexturedTex1Register(), GS_REG_TEX1);", source, StringComparison.Ordinal);
         Assert.Contains("GS_REG_TEST", source, StringComparison.Ordinal);
-        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 4u, BuildUntexturedPrimitiveGiftag(prim), UntexturedTriangleRegisterList);", source, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(outputTemplate, 4u, BuildUntexturedPrimitiveGiftag(prim), UntexturedTriangleRegisterList);", source, StringComparison.Ordinal);
         Assert.DoesNotContain("draw_prim_end(gifPacket.get()->next, 2, UntexturedTriangleRegisterList)", source, StringComparison.Ordinal);
     }
 

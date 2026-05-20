@@ -140,6 +140,12 @@ namespace helengine::ps2 {
             GSGLOBAL* gsGlobal,
             Ps2VuLitTrianglePayload& payload);
 
+        void PopulateTriangleGifPacketTemplateBytes(
+            const Ps2VuOpaqueBatch& batch,
+            const Ps2VuFlatColor& flatColor,
+            GSGLOBAL* gsGlobal,
+            std::uint8_t* outputTemplate);
+
         std::uint64_t ResolveTexturedVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection);
 
         static_assert((sizeof(Ps2VuLitTrianglePayload) % 16u) == 0u);
@@ -182,6 +188,10 @@ namespace helengine::ps2 {
             std::memcpy(payload.GifPacketTemplate, entry.GifPacketTemplate, sizeof(entry.GifPacketTemplate));
         }
 
+        void CopyGifTemplateCacheEntryToTemplate(const Ps2VuGifTemplateCacheEntry& entry, std::uint8_t* outputTemplate) {
+            std::memcpy(outputTemplate, entry.GifPacketTemplate, TriangleGifPacketTemplateByteCount);
+        }
+
         void PopulateTriangleGifPacketTemplateFromCache(
             const Ps2VuOpaqueBatch& batch,
             const ::float3& faceNormal,
@@ -219,6 +229,42 @@ namespace helengine::ps2 {
             std::memcpy(entry.GifPacketTemplate, templatePayload.GifPacketTemplate, sizeof(entry.GifPacketTemplate));
             gifTemplateCache.push_back(entry);
             CopyGifTemplateCacheEntryToPayload(gifTemplateCache.back(), payload);
+        }
+
+        void PopulateTriangleGifPacketTemplateFromCache(
+            const Ps2VuOpaqueBatch& batch,
+            const ::float3& faceNormal,
+            const ::float3& lightDirection,
+            GSGLOBAL* gsGlobal,
+            std::vector<Ps2VuGifTemplateCacheEntry>& gifTemplateCache,
+            std::uint8_t* outputTemplate) {
+            for (const Ps2VuGifTemplateCacheEntry& entry : gifTemplateCache) {
+                if (AreLightingInputsEqual(entry, faceNormal, lightDirection)) {
+                    CopyGifTemplateCacheEntryToTemplate(entry, outputTemplate);
+                    return;
+                }
+            }
+
+            const std::uint64_t triangleColor = ResolveTexturedVertexColor(*batch.Material, faceNormal, lightDirection);
+            Ps2VuFlatColor flatColor {};
+            flatColor.Red = static_cast<std::uint8_t>(triangleColor & 0xFFu);
+            flatColor.Green = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
+            flatColor.Blue = static_cast<std::uint8_t>((triangleColor >> 16u) & 0xFFu);
+            flatColor.Alpha = static_cast<std::uint8_t>((triangleColor >> 24u) & 0xFFu);
+            PopulateTriangleGifPacketTemplateBytes(batch, flatColor, gsGlobal, outputTemplate);
+
+            Ps2VuGifTemplateCacheEntry entry {};
+            entry.FlatColor = flatColor;
+            entry.FaceNormal[0] = faceNormal.X;
+            entry.FaceNormal[1] = faceNormal.Y;
+            entry.FaceNormal[2] = faceNormal.Z;
+            entry.FaceNormal[3] = 0.0f;
+            entry.LightDirection[0] = lightDirection.X;
+            entry.LightDirection[1] = lightDirection.Y;
+            entry.LightDirection[2] = lightDirection.Z;
+            entry.LightDirection[3] = 0.0f;
+            std::memcpy(entry.GifPacketTemplate, outputTemplate, sizeof(entry.GifPacketTemplate));
+            gifTemplateCache.push_back(entry);
         }
 
         void PopulateTrianglePayloadFromSetup(
@@ -654,11 +700,11 @@ namespace helengine::ps2 {
             }
         }
 
-        void PopulateTriangleGifPacketTemplate(
+        void PopulateTriangleGifPacketTemplateBytes(
             const Ps2VuOpaqueBatch& batch,
             const Ps2VuFlatColor& resolvedFlatColor,
             GSGLOBAL* gsGlobal,
-            Ps2VuLitTrianglePayload& payload) {
+            std::uint8_t* outputTemplate) {
             prim_t prim = {};
             prim.type = PRIM_TRIANGLE;
             prim.shading = PRIM_SHADE_FLAT;
@@ -682,8 +728,6 @@ namespace helengine::ps2 {
                 flatColor.Blue = resolvedFlatColor.Blue;
                 flatColor.Alpha = resolvedFlatColor.Alpha;
             }
-            std::memset(&payload, 0, sizeof(Ps2VuLitTrianglePayload));
-            PopulateLightingPalette(batch, payload);
 
             Ps2VuGifQword colorQword {};
             PopulateGifColorQword(
@@ -692,19 +736,29 @@ namespace helengine::ps2 {
                 flatColor.Green,
                 flatColor.Blue,
                 flatColor.Alpha);
-            WriteGifTemplateQword(payload.GifPacketTemplate, 0u, BuildPackedAdGiftag(1u), GIF_REG_AD);
-            WriteGifTemplateQword(payload.GifPacketTemplate, 1u, ResolveOpaqueUntexturedTestRegister(gsGlobal), GS_REG_TEST);
-            WriteGifTemplateQword(payload.GifPacketTemplate, 2u, BuildPackedAdGiftag(1u), GIF_REG_AD);
-            WriteGifTemplateQword(payload.GifPacketTemplate, 3u, BuildUntexturedTex1Register(), GS_REG_TEX1);
-            WriteGifTemplateQword(payload.GifPacketTemplate, 4u, BuildUntexturedPrimitiveGiftag(prim), UntexturedTriangleRegisterList);
-            std::memcpy(payload.GifPacketTemplate + (5u * 16u), &colorQword, sizeof(colorQword));
-            std::memcpy(payload.GifPacketTemplate + (7u * 16u), &colorQword, sizeof(colorQword));
-            std::memcpy(payload.GifPacketTemplate + (9u * 16u), &colorQword, sizeof(colorQword));
+            WriteGifTemplateQword(outputTemplate, 0u, BuildPackedAdGiftag(1u), GIF_REG_AD);
+            WriteGifTemplateQword(outputTemplate, 1u, ResolveOpaqueUntexturedTestRegister(gsGlobal), GS_REG_TEST);
+            WriteGifTemplateQword(outputTemplate, 2u, BuildPackedAdGiftag(1u), GIF_REG_AD);
+            WriteGifTemplateQword(outputTemplate, 3u, BuildUntexturedTex1Register(), GS_REG_TEX1);
+            WriteGifTemplateQword(outputTemplate, 4u, BuildUntexturedPrimitiveGiftag(prim), UntexturedTriangleRegisterList);
+            std::memcpy(outputTemplate + (5u * 16u), &colorQword, sizeof(colorQword));
+            std::memcpy(outputTemplate + (7u * 16u), &colorQword, sizeof(colorQword));
+            std::memcpy(outputTemplate + (9u * 16u), &colorQword, sizeof(colorQword));
             if (EnableVuGifTemplateLayoutDiagnostics) {
                 throw std::runtime_error(
                     "PS2 lit triangle GIF template layout:"
-                    + FormatGifTemplateQwords(payload.GifPacketTemplate, TriangleGifPacketTemplateQwordCount));
+                    + FormatGifTemplateQwords(outputTemplate, TriangleGifPacketTemplateQwordCount));
             }
+        }
+
+        void PopulateTriangleGifPacketTemplate(
+            const Ps2VuOpaqueBatch& batch,
+            const Ps2VuFlatColor& resolvedFlatColor,
+            GSGLOBAL* gsGlobal,
+            Ps2VuLitTrianglePayload& payload) {
+            std::memset(&payload, 0, sizeof(Ps2VuLitTrianglePayload));
+            PopulateLightingPalette(batch, payload);
+            PopulateTriangleGifPacketTemplateBytes(batch, resolvedFlatColor, gsGlobal, payload.GifPacketTemplate);
         }
 
         ::float2 ResolveGsTextureCoordinate(const ::float2& normalizedTexCoord, int textureWidth, int textureHeight) {
@@ -1235,21 +1289,19 @@ namespace helengine::ps2 {
                         const std::size_t sourceTriangleIndex = std::min(triangleIndex + batchTriangleIndex, untexturedTriangleSetups->size() - 1u);
                         const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup = (*untexturedTriangleSetups)[sourceTriangleIndex];
                         PopulateUntexturedTriangleInput(triangleSetup, triangleInputs[batchTriangleIndex]);
-                        Ps2VuLitTrianglePayload outputTemplatePayload {};
                         const ::float3 faceNormal(
                             triangleSetup.FaceNormal[0],
                             triangleSetup.FaceNormal[1],
                             triangleSetup.FaceNormal[2]);
                         const ::float3 lightDirection = normalizedLightDirection;
+                        std::uint8_t* outputTemplate = outputTemplateBytes + (batchTriangleIndex * TriangleGifPacketTemplateByteCount);
                         PopulateTriangleGifPacketTemplateFromCache(
                             batch,
                             faceNormal,
                             lightDirection,
                             gsGlobal,
                             gifTemplateCache,
-                            outputTemplatePayload);
-                        std::uint8_t* outputTemplate = outputTemplateBytes + (batchTriangleIndex * TriangleGifPacketTemplateByteCount);
-                        std::memcpy(outputTemplate, outputTemplatePayload.GifPacketTemplate, TriangleGifPacketTemplateByteCount);
+                            outputTemplate);
                         SetTriangleGifTemplateEop(outputTemplate, batchTriangleIndex == MaxUntexturedBatchTriangleCount - 1u);
                     }
                     packet2_utils_vu_close_unpack(packet.get());
