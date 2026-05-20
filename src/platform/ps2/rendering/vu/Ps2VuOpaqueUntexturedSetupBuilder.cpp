@@ -265,6 +265,7 @@ namespace helengine::ps2 {
                 LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
 
                 const std::clock_t triangleEmitStartTicks = std::clock();
+                const bool shouldWriteBatchConstants = includeFallbackPayload || TriangleSetups.empty();
                 Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup = TriangleSetups.emplace_back();
                 if (includeFallbackPayload) {
                     std::memcpy(triangleSetup.WorldMatrix, worldMatrixWords, sizeof(worldMatrixWords));
@@ -290,9 +291,11 @@ namespace helengine::ps2 {
                 triangleSetup.FaceNormal[1] = worldFaceNormal.Y;
                 triangleSetup.FaceNormal[2] = worldFaceNormal.Z;
                 triangleSetup.FaceNormal[3] = 0.0f;
-                std::memcpy(triangleSetup.WorldViewProjectionMatrix, worldViewProjectionMatrixWords, sizeof(worldViewProjectionMatrixWords));
-                std::memcpy(triangleSetup.GsScale, gsScaleWords, sizeof(gsScaleWords));
-                std::memcpy(triangleSetup.GsOffset, gsOffsetWords, sizeof(gsOffsetWords));
+                if (shouldWriteBatchConstants) {
+                    std::memcpy(triangleSetup.WorldViewProjectionMatrix, worldViewProjectionMatrixWords, sizeof(worldViewProjectionMatrixWords));
+                    std::memcpy(triangleSetup.GsScale, gsScaleWords, sizeof(gsScaleWords));
+                    std::memcpy(triangleSetup.GsOffset, gsOffsetWords, sizeof(gsOffsetWords));
+                }
                 const bool captureDebugTriangle = SubmittedTriangleCount < 2u;
                 SubmittedTriangleCount++;
                 if (captureDebugTriangle) {

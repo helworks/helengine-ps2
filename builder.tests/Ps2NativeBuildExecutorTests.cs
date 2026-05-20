@@ -460,6 +460,47 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that compact untextured setup stores batch constants once instead of duplicating the same constant block into every triangle setup.
+    /// </summary>
+    [Fact]
+    public void Ps2VuOpaqueUntexturedSetupBuilder_WhenBuildingCompactTriangleSetups_ShouldStoreBatchConstantsOnce() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string setupBuilderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuOpaqueUntexturedSetupBuilder.cpp");
+        string packetBuilderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string setupSource = ReadSourceText(setupBuilderPath);
+        string packetSource = ReadSourceText(packetBuilderPath);
+        string triangleLoop = ExtractSourceRange(
+            setupSource,
+            "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
+            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+        string compactPacketBranch = ExtractSourceRange(
+            packetSource,
+            "if (!EnableVuSingleTriangleDispatchFallback) {",
+            "            } else {");
+
+        Assert.Contains("const bool shouldWriteBatchConstants = includeFallbackPayload || TriangleSetups.empty();", triangleLoop, StringComparison.Ordinal);
+        Assert.Contains("if (shouldWriteBatchConstants) {", triangleLoop, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(triangleSetup.WorldViewProjectionMatrix, worldViewProjectionMatrixWords, sizeof(worldViewProjectionMatrixWords));", ExtractSourceRange(triangleLoop, "if (shouldWriteBatchConstants) {", "                }"), StringComparison.Ordinal);
+        Assert.Contains("PopulateUntexturedBatchConstants((*untexturedTriangleSetups)[0u], *batchConstants);", compactPacketBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("PopulateUntexturedBatchConstants((*untexturedTriangleSetups)[triangleIndex], *batchConstants);", compactPacketBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that batched untextured VU packet assembly writes templates and triangle inputs directly into packet memory.
     /// </summary>
     [Fact]
@@ -965,7 +1006,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("std::uint32_t TriangleInputQwordOffset;", layout, StringComparison.Ordinal);
         Assert.Contains("Ps2VuUntexturedBatchConstants* batchConstants = reinterpret_cast<Ps2VuUntexturedBatchConstants*>(packet.get()->next);", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("Ps2VuUntexturedTriangleInput* triangleInputs = reinterpret_cast<Ps2VuUntexturedTriangleInput*>(packet.get()->next);", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("PopulateUntexturedBatchConstants((*untexturedTriangleSetups)[triangleIndex], *batchConstants);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("PopulateUntexturedBatchConstants((*untexturedTriangleSetups)[0u], *batchConstants);", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("PopulateUntexturedTriangleInput(triangleSetup, triangleInputs[batchTriangleIndex]);", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("std::array<Ps2VuLitTrianglePayload, MaxUntexturedBatchTriangleCount>", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("std::array<Ps2VuUntexturedTriangleInput, MaxUntexturedBatchTriangleCount>", normalUntexturedPacketBranch, StringComparison.Ordinal);

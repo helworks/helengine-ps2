@@ -1295,7 +1295,7 @@ namespace helengine::ps2 {
                     std::uint8_t* outputTemplateBytes = reinterpret_cast<std::uint8_t*>(packet.get()->next);
                     packet2_advance_next(packet.get(), TriangleGifPacketTemplateByteCount * MaxUntexturedBatchTriangleCount);
                     Ps2VuUntexturedBatchConstants* batchConstants = reinterpret_cast<Ps2VuUntexturedBatchConstants*>(packet.get()->next);
-                    PopulateUntexturedBatchConstants((*untexturedTriangleSetups)[triangleIndex], *batchConstants);
+                    PopulateUntexturedBatchConstants((*untexturedTriangleSetups)[0u], *batchConstants);
                     packet2_advance_next(packet.get(), sizeof(Ps2VuUntexturedBatchConstants));
                     Ps2VuUntexturedTriangleInput* triangleInputs = reinterpret_cast<Ps2VuUntexturedTriangleInput*>(packet.get()->next);
                     packet2_advance_next(packet.get(), sizeof(Ps2VuUntexturedTriangleInput) * MaxUntexturedBatchTriangleCount);
