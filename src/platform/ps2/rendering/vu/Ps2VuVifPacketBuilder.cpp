@@ -55,6 +55,8 @@ namespace helengine::ps2 {
         constexpr float LightingPaletteScale = static_cast<float>(LightingPaletteEntryCount - 1u);
         constexpr std::size_t TriangleGifPacketTemplateQwordCount = 11u;
         constexpr std::size_t TriangleGifPacketTemplateByteCount = TriangleGifPacketTemplateQwordCount * 16u;
+        constexpr std::size_t TrianglePrimitiveGiftagQwordIndex = 4u;
+        constexpr std::uint64_t GiftagEopBit = 1ull << 15u;
         constexpr std::size_t LitTrianglePaletteQwordCount = LightingPaletteEntryCount;
         constexpr std::size_t LitTriangleGifPacketQwordOffset = LitTrianglePaletteQwordCount;
         constexpr std::size_t LitTriangleWorldMatrixQwordOffset = LitTriangleGifPacketQwordOffset + TriangleGifPacketTemplateQwordCount;
@@ -272,6 +274,19 @@ namespace helengine::ps2 {
             std::memcpy(triangleInput.PositionB, triangleSetup.SourceTriangle.PositionB, sizeof(triangleSetup.SourceTriangle.PositionB));
             std::memcpy(triangleInput.PositionC, triangleSetup.SourceTriangle.PositionC, sizeof(triangleSetup.SourceTriangle.PositionC));
             std::memcpy(triangleInput.FaceNormal, triangleSetup.FaceNormal, sizeof(triangleSetup.FaceNormal));
+        }
+
+        void SetTriangleGifTemplateEop(std::array<std::uint8_t, TriangleGifPacketTemplateByteCount>& outputTemplate, bool enabled) {
+            std::uint64_t giftag = 0;
+            std::uint8_t* giftagBytes = outputTemplate.data() + (TrianglePrimitiveGiftagQwordIndex * 16u);
+            std::memcpy(&giftag, giftagBytes, sizeof(giftag));
+            if (enabled) {
+                giftag |= GiftagEopBit;
+            }
+            else {
+                giftag &= ~GiftagEopBit;
+            }
+            std::memcpy(giftagBytes, &giftag, sizeof(giftag));
         }
 
         std::uint32_t BuildVifCode(std::uint16_t immediate, std::uint8_t number, std::uint8_t command, bool irq) {
@@ -1205,6 +1220,7 @@ namespace helengine::ps2 {
                             gifTemplateCache,
                             outputTemplate);
                         std::memcpy(outputTemplates[batchTriangleIndex].data(), outputTemplate.GifPacketTemplate, TriangleGifPacketTemplateByteCount);
+                        SetTriangleGifTemplateEop(outputTemplates[batchTriangleIndex], batchTriangleIndex == MaxUntexturedBatchTriangleCount - 1u);
                     }
 
                     packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);

@@ -493,6 +493,35 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that one-XGKICK untextured batches clear primitive GIF termination on intermediate triangle templates so the GS consumes the whole generated stream.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingUntexturedBatch_ShouldOnlyTerminateFinalGifTemplate() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string source = ReadSourceText(builderPath);
+        string normalUntexturedPacketBranch = ExtractSourceRange(
+            source,
+            "if (!EnableVuSingleTriangleDispatchFallback) {",
+            "            } else {");
+
+        Assert.Contains("constexpr std::size_t TrianglePrimitiveGiftagQwordIndex = 4u;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::uint64_t GiftagEopBit = 1ull << 15u;", source, StringComparison.Ordinal);
+        Assert.Contains("void SetTriangleGifTemplateEop(std::array<std::uint8_t, TriangleGifPacketTemplateByteCount>& outputTemplate, bool enabled)", source, StringComparison.Ordinal);
+        Assert.Contains("giftag &= ~GiftagEopBit;", source, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(giftagBytes, &giftag, sizeof(giftag));", source, StringComparison.Ordinal);
+        Assert.Contains("SetTriangleGifTemplateEop(outputTemplates[batchTriangleIndex], batchTriangleIndex == MaxUntexturedBatchTriangleCount - 1u);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that the untextured VU microprogram builds the complete batch GIF stream before issuing one XGKICK.
     /// </summary>
     [Fact]
