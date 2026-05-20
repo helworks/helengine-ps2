@@ -154,7 +154,8 @@ namespace helengine::ps2 {
         const ::float4& viewport,
         const ::float3& lightDirection,
         float nearPlaneDistance,
-        GSGLOBAL* gsGlobal) {
+        GSGLOBAL* gsGlobal,
+        bool includeFallbackPayload) {
         Reset();
         if (batch.Model == nullptr || batch.Material == nullptr) {
             return;
@@ -190,12 +191,12 @@ namespace helengine::ps2 {
             ::float4x4::Multiply(worldCopy, viewCopy, worldViewMatrix);
             ::float4x4::Multiply(worldViewMatrix, projectionCopy, worldViewProjectionMatrix);
 
+            float worldViewProjectionMatrixWords[16];
+            float lightDirectionWords[4] = { normalizedLightDirection.X, normalizedLightDirection.Y, normalizedLightDirection.Z, 0.0f };
             float worldMatrixWords[16];
             float viewMatrixWords[16];
             float projectionMatrixWords[16];
-            float worldViewProjectionMatrixWords[16];
             float viewportWords[4] = { viewport.X, viewport.Y, viewport.Z, viewport.W };
-            float lightDirectionWords[4] = { normalizedLightDirection.X, normalizedLightDirection.Y, normalizedLightDirection.Z, 0.0f };
             float lightConstantsWords[4] = { LightingDiffuseScale, LightingAmbientBias, LightingPaletteScale, 0.0f };
             float gsScaleWords[4] = { viewport.Z * 0.5f, viewport.W * -0.5f, -4194304.0f, 0.0f };
             float gsOffsetWords[4] = {
@@ -204,9 +205,11 @@ namespace helengine::ps2 {
                 4194304.0f,
                 0.0f
             };
-            CopyMatrix(world, worldMatrixWords);
-            CopyMatrix(view, viewMatrixWords);
-            CopyMatrix(projection, projectionMatrixWords);
+            if (includeFallbackPayload) {
+                CopyMatrix(world, worldMatrixWords);
+                CopyMatrix(view, viewMatrixWords);
+                CopyMatrix(projection, projectionMatrixWords);
+            }
             CopyMatrix(worldViewProjectionMatrix, worldViewProjectionMatrixWords);
 
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
@@ -255,10 +258,13 @@ namespace helengine::ps2 {
 
                 const std::clock_t triangleEmitStartTicks = std::clock();
                 Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup = TriangleSetups.emplace_back();
-                std::memcpy(triangleSetup.WorldMatrix, worldMatrixWords, sizeof(worldMatrixWords));
-                std::memcpy(triangleSetup.ViewMatrix, viewMatrixWords, sizeof(viewMatrixWords));
-                std::memcpy(triangleSetup.ProjectionMatrix, projectionMatrixWords, sizeof(projectionMatrixWords));
-                std::memcpy(triangleSetup.Viewport, viewportWords, sizeof(viewportWords));
+                if (includeFallbackPayload) {
+                    std::memcpy(triangleSetup.WorldMatrix, worldMatrixWords, sizeof(worldMatrixWords));
+                    std::memcpy(triangleSetup.ViewMatrix, viewMatrixWords, sizeof(viewMatrixWords));
+                    std::memcpy(triangleSetup.ProjectionMatrix, projectionMatrixWords, sizeof(projectionMatrixWords));
+                    std::memcpy(triangleSetup.Viewport, viewportWords, sizeof(viewportWords));
+                    std::memcpy(triangleSetup.LightConstants, lightConstantsWords, sizeof(lightConstantsWords));
+                }
                 triangleSetup.SourceTriangle.PositionA[0] = packedPositionA.X;
                 triangleSetup.SourceTriangle.PositionA[1] = packedPositionA.Y;
                 triangleSetup.SourceTriangle.PositionA[2] = packedPositionA.Z;
@@ -276,7 +282,6 @@ namespace helengine::ps2 {
                 triangleSetup.FaceNormal[2] = worldFaceNormal.Z;
                 triangleSetup.FaceNormal[3] = 0.0f;
                 std::memcpy(triangleSetup.LightDirection, lightDirectionWords, sizeof(lightDirectionWords));
-                std::memcpy(triangleSetup.LightConstants, lightConstantsWords, sizeof(lightConstantsWords));
                 std::memcpy(triangleSetup.WorldViewProjectionMatrix, worldViewProjectionMatrixWords, sizeof(worldViewProjectionMatrixWords));
                 std::memcpy(triangleSetup.GsScale, gsScaleWords, sizeof(gsScaleWords));
                 std::memcpy(triangleSetup.GsOffset, gsOffsetWords, sizeof(gsOffsetWords));

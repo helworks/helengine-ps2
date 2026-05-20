@@ -51,7 +51,8 @@ namespace helengine::ps2 {
             const ::float4& viewport,
             const ::float3& lightDirection,
             float nearPlaneDistance,
-            GSGLOBAL* gsGlobal);
+            GSGLOBAL* gsGlobal,
+            bool includeFallbackPayload);
 
         const std::vector<Ps2VuOpaqueUntexturedTriangleSetup>& GetTriangleSetups() const;
         double GetLastTriangleSetupMilliseconds() const;

@@ -327,6 +327,53 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that production compact untextured setup skips fields that are only needed by the single-triangle fallback payload path.
+    /// </summary>
+    [Fact]
+    public void Ps2VuOpaqueUntexturedSetupBuilder_WhenBuildingCompactTriangleSetups_ShouldGateFallbackOnlyPayloadFields() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string headerPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuOpaqueUntexturedSetupBuilder.hpp");
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuOpaqueUntexturedSetupBuilder.cpp");
+        string packetBuilderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string header = ReadSourceText(headerPath);
+        string source = ReadSourceText(builderPath);
+        string packetSource = ReadSourceText(packetBuilderPath);
+        string triangleLoop = ExtractSourceRange(
+            source,
+            "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
+            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+
+        Assert.Contains("bool includeFallbackPayload", header, StringComparison.Ordinal);
+        Assert.Contains("bool includeFallbackPayload)", source, StringComparison.Ordinal);
+        Assert.Contains("setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal, EnableVuSingleTriangleDispatchFallback);", packetSource, StringComparison.Ordinal);
+        Assert.Contains("if (includeFallbackPayload) {", triangleLoop, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(triangleSetup.WorldMatrix, worldMatrixWords, sizeof(worldMatrixWords));", triangleLoop, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(triangleSetup.LightConstants, lightConstantsWords, sizeof(lightConstantsWords));", triangleLoop, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that untextured VU packet encoding reuses resolved GIF templates instead of rebuilding duplicate templates per triangle.
     /// </summary>
     [Fact]
@@ -344,7 +391,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         string source = ReadSourceText(builderPath);
         string untexturedSetupBranch = ExtractSourceRange(
             source,
-            "setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal);",
+            "setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal, EnableVuSingleTriangleDispatchFallback);",
             "} else {");
         string packetLoop = ExtractSourceRange(
             source,
@@ -443,7 +490,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         string source = ReadSourceText(builderPath);
         string untexturedSetupBranch = ExtractSourceRange(
             source,
-            "setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal);",
+            "setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal, EnableVuSingleTriangleDispatchFallback);",
             "} else {");
         string packetLoop = ExtractSourceRange(
             source,
@@ -475,7 +522,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         string source = ReadSourceText(builderPath);
         string untexturedSetupBranch = ExtractSourceRange(
             source,
-            "setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal);",
+            "setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal, EnableVuSingleTriangleDispatchFallback);",
             "} else {");
 
         Assert.Contains("const std::vector<Ps2VuOpaqueUntexturedTriangleSetup>* untexturedTriangleSetups = nullptr;", source, StringComparison.Ordinal);

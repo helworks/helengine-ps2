@@ -898,7 +898,7 @@ namespace helengine::ps2 {
             SubmittedTriangleVertexA1 = ::float4(FixedTriangleBX, FixedTriangleBY, FixedTriangleZ, 0.0f);
             SubmittedTriangleVertexA2 = ::float4(FixedTriangleCX, FixedTriangleCY, FixedTriangleZ, 0.0f);
         } else if (!textured) {
-            setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal);
+            setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal, EnableVuSingleTriangleDispatchFallback);
             LastTriangleSetupMilliseconds = setupBuilder.GetLastTriangleSetupMilliseconds();
             LastTrianglePrepMilliseconds = setupBuilder.GetLastTrianglePrepMilliseconds();
             LastTriangleEmitMilliseconds = setupBuilder.GetLastTriangleEmitMilliseconds();
