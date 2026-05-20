@@ -271,6 +271,38 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that untextured VU template construction writes the fixed GIF qwords directly instead of allocating a gsKit packet for every distinct lit face.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenPopulatingUntexturedGifTemplate_ShouldWriteTemplateQwordsDirectly() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string source = ReadSourceText(builderPath);
+        string templateBuilder = ExtractSourceRange(
+            source,
+            "void PopulateTriangleGifPacketTemplate(",
+            "        ::float2 ResolveGsTextureCoordinate");
+
+        Assert.Contains("void WriteGifTemplateQword(std::uint8_t* templateBytes, std::size_t qwordIndex, std::uint64_t lowWord, std::uint64_t highWord)", source, StringComparison.Ordinal);
+        Assert.Contains("std::uint64_t BuildPackedAdGiftag(std::uint32_t loopCount)", source, StringComparison.Ordinal);
+        Assert.Contains("std::uint64_t BuildUntexturedPrimitiveGiftag(const prim_t& prim)", source, StringComparison.Ordinal);
+        Assert.Contains("std::uint64_t BuildUntexturedTex1Register()", source, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 0u, BuildPackedAdGiftag(1u), GIF_REG_AD);", templateBuilder, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 1u, ResolveOpaqueUntexturedTestRegister(gsGlobal), GS_REG_TEST);", templateBuilder, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 4u, BuildUntexturedPrimitiveGiftag(prim), UntexturedTriangleRegisterList);", templateBuilder, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::unique_ptr<packet2_t", templateBuilder, StringComparison.Ordinal);
+        Assert.DoesNotContain("packet2_utils_gs_add_prim_giftag", templateBuilder, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that untextured VU packet encoding constructs large triangle payloads in vector storage instead of copying stack payloads into the staging vector.
     /// </summary>
     [Fact]
@@ -863,11 +895,12 @@ public sealed class Ps2NativeBuildExecutorTests {
 
         string source = ReadSourceText(builderPath);
 
-        Assert.Contains("packet2_utils_gif_add_set(gifPacket.get(), 1);", source, StringComparison.Ordinal);
-        Assert.Contains("packet2_utils_gs_add_lod(gifPacket.get(), &lod);", source, StringComparison.Ordinal);
-        Assert.Contains("packet2_add_2x_s64(", source, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 0u, BuildPackedAdGiftag(1u), GIF_REG_AD);", source, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 1u, ResolveOpaqueUntexturedTestRegister(gsGlobal), GS_REG_TEST);", source, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 2u, BuildPackedAdGiftag(1u), GIF_REG_AD);", source, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 3u, BuildUntexturedTex1Register(), GS_REG_TEX1);", source, StringComparison.Ordinal);
         Assert.Contains("GS_REG_TEST", source, StringComparison.Ordinal);
-        Assert.Contains("packet2_utils_gs_add_prim_giftag(gifPacket.get(), &prim, 3u, UntexturedTriangleRegisterList, 2u, 0);", source, StringComparison.Ordinal);
+        Assert.Contains("WriteGifTemplateQword(payload.GifPacketTemplate, 4u, BuildUntexturedPrimitiveGiftag(prim), UntexturedTriangleRegisterList);", source, StringComparison.Ordinal);
         Assert.DoesNotContain("draw_prim_end(gifPacket.get()->next, 2, UntexturedTriangleRegisterList)", source, StringComparison.Ordinal);
     }
 

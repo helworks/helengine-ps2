@@ -289,6 +289,46 @@ namespace helengine::ps2 {
             std::memcpy(giftagBytes, &giftag, sizeof(giftag));
         }
 
+        void WriteGifTemplateQword(std::uint8_t* templateBytes, std::size_t qwordIndex, std::uint64_t lowWord, std::uint64_t highWord) {
+            std::uint8_t* qwordBytes = templateBytes + (qwordIndex * 16u);
+            std::memcpy(qwordBytes, &lowWord, sizeof(lowWord));
+            std::memcpy(qwordBytes + sizeof(lowWord), &highWord, sizeof(highWord));
+        }
+
+        std::uint64_t BuildPackedAdGiftag(std::uint32_t loopCount) {
+            return GIF_SET_TAG(loopCount, 0, 0, 0, GIF_FLG_PACKED, 1);
+        }
+
+        std::uint64_t BuildUntexturedPrimitiveGiftag(const prim_t& prim) {
+            return VU_GS_GIFTAG(
+                3u,
+                1u,
+                1u,
+                VU_GS_PRIM(
+                    prim.type,
+                    prim.shading,
+                    prim.mapping,
+                    prim.fogging,
+                    prim.blending,
+                    prim.antialiasing,
+                    prim.mapping_type,
+                    0u,
+                    prim.colorfix),
+                0u,
+                2u);
+        }
+
+        std::uint64_t BuildUntexturedTex1Register() {
+            return GS_SET_TEX1(
+                0u,
+                0u,
+                LOD_MAG_NEAREST,
+                LOD_MIN_NEAREST,
+                0u,
+                0u,
+                0u);
+        }
+
         std::uint32_t BuildVifCode(std::uint16_t immediate, std::uint8_t number, std::uint8_t command, bool irq) {
             return static_cast<std::uint32_t>(immediate)
                 | (static_cast<std::uint32_t>(number) << 16u)
@@ -629,55 +669,37 @@ namespace helengine::ps2 {
             prim.mapping_type = PRIM_MAP_ST;
             prim.colorfix = PRIM_UNFIXED;
             const std::uint8_t baseColorA = batch.Material->GetBaseColorA();
-            color_t flatColor = {};
+            Ps2VuFlatColor flatColor {};
             if (EnableVuFlatColorDiagnostics) {
-                flatColor.r = 0xFF;
-                flatColor.g = 0x20;
-                flatColor.b = 0x20;
-                flatColor.a = baseColorA;
+                flatColor.Red = 0xFF;
+                flatColor.Green = 0x20;
+                flatColor.Blue = 0x20;
+                flatColor.Alpha = baseColorA;
             }
             else {
-                flatColor.r = resolvedFlatColor.Red;
-                flatColor.g = resolvedFlatColor.Green;
-                flatColor.b = resolvedFlatColor.Blue;
-                flatColor.a = resolvedFlatColor.Alpha;
+                flatColor.Red = resolvedFlatColor.Red;
+                flatColor.Green = resolvedFlatColor.Green;
+                flatColor.Blue = resolvedFlatColor.Blue;
+                flatColor.Alpha = resolvedFlatColor.Alpha;
             }
-            lod_t lod = {};
-            lod.mag_filter = LOD_MAG_NEAREST;
-            lod.min_filter = LOD_MIN_NEAREST;
             std::memset(&payload, 0, sizeof(Ps2VuLitTrianglePayload));
             PopulateLightingPalette(batch, payload);
-            std::unique_ptr<packet2_t, decltype(&packet2_free)> gifPacket(CreatePacketOrThrow(32u, P2_MODE_NORMAL), &packet2_free);
-            packet2_utils_gif_add_set(gifPacket.get(), 1);
-            packet2_add_2x_s64(
-                gifPacket.get(),
-                ResolveOpaqueUntexturedTestRegister(gsGlobal),
-                GS_REG_TEST);
-            packet2_utils_gif_add_set(gifPacket.get(), 1);
-            packet2_utils_gs_add_lod(gifPacket.get(), &lod);
-            packet2_utils_gs_add_prim_giftag(gifPacket.get(), &prim, 3u, UntexturedTriangleRegisterList, 2u, 0);
-            std::memset(gifPacket.get()->next, 0, 6u * 16u);
-            Ps2VuGifQword* triangleRegisters = reinterpret_cast<Ps2VuGifQword*>(gifPacket.get()->next);
+
+            Ps2VuGifQword colorQword {};
             PopulateGifColorQword(
-                triangleRegisters[0],
-                flatColor.r,
-                flatColor.g,
-                flatColor.b,
-                flatColor.a);
-            PopulateGifColorQword(
-                triangleRegisters[2],
-                flatColor.r,
-                flatColor.g,
-                flatColor.b,
-                flatColor.a);
-            PopulateGifColorQword(
-                triangleRegisters[4],
-                flatColor.r,
-                flatColor.g,
-                flatColor.b,
-                flatColor.a);
-            packet2_advance_next(gifPacket.get(), 6u * 16u);
-            std::memcpy(payload.GifPacketTemplate, gifPacket.get()->base, TriangleGifPacketTemplateByteCount);
+                colorQword,
+                flatColor.Red,
+                flatColor.Green,
+                flatColor.Blue,
+                flatColor.Alpha);
+            WriteGifTemplateQword(payload.GifPacketTemplate, 0u, BuildPackedAdGiftag(1u), GIF_REG_AD);
+            WriteGifTemplateQword(payload.GifPacketTemplate, 1u, ResolveOpaqueUntexturedTestRegister(gsGlobal), GS_REG_TEST);
+            WriteGifTemplateQword(payload.GifPacketTemplate, 2u, BuildPackedAdGiftag(1u), GIF_REG_AD);
+            WriteGifTemplateQword(payload.GifPacketTemplate, 3u, BuildUntexturedTex1Register(), GS_REG_TEX1);
+            WriteGifTemplateQword(payload.GifPacketTemplate, 4u, BuildUntexturedPrimitiveGiftag(prim), UntexturedTriangleRegisterList);
+            std::memcpy(payload.GifPacketTemplate + (5u * 16u), &colorQword, sizeof(colorQword));
+            std::memcpy(payload.GifPacketTemplate + (7u * 16u), &colorQword, sizeof(colorQword));
+            std::memcpy(payload.GifPacketTemplate + (9u * 16u), &colorQword, sizeof(colorQword));
             if (EnableVuGifTemplateLayoutDiagnostics) {
                 throw std::runtime_error(
                     "PS2 lit triangle GIF template layout:"
