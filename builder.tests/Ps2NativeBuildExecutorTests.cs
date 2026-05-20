@@ -391,10 +391,10 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
-    /// Verifies that the normal untextured VU packet path batches payloads in fixed two-triangle diagnostic pairs without using the failed runtime header path.
+    /// Verifies that the normal untextured VU packet path uses the cube-sized production batch contract instead of the two-triangle diagnostic contract.
     /// </summary>
     [Fact]
-    public void Ps2VuVifPacketBuilder_WhenEncodingNormalUntexturedPath_ShouldDispatchPayloadPairsWithOneVuInvocation() {
+    public void Ps2VuVifPacketBuilder_WhenEncodingNormalUntexturedPath_ShouldUseCubeSizedBatchContract() {
         string repositoryRootPath = ResolveRepositoryRoot();
         string builderPath = Path.Combine(
             repositoryRootPath,
@@ -406,28 +406,19 @@ public sealed class Ps2NativeBuildExecutorTests {
             "Ps2VuVifPacketBuilder.cpp");
 
         string source = ReadSourceText(builderPath);
-        string normalUntexturedPacketBranch = ExtractSourceRange(
-            source,
-            "} else {\n            if (EnableVuTwoTriangleBatchDiagnostic) {",
-            "        }\n\n        LastCompletedPhase = 6;");
 
-        Assert.Contains("constexpr bool EnableVuTwoTriangleBatchDiagnostic = true;", source, StringComparison.Ordinal);
-        Assert.Contains("constexpr std::uint32_t VuDiagnosticBatchTriangleCount = 2u;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::uint32_t MaxUntexturedBatchTriangleCount = 12u;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableVuSingleTriangleDispatchFallback = false;", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("EnableVuTwoTriangleBatchDiagnostic = true", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("VuDiagnosticBatchTriangleCount", source, StringComparison.Ordinal);
         Assert.DoesNotContain("UntexturedBatchHeaderQwordCount", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("batchHeaderWords", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("for (std::size_t triangleIndex = 0u; triangleIndex < untexturedTriangleSetups->size(); triangleIndex += VuDiagnosticBatchTriangleCount) {", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("const Ps2VuOpaqueUntexturedTriangleSetup& firstTriangleSetup = (*untexturedTriangleSetups)[triangleIndex];", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("const Ps2VuOpaqueUntexturedTriangleSetup& secondTriangleSetup = (triangleIndex + 1u) < untexturedTriangleSetups->size()", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("PopulateTrianglePayloadFromSetup(batch, firstTriangleSetup, gsGlobal, gifTemplateCache, *firstTrianglePayload);", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("PopulateTrianglePayloadFromSetup(batch, secondTriangleSetup, gsGlobal, gifTemplateCache, *secondTrianglePayload);", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("packet2_vif_mscal(packet.get(), UntexturedMicroProgramAddress, 0);", normalUntexturedPacketBranch, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies that the untextured VU microprogram consumes exactly two contiguous payloads without the failed runtime batch header.
+    /// Verifies that the untextured VU microprogram consumes one cube-sized payload batch without the failed runtime batch header.
     /// </summary>
     [Fact]
-    public void Ps2OpaqueDraw3DProgram_WhenUsingTwoTriangleDiagnosticBatch_ShouldConsumeTwoPayloads() {
+    public void Ps2OpaqueDraw3DProgram_WhenUsingCubeSizedBatchContract_ShouldConsumeTwelvePayloads() {
         string repositoryRootPath = ResolveRepositoryRoot();
         string programPath = Path.Combine(
             repositoryRootPath,
@@ -442,12 +433,13 @@ public sealed class Ps2NativeBuildExecutorTests {
         string source = ReadSourceText(programPath);
 
         Assert.Contains("NOP                                                        xtop VI02", source, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        iaddiu VI05, VI00, 0x00000002", source, StringComparison.Ordinal);
-        Assert.Contains("__ps2_opaque_draw_3d_triangle_pair_loop:", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        iaddiu VI05, VI00, 0x0000000c", source, StringComparison.Ordinal);
+        Assert.Contains("__ps2_opaque_draw_3d_batch_loop:", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        iaddiu VI03, VI02, 0x00000010", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        iaddiu VI02, VI02, 0x0000003a", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        iaddiu VI05, VI05, -1", source, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        ibne VI05, VI00, __ps2_opaque_draw_3d_triangle_pair_loop", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        ibne VI05, VI00, __ps2_opaque_draw_3d_batch_loop", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("__ps2_opaque_draw_3d_triangle_pair_loop", source, StringComparison.Ordinal);
         Assert.DoesNotContain("ilw.x VI05, 0(VI02)", source, StringComparison.Ordinal);
     }
 

@@ -46,8 +46,8 @@ namespace helengine::ps2 {
         constexpr bool EnableVuGifTemplateLayoutDiagnostics = false;
         constexpr bool EnableVuFlatColorDiagnostics = false;
         constexpr bool EnableVuSingleDispatchDiagnostic = false;
-        constexpr bool EnableVuTwoTriangleBatchDiagnostic = true;
-        constexpr std::uint32_t VuDiagnosticBatchTriangleCount = 2u;
+        constexpr std::uint32_t MaxUntexturedBatchTriangleCount = 12u;
+        constexpr bool EnableVuSingleTriangleDispatchFallback = false;
         constexpr std::size_t LightingPaletteEntryCount = 16u;
         constexpr float LightingAmbientBias = 0.25f;
         constexpr float LightingDiffuseScale = 0.75f;
@@ -1078,11 +1078,12 @@ namespace helengine::ps2 {
         } else {
             const std::size_t untexturedTriangleCount = untexturedTriangleSetups != nullptr ? untexturedTriangleSetups->size() : 0u;
             if (EnableVuSingleDispatchDiagnostic && untexturedTriangleCount > 0u) {
-                emittedTriangleCount = EnableVuTwoTriangleBatchDiagnostic
-                    ? VuDiagnosticBatchTriangleCount
-                    : 1u;
-            } else if (EnableVuTwoTriangleBatchDiagnostic && untexturedTriangleCount > 0u) {
-                emittedTriangleCount = static_cast<std::uint32_t>((untexturedTriangleCount + 1u) & ~1u);
+                emittedTriangleCount = EnableVuSingleTriangleDispatchFallback
+                    ? 1u
+                    : MaxUntexturedBatchTriangleCount;
+            } else if (!EnableVuSingleTriangleDispatchFallback && untexturedTriangleCount > 0u) {
+                const std::size_t batchCount = (untexturedTriangleCount + MaxUntexturedBatchTriangleCount - 1u) / MaxUntexturedBatchTriangleCount;
+                emittedTriangleCount = static_cast<std::uint32_t>(batchCount * MaxUntexturedBatchTriangleCount);
             } else {
                 emittedTriangleCount = static_cast<std::uint32_t>(untexturedTriangleCount);
             }
@@ -1148,19 +1149,16 @@ namespace helengine::ps2 {
                 }
             }
         } else {
-            if (EnableVuTwoTriangleBatchDiagnostic) {
-                for (std::size_t triangleIndex = 0u; triangleIndex < untexturedTriangleSetups->size(); triangleIndex += VuDiagnosticBatchTriangleCount) {
+            if (!EnableVuSingleTriangleDispatchFallback) {
+                for (std::size_t triangleIndex = 0u; triangleIndex < untexturedTriangleSetups->size(); triangleIndex += MaxUntexturedBatchTriangleCount) {
                     packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
-                    const Ps2VuOpaqueUntexturedTriangleSetup& firstTriangleSetup = (*untexturedTriangleSetups)[triangleIndex];
-                    const Ps2VuOpaqueUntexturedTriangleSetup& secondTriangleSetup = (triangleIndex + 1u) < untexturedTriangleSetups->size()
-                        ? (*untexturedTriangleSetups)[triangleIndex + 1u]
-                        : firstTriangleSetup;
-                    Ps2VuLitTrianglePayload* firstTrianglePayload = reinterpret_cast<Ps2VuLitTrianglePayload*>(packet.get()->next);
-                    PopulateTrianglePayloadFromSetup(batch, firstTriangleSetup, gsGlobal, gifTemplateCache, *firstTrianglePayload);
-                    packet2_advance_next(packet.get(), sizeof(Ps2VuLitTrianglePayload));
-                    Ps2VuLitTrianglePayload* secondTrianglePayload = reinterpret_cast<Ps2VuLitTrianglePayload*>(packet.get()->next);
-                    PopulateTrianglePayloadFromSetup(batch, secondTriangleSetup, gsGlobal, gifTemplateCache, *secondTrianglePayload);
-                    packet2_advance_next(packet.get(), sizeof(Ps2VuLitTrianglePayload));
+                    for (std::size_t batchTriangleIndex = 0u; batchTriangleIndex < MaxUntexturedBatchTriangleCount; batchTriangleIndex++) {
+                        const std::size_t sourceTriangleIndex = std::min(triangleIndex + batchTriangleIndex, untexturedTriangleSetups->size() - 1u);
+                        const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup = (*untexturedTriangleSetups)[sourceTriangleIndex];
+                        Ps2VuLitTrianglePayload* trianglePayload = reinterpret_cast<Ps2VuLitTrianglePayload*>(packet.get()->next);
+                        PopulateTrianglePayloadFromSetup(batch, triangleSetup, gsGlobal, gifTemplateCache, *trianglePayload);
+                        packet2_advance_next(packet.get(), sizeof(Ps2VuLitTrianglePayload));
+                    }
                     packet2_utils_vu_close_unpack(packet.get());
                     LastCompletedPhase = 4;
                     if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
