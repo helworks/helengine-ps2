@@ -211,6 +211,9 @@ namespace helengine::ps2 {
                 CopyMatrix(projection, projectionMatrixWords);
             }
             CopyMatrix(worldViewProjectionMatrix, worldViewProjectionMatrixWords);
+            bool hasCachedFaceNormal = false;
+            ::float3 cachedFaceNormal = ::float3::get_Zero();
+            ::float3 cachedWorldFaceNormal = ::float3::get_Zero();
 
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
                 const std::clock_t trianglePrepStartTicks = std::clock();
@@ -250,9 +253,14 @@ namespace helengine::ps2 {
                 const ::float4 positionA(packedPositionA.X, packedPositionA.Y, packedPositionA.Z, 1.0f);
                 const ::float4 positionB(packedPositionB.X, packedPositionB.Y, packedPositionB.Z, 1.0f);
                 const ::float4 positionC(packedPositionC.X, packedPositionC.Y, packedPositionC.Z, 1.0f);
-                const ::float3 worldFaceNormal = NormalizeOrFallback(
-                    TransformPosition(::float4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f), world),
-                    ::float3(0.0f, 0.0f, -1.0f));
+                if (!hasCachedFaceNormal || cachedFaceNormal.X != faceNormal.X || cachedFaceNormal.Y != faceNormal.Y || cachedFaceNormal.Z != faceNormal.Z) {
+                    cachedFaceNormal = faceNormal;
+                    cachedWorldFaceNormal = NormalizeOrFallback(
+                        TransformPosition(::float4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f), world),
+                        ::float3(0.0f, 0.0f, -1.0f));
+                    hasCachedFaceNormal = true;
+                }
+                const ::float3 worldFaceNormal = cachedWorldFaceNormal;
                 const std::clock_t trianglePrepEndTicks = std::clock();
                 LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
 

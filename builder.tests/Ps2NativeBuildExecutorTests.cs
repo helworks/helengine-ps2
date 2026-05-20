@@ -171,6 +171,20 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that the native build links the generated PS2 runtime build stamp used by the on-screen stale-build marker.
+    /// </summary>
+    [Fact]
+    public void Ps2NativeBuildExecutor_WhenUsingRuntimeBuildStamp_ShouldLinkGeneratedBuildStampObject() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string makefilePath = Path.Combine(repositoryRootPath, "Makefile");
+
+        string source = ReadSourceText(makefilePath);
+
+        Assert.Contains("$(BUILD_DIR)/generated/runtime/runtime_ps2_build_stamp.o", source, StringComparison.Ordinal);
+        Assert.Contains("$(GENERATED_CORE_STAGE_ROOT)/runtime/runtime_ps2_build_stamp.cpp", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that the PS2 renderer publishes its VU counters into the core-owned FPS overlay metrics used by the visible runtime HUD.
     /// </summary>
     [Fact]
@@ -371,6 +385,39 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("if (includeFallbackPayload) {", triangleLoop, StringComparison.Ordinal);
         Assert.Contains("std::memcpy(triangleSetup.WorldMatrix, worldMatrixWords, sizeof(worldMatrixWords));", triangleLoop, StringComparison.Ordinal);
         Assert.Contains("std::memcpy(triangleSetup.LightConstants, lightConstantsWords, sizeof(lightConstantsWords));", triangleLoop, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that consecutive cube face triangles can reuse the same transformed face normal instead of repeating world-normal work.
+    /// </summary>
+    [Fact]
+    public void Ps2VuOpaqueUntexturedSetupBuilder_WhenBuildingTriangleSetups_ShouldReuseConsecutiveWorldFaceNormals() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuOpaqueUntexturedSetupBuilder.cpp");
+
+        string source = ReadSourceText(builderPath);
+        string runtimeBranch = ExtractSourceRange(
+            source,
+            "const float* packedPositionWords = reinterpret_cast<const float*>(batch.Model->GetPositionBlockBytes());",
+            "const std::clock_t triangleSetupEndTicks = std::clock();");
+        string triangleLoop = ExtractSourceRange(
+            runtimeBranch,
+            "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
+            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+
+        Assert.Contains("bool hasCachedFaceNormal = false;", runtimeBranch, StringComparison.Ordinal);
+        Assert.Contains("::float3 cachedFaceNormal = ::float3::get_Zero();", runtimeBranch, StringComparison.Ordinal);
+        Assert.Contains("::float3 cachedWorldFaceNormal = ::float3::get_Zero();", runtimeBranch, StringComparison.Ordinal);
+        Assert.Contains("if (!hasCachedFaceNormal || cachedFaceNormal.X != faceNormal.X || cachedFaceNormal.Y != faceNormal.Y || cachedFaceNormal.Z != faceNormal.Z) {", triangleLoop, StringComparison.Ordinal);
+        Assert.Contains("cachedWorldFaceNormal = NormalizeOrFallback(", triangleLoop, StringComparison.Ordinal);
+        Assert.Contains("const ::float3 worldFaceNormal = cachedWorldFaceNormal;", triangleLoop, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -52,6 +52,7 @@ OBJECTS := \
 	$(BUILD_DIR)/generated/runtime/runtime_scene_catalog_manifest.o \
 	$(BUILD_DIR)/generated/runtime/runtime_code_module_manifest.o \
 	$(BUILD_DIR)/generated/runtime/runtime_ps2_asset_path_manifest.o \
+	$(BUILD_DIR)/generated/runtime/runtime_ps2_build_stamp.o \
 	$(BUILD_DIR)/generated/helengine_core_amalgamated.o
 
 CXX := mips64r5900el-ps2-elf-g++
@@ -175,6 +176,10 @@ $(BUILD_DIR)/generated/runtime/runtime_code_module_manifest.o: $(GENERATED_CORE_
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/generated/runtime/runtime_ps2_asset_path_manifest.o: $(GENERATED_CORE_STAGE_ROOT)/runtime/runtime_ps2_asset_path_manifest.cpp $(GENERATED_CORE_STAGE_STAMP)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/generated/runtime/runtime_ps2_build_stamp.o: $(GENERATED_CORE_STAGE_ROOT)/runtime/runtime_ps2_build_stamp.cpp $(GENERATED_CORE_STAGE_STAMP)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 

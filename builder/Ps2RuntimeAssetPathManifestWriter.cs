@@ -8,6 +8,11 @@ namespace helengine.ps2.builder;
 /// </summary>
 public sealed class Ps2RuntimeAssetPathManifestWriter {
     /// <summary>
+    /// Environment variable that can override the persistent local PS2 build-stamp counter path for tests and automation.
+    /// </summary>
+    const string BuildStampCounterPathEnvironmentVariableName = "HELENGINE_PS2_BUILD_STAMP_COUNTER_PATH";
+
+    /// <summary>
     /// Writes the PS2 physical startup path into generated native runtime source.
     /// </summary>
     /// <param name="generatedCoreRootPath">Generated core root that receives the runtime manifest files.</param>
@@ -43,6 +48,10 @@ public sealed class Ps2RuntimeAssetPathManifestWriter {
         File.WriteAllText(
             Path.Combine(runtimeRootPath, "runtime_scene_catalog_manifest.cpp"),
             BuildSceneCatalogSourceContents(manifest, logicalToPhysicalPaths));
+        File.WriteAllText(Path.Combine(runtimeRootPath, "runtime_ps2_build_stamp.hpp"), BuildBuildStampHeaderContents());
+        File.WriteAllText(
+            Path.Combine(runtimeRootPath, "runtime_ps2_build_stamp.cpp"),
+            BuildBuildStampSourceContents(BuildBuildStampValue()));
     }
 
     /// <summary>
@@ -194,6 +203,78 @@ public sealed class Ps2RuntimeAssetPathManifestWriter {
         builder.AppendLine("    throw std::runtime_error(\"Runtime scene id was not found in the scene catalog manifest.\");");
         builder.AppendLine("}");
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// Builds the generated PS2 runtime build-stamp header consumed by platform runtime diagnostics.
+    /// </summary>
+    /// <returns>Header contents for the generated PS2 runtime build stamp.</returns>
+    static string BuildBuildStampHeaderContents() {
+        return
+            "#pragma once\n\n"
+            + "const char* he_runtime_ps2_build_stamp();\n";
+    }
+
+    /// <summary>
+    /// Builds the generated PS2 runtime build-stamp implementation source.
+    /// </summary>
+    /// <param name="stamp">Compact stamp value that changes on each platform build.</param>
+    /// <returns>Generated source contents for the PS2 runtime build stamp.</returns>
+    static string BuildBuildStampSourceContents(string stamp) {
+        if (string.IsNullOrWhiteSpace(stamp)) {
+            throw new ArgumentException("Build stamp must be provided.", nameof(stamp));
+        }
+
+        StringBuilder builder = new();
+        builder.AppendLine("#include \"runtime/runtime_ps2_build_stamp.hpp\"");
+        builder.AppendLine();
+        builder.AppendLine("static const char kRuntimePs2BuildStamp[] = \"" + EscapeCpp(stamp) + "\";");
+        builder.AppendLine();
+        builder.AppendLine("const char* he_runtime_ps2_build_stamp() {");
+        builder.AppendLine("    return kRuntimePs2BuildStamp;");
+        builder.AppendLine("}");
+        return builder.ToString();
+    }
+
+    /// <summary>
+    /// Builds a compact readable runtime stamp from a persistent local counter for on-screen stale-build detection.
+    /// </summary>
+    /// <returns>Decimal build stamp in the form `1.N`.</returns>
+    static string BuildBuildStampValue() {
+        string counterPath = ResolveBuildStampCounterPath();
+        string counterDirectoryPath = Path.GetDirectoryName(counterPath)
+            ?? throw new InvalidOperationException($"Could not resolve a directory for PS2 build stamp counter '{counterPath}'.");
+        Directory.CreateDirectory(counterDirectoryPath);
+
+        int previousCounter = -1;
+        if (File.Exists(counterPath)) {
+            string counterText = File.ReadAllText(counterPath).Trim();
+            if (!int.TryParse(counterText, out previousCounter)) {
+                previousCounter = -1;
+            }
+        }
+
+        int nextCounter = previousCounter + 1;
+        File.WriteAllText(counterPath, nextCounter.ToString());
+        return "1." + nextCounter;
+    }
+
+    /// <summary>
+    /// Resolves the persistent local counter file used to make PS2 runtime build stamps increase across editor builds.
+    /// </summary>
+    /// <returns>Absolute path to the PS2 runtime build-stamp counter file.</returns>
+    static string ResolveBuildStampCounterPath() {
+        string overridePath = Environment.GetEnvironmentVariable(BuildStampCounterPathEnvironmentVariableName);
+        if (!string.IsNullOrWhiteSpace(overridePath)) {
+            return Path.GetFullPath(overridePath);
+        }
+
+        string localApplicationDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrWhiteSpace(localApplicationDataPath)) {
+            throw new InvalidOperationException("Local application data path is required for the PS2 build stamp counter.");
+        }
+
+        return Path.Combine(localApplicationDataPath, "helengine-ps2", "runtime-build-stamp-counter.txt");
     }
 
     /// <summary>

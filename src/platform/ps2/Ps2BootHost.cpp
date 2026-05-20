@@ -36,6 +36,7 @@
 #include "RenderManager3D.hpp"
 #include "runtime/runtime_graphics_renderer_manifest.hpp"
 #include "runtime/runtime_ps2_asset_path_manifest.hpp"
+#include "runtime/runtime_ps2_build_stamp.hpp"
 #include "runtime/runtime_scene_catalog_manifest.hpp"
 #include "runtime/native_exceptions.hpp"
 #include "RuntimeModel.hpp"
@@ -1058,16 +1059,20 @@ namespace helengine::ps2 {
                             ::IDrawable2D* drawable = orderedDrawables[i];
                             if (drawable != nullptr) {
                                 try {
-                                    if (FrameTimingOverlayPending) {
-                                        ::ITextDrawable2D* textDrawable = dynamic_cast<::ITextDrawable2D*>(drawable);
-                                        if (textDrawable != nullptr) {
-                                            std::string currentText = textDrawable->get_Text();
+                                    ::ITextDrawable2D* textDrawable = dynamic_cast<::ITextDrawable2D*>(drawable);
+                                    if (textDrawable != nullptr) {
+                                        std::string currentText = textDrawable->get_Text();
+                                        if (FrameTimingOverlayPending) {
                                             if (currentText.rfind("Update FPS:", 0) == 0) {
-                                                textDrawable->set_Text(FrameTimingOverlayLine1);
+                                                currentText = FrameTimingOverlayLine1;
                                             } else if (currentText.rfind("Render FPS:", 0) == 0) {
-                                                textDrawable->set_Text(FrameTimingOverlayLine2);
+                                                currentText = FrameTimingOverlayLine2;
                                             }
                                         }
+                                        if (currentText.rfind("Upd ", 0) == 0) {
+                                            currentText = std::string(he_runtime_ps2_build_stamp()) + " " + currentText;
+                                        }
+                                        textDrawable->set_Text(currentText);
                                     }
                                     drawable->Draw();
                                 } catch (Exception* exception) {
