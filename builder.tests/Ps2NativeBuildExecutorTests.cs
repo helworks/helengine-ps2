@@ -436,10 +436,11 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("NOP                                                        xtop VI02", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        ilw.x VI05, 0(VI02)", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        ilw.y VI03, 0(VI02)", source, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        ilw.z VI06, 0(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        ilw.z VI10, 0(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        ilw.w VI06, 0(VI02)", source, StringComparison.Ordinal);
         Assert.Contains("__ps2_opaque_draw_3d_build_batch_loop:", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        iaddiu VI08, VI08, 0x0000000b", source, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        iaddiu VI09, VI09, 0x0000003a", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        iaddiu VI09, VI09, 0x00000004", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        iaddiu VI05, VI05, -1", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        ibne VI05, VI00, __ps2_opaque_draw_3d_build_batch_loop", source, StringComparison.Ordinal);
         Assert.DoesNotContain("__ps2_opaque_draw_3d_triangle_pair_loop", source, StringComparison.Ordinal);
@@ -460,23 +461,35 @@ public sealed class Ps2NativeBuildExecutorTests {
             "vu",
             "Ps2VuVifPacketBuilder.cpp");
 
+        string layoutPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuOpaqueUntexturedBatchLayout.hpp");
+
         string source = ReadSourceText(builderPath);
+        string layout = ReadSourceText(layoutPath);
         string normalUntexturedPacketBranch = ExtractSourceRange(
             source,
             "if (!EnableVuSingleTriangleDispatchFallback) {",
             "            } else {");
 
-        Assert.Contains("struct alignas(16) Ps2VuUntexturedBatchHeader final", source, StringComparison.Ordinal);
-        Assert.Contains("std::uint32_t TriangleCount;", source, StringComparison.Ordinal);
-        Assert.Contains("std::uint32_t OutputGifQwordOffset;", source, StringComparison.Ordinal);
-        Assert.Contains("std::uint32_t PayloadQwordOffset;", source, StringComparison.Ordinal);
+        Assert.Contains("struct alignas(16) Ps2VuUntexturedBatchHeader final", layout, StringComparison.Ordinal);
+        Assert.Contains("std::uint32_t TriangleCount;", layout, StringComparison.Ordinal);
+        Assert.Contains("std::uint32_t OutputGifQwordOffset;", layout, StringComparison.Ordinal);
+        Assert.Contains("std::uint32_t ConstantsQwordOffset;", layout, StringComparison.Ordinal);
+        Assert.Contains("std::uint32_t TriangleInputQwordOffset;", layout, StringComparison.Ordinal);
         Assert.Contains("constexpr std::uint32_t UntexturedBatchHeaderQwordCount = 1u;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr std::uint32_t UntexturedBatchOutputGifQwordCount = MaxUntexturedBatchTriangleCount * TriangleGifPacketTemplateQwordCount;", source, StringComparison.Ordinal);
         Assert.Contains("Ps2VuUntexturedBatchHeader* batchHeader = reinterpret_cast<Ps2VuUntexturedBatchHeader*>(packet.get()->next);", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("batchHeader->TriangleCount = MaxUntexturedBatchTriangleCount;", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("batchHeader->OutputGifQwordOffset = UntexturedBatchHeaderQwordCount;", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("batchHeader->PayloadQwordOffset = UntexturedBatchPayloadQwordOffset;", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("std::memcpy(packet.get()->next, trianglePayload.GifPacketTemplate, TriangleGifPacketTemplateByteCount);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("batchHeader->ConstantsQwordOffset = UntexturedBatchConstantsQwordOffset;", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("batchHeader->TriangleInputQwordOffset = UntexturedBatchTriangleInputQwordOffset;", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(packet.get()->next, outputTemplates[batchTriangleIndex].data(), TriangleGifPacketTemplateByteCount);", normalUntexturedPacketBranch, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -505,10 +518,93 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("__ps2_opaque_draw_3d_build_batch_loop:", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        ilw.x VI05, 0(VI02)", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        ilw.y VI03, 0(VI02)", source, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        ilw.z VI06, 0(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        ilw.z VI10, 0(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        ilw.w VI06, 0(VI02)", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        iadd VI07, VI02, VI03", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        xgkick VI07", source, StringComparison.Ordinal);
         Assert.DoesNotContain("xgkick", batchLoop, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the normal untextured VU batch uploads compact per-batch constants and per-triangle inputs instead of full per-triangle payloads.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingUntexturedBatch_ShouldUseCompactBatchInputs() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+        string layoutPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuOpaqueUntexturedBatchLayout.hpp");
+
+        string source = ReadSourceText(builderPath);
+        string layout = ReadSourceText(layoutPath);
+        string normalUntexturedPacketBranch = ExtractSourceRange(
+            source,
+            "if (!EnableVuSingleTriangleDispatchFallback) {",
+            "            } else {");
+
+        Assert.Contains("struct alignas(16) Ps2VuUntexturedBatchConstants final", layout, StringComparison.Ordinal);
+        Assert.Contains("struct alignas(16) Ps2VuUntexturedTriangleInput final", layout, StringComparison.Ordinal);
+        Assert.Contains("std::uint32_t ConstantsQwordOffset;", layout, StringComparison.Ordinal);
+        Assert.Contains("std::uint32_t TriangleInputQwordOffset;", layout, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuUntexturedBatchConstants batchConstants {};", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("std::array<Ps2VuUntexturedTriangleInput, MaxUntexturedBatchTriangleCount> triangleInputs {};", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("PopulateUntexturedBatchConstants((*untexturedTriangleSetups)[triangleIndex], batchConstants);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("PopulateUntexturedTriangleInput(triangleSetup, triangleInputs[batchTriangleIndex]);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::array<Ps2VuLitTrianglePayload, MaxUntexturedBatchTriangleCount>", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::memcpy(packet.get()->next, &trianglePayload, sizeof(Ps2VuLitTrianglePayload));", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("PopulateTrianglePayloadFromSetup(batch, triangleSetup, gsGlobal, gifTemplateCache, batchPayloads[batchTriangleIndex]);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the untextured VU microprogram loads batch constants once and consumes compact triangle inputs inside the loop.
+    /// </summary>
+    [Fact]
+    public void Ps2OpaqueDraw3DProgram_WhenUsingCompactBatchInputs_ShouldLoadConstantsOutsideLoop() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string programPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "programs",
+            "Ps2OpaqueDraw3D.vsm");
+
+        string source = ReadSourceText(programPath);
+        string beforeBatchLoop = ExtractSourceRange(
+            source,
+            "__ps2_opaque_draw_3d:",
+            "__ps2_opaque_draw_3d_build_batch_loop:");
+        string batchLoop = ExtractSourceRange(
+            source,
+            "__ps2_opaque_draw_3d_build_batch_loop:",
+            "         NOP                                                        ibne VI05, VI00, __ps2_opaque_draw_3d_build_batch_loop");
+
+        Assert.Contains("NOP                                                        ilw.z VI10, 0(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        ilw.w VI06, 0(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        iadd VI10, VI02, VI10", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF04, 0(VI10)", beforeBatchLoop, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF08, 4(VI10)", beforeBatchLoop, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF01, 0(VI09)", batchLoop, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF02, 1(VI09)", batchLoop, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF03, 2(VI09)", batchLoop, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        iaddiu VI09, VI09, 0x00000004", batchLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("lq VF04, 52(VI09)", batchLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("iaddiu VI09, VI09, 0x0000003a", batchLoop, StringComparison.Ordinal);
     }
 
     /// <summary>
