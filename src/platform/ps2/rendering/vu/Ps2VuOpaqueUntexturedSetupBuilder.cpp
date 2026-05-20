@@ -271,6 +271,7 @@ namespace helengine::ps2 {
                     std::memcpy(triangleSetup.ViewMatrix, viewMatrixWords, sizeof(viewMatrixWords));
                     std::memcpy(triangleSetup.ProjectionMatrix, projectionMatrixWords, sizeof(projectionMatrixWords));
                     std::memcpy(triangleSetup.Viewport, viewportWords, sizeof(viewportWords));
+                    std::memcpy(triangleSetup.LightDirection, lightDirectionWords, sizeof(lightDirectionWords));
                     std::memcpy(triangleSetup.LightConstants, lightConstantsWords, sizeof(lightConstantsWords));
                 }
                 triangleSetup.SourceTriangle.PositionA[0] = packedPositionA.X;
@@ -289,7 +290,6 @@ namespace helengine::ps2 {
                 triangleSetup.FaceNormal[1] = worldFaceNormal.Y;
                 triangleSetup.FaceNormal[2] = worldFaceNormal.Z;
                 triangleSetup.FaceNormal[3] = 0.0f;
-                std::memcpy(triangleSetup.LightDirection, lightDirectionWords, sizeof(lightDirectionWords));
                 std::memcpy(triangleSetup.WorldViewProjectionMatrix, worldViewProjectionMatrixWords, sizeof(worldViewProjectionMatrixWords));
                 std::memcpy(triangleSetup.GsScale, gsScaleWords, sizeof(gsScaleWords));
                 std::memcpy(triangleSetup.GsOffset, gsOffsetWords, sizeof(gsOffsetWords));

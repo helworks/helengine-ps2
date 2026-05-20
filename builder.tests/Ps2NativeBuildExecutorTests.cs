@@ -421,6 +421,45 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that the batched untextured VU path uses the batch light direction directly instead of copying it through every triangle setup record.
+    /// </summary>
+    [Fact]
+    public void Ps2VuOpaqueUntexturedSetupBuilder_WhenBuildingCompactTriangleSetups_ShouldAvoidPerTriangleLightDirectionCopies() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string setupBuilderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuOpaqueUntexturedSetupBuilder.cpp");
+        string packetBuilderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string setupSource = ReadSourceText(setupBuilderPath);
+        string packetSource = ReadSourceText(packetBuilderPath);
+        string triangleLoop = ExtractSourceRange(
+            setupSource,
+            "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
+            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+        string compactPacketBranch = ExtractSourceRange(
+            packetSource,
+            "if (!EnableVuSingleTriangleDispatchFallback) {",
+            "            } else {");
+
+        Assert.Contains("std::memcpy(triangleSetup.LightDirection, lightDirectionWords, sizeof(lightDirectionWords));", ExtractSourceRange(triangleLoop, "if (includeFallbackPayload) {", "                }"), StringComparison.Ordinal);
+        Assert.Contains("const ::float3 lightDirection = normalizedLightDirection;", compactPacketBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("triangleSetup.LightDirection[0]", compactPacketBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that untextured VU packet encoding reuses resolved GIF templates instead of rebuilding duplicate templates per triangle.
     /// </summary>
     [Fact]

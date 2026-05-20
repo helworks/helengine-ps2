@@ -1230,10 +1230,7 @@ namespace helengine::ps2 {
                             triangleSetup.FaceNormal[0],
                             triangleSetup.FaceNormal[1],
                             triangleSetup.FaceNormal[2]);
-                        const ::float3 lightDirection(
-                            triangleSetup.LightDirection[0],
-                            triangleSetup.LightDirection[1],
-                            triangleSetup.LightDirection[2]);
+                        const ::float3 lightDirection = normalizedLightDirection;
                         PopulateTriangleGifPacketTemplateFromCache(
                             batch,
                             faceNormal,
