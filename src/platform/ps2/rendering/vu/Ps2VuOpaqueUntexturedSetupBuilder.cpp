@@ -12,6 +12,7 @@
 namespace helengine::ps2 {
     namespace {
         constexpr bool EnableVuSingleTrianglePayloadDiagnostics = false;
+        constexpr bool EnableVuTrianglePhaseTiming = false;
         constexpr float LightingAmbientBias = 0.25f;
         constexpr float LightingDiffuseScale = 0.75f;
         constexpr float LightingPaletteScale = 15.0f;
@@ -216,7 +217,10 @@ namespace helengine::ps2 {
             ::float3 cachedWorldFaceNormal = ::float3::get_Zero();
 
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
-                const std::clock_t trianglePrepStartTicks = std::clock();
+                std::clock_t trianglePrepStartTicks = 0;
+                if constexpr (EnableVuTrianglePhaseTiming) {
+                    trianglePrepStartTicks = std::clock();
+                }
                 const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
                 const std::size_t positionWordIndexB = static_cast<std::size_t>(vertexIndex + 1u) * 4u;
                 const std::size_t positionWordIndexC = static_cast<std::size_t>(vertexIndex + 2u) * 4u;
@@ -261,10 +265,15 @@ namespace helengine::ps2 {
                     hasCachedFaceNormal = true;
                 }
                 const ::float3 worldFaceNormal = cachedWorldFaceNormal;
-                const std::clock_t trianglePrepEndTicks = std::clock();
-                LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
+                if constexpr (EnableVuTrianglePhaseTiming) {
+                    const std::clock_t trianglePrepEndTicks = std::clock();
+                    LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
+                }
 
-                const std::clock_t triangleEmitStartTicks = std::clock();
+                std::clock_t triangleEmitStartTicks = 0;
+                if constexpr (EnableVuTrianglePhaseTiming) {
+                    triangleEmitStartTicks = std::clock();
+                }
                 const bool shouldWriteBatchConstants = includeFallbackPayload || TriangleSetups.empty();
                 Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup = TriangleSetups.emplace_back();
                 if (includeFallbackPayload) {
@@ -312,8 +321,10 @@ namespace helengine::ps2 {
                         SubmittedTriangleVertexB2 = ::float4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
                     }
                 }
-                const std::clock_t triangleEmitEndTicks = std::clock();
-                LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
+                if constexpr (EnableVuTrianglePhaseTiming) {
+                    const std::clock_t triangleEmitEndTicks = std::clock();
+                    LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
+                }
             }
         }
 

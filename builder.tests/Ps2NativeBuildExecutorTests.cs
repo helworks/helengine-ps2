@@ -501,6 +501,33 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that optional per-triangle setup phase timing is compiled out of the normal compact VU hot path.
+    /// </summary>
+    [Fact]
+    public void Ps2VuOpaqueUntexturedSetupBuilder_WhenBuildingCompactTriangleSetups_ShouldGatePerTriangleTiming() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string setupBuilderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuOpaqueUntexturedSetupBuilder.cpp");
+
+        string setupSource = ReadSourceText(setupBuilderPath);
+        string triangleLoop = ExtractSourceRange(
+            setupSource,
+            "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
+            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+
+        Assert.Contains("constexpr bool EnableVuTrianglePhaseTiming = false;", setupSource, StringComparison.Ordinal);
+        Assert.Contains("if constexpr (EnableVuTrianglePhaseTiming) {", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("const std::clock_t trianglePrepStartTicks = std::clock();", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("const std::clock_t triangleEmitStartTicks = std::clock();", triangleLoop, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that batched untextured VU packet assembly writes templates and triangle inputs directly into packet memory.
     /// </summary>
     [Fact]
@@ -1738,6 +1765,11 @@ FileStream::FileStream(const char* path, FileMode mode)
     /// </summary>
     /// <returns>Absolute repository root path.</returns>
     static string ResolveRepositoryRoot() {
+        string environmentRepositoryRoot = Environment.GetEnvironmentVariable("HELENGINE_PS2_REPOSITORY_ROOT") ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(environmentRepositoryRoot)) {
+            return Path.GetFullPath(environmentRepositoryRoot);
+        }
+
         return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
     }
 
