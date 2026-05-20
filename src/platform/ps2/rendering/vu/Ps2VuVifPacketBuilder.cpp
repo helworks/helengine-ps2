@@ -111,6 +111,13 @@ namespace helengine::ps2 {
             float GsOffset[4];
         };
 
+        struct alignas(16) Ps2VuUntexturedBatchHeader final {
+            std::uint32_t TriangleCount;
+            std::uint32_t OutputGifQwordOffset;
+            std::uint32_t PayloadQwordOffset;
+            std::uint32_t Reserved;
+        };
+
         struct Ps2VuTexturedClipVertex final {
             ::float3 ViewPosition = ::float3::get_Zero();
             ::float2 TexCoord = ::float2(0.0f, 0.0f);
@@ -141,6 +148,10 @@ namespace helengine::ps2 {
 
         static_assert((sizeof(Ps2VuLitTrianglePayload) % 16u) == 0u);
         constexpr std::size_t LitTrianglePayloadQwordCount = sizeof(Ps2VuLitTrianglePayload) / 16u;
+        constexpr std::uint32_t UntexturedBatchHeaderQwordCount = 1u;
+        constexpr std::uint32_t UntexturedBatchOutputGifQwordCount = MaxUntexturedBatchTriangleCount * TriangleGifPacketTemplateQwordCount;
+        constexpr std::uint32_t UntexturedBatchPayloadQwordOffset = UntexturedBatchHeaderQwordCount + UntexturedBatchOutputGifQwordCount;
+        constexpr std::uint32_t UntexturedBatchUploadQwordCount = UntexturedBatchPayloadQwordOffset + (MaxUntexturedBatchTriangleCount * static_cast<std::uint32_t>(LitTrianglePayloadQwordCount));
         static_assert((offsetof(Ps2VuLitTrianglePayload, LightingPalette) / 16u) == 0u);
         static_assert((offsetof(Ps2VuLitTrianglePayload, GifPacketTemplate) / 16u) == LitTriangleGifPacketQwordOffset);
         static_assert((offsetof(Ps2VuLitTrianglePayload, WorldMatrix) / 16u) == LitTriangleWorldMatrixQwordOffset);
@@ -1088,11 +1099,16 @@ namespace helengine::ps2 {
                 emittedTriangleCount = static_cast<std::uint32_t>(untexturedTriangleCount);
             }
         }
+        const std::uint32_t untexturedBatchCount = (!textured && !EnableVuFixedTriangleDiagnostics && !EnableVuSingleTriangleDispatchFallback && emittedTriangleCount > 0u)
+            ? (emittedTriangleCount / MaxUntexturedBatchTriangleCount)
+            : 0u;
         std::uint32_t maxPacketQwordCount = std::max<std::uint32_t>(
             1024u,
             textured
                 ? MinimumVifPacketOverheadQwords + (emittedTriangleCount * 24u)
-                : MinimumVifPacketOverheadQwords + (emittedTriangleCount * static_cast<std::uint32_t>(LitTrianglePayloadQwordCount + 8u)));
+                : untexturedBatchCount > 0u
+                    ? MinimumVifPacketOverheadQwords + (untexturedBatchCount * (UntexturedBatchUploadQwordCount + 8u))
+                    : MinimumVifPacketOverheadQwords + (emittedTriangleCount * static_cast<std::uint32_t>(LitTrianglePayloadQwordCount + 8u)));
         if (maxPacketQwordCount > 0xFFFFu) {
             throw std::runtime_error("PS2 VU packet exceeds packet2 qword capacity.");
         }
@@ -1151,12 +1167,27 @@ namespace helengine::ps2 {
         } else {
             if (!EnableVuSingleTriangleDispatchFallback) {
                 for (std::size_t triangleIndex = 0u; triangleIndex < untexturedTriangleSetups->size(); triangleIndex += MaxUntexturedBatchTriangleCount) {
-                    packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
+                    std::array<Ps2VuLitTrianglePayload, MaxUntexturedBatchTriangleCount> batchPayloads {};
                     for (std::size_t batchTriangleIndex = 0u; batchTriangleIndex < MaxUntexturedBatchTriangleCount; batchTriangleIndex++) {
                         const std::size_t sourceTriangleIndex = std::min(triangleIndex + batchTriangleIndex, untexturedTriangleSetups->size() - 1u);
                         const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup = (*untexturedTriangleSetups)[sourceTriangleIndex];
-                        Ps2VuLitTrianglePayload* trianglePayload = reinterpret_cast<Ps2VuLitTrianglePayload*>(packet.get()->next);
-                        PopulateTrianglePayloadFromSetup(batch, triangleSetup, gsGlobal, gifTemplateCache, *trianglePayload);
+                        PopulateTrianglePayloadFromSetup(batch, triangleSetup, gsGlobal, gifTemplateCache, batchPayloads[batchTriangleIndex]);
+                    }
+
+                    packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
+                    Ps2VuUntexturedBatchHeader* batchHeader = reinterpret_cast<Ps2VuUntexturedBatchHeader*>(packet.get()->next);
+                    batchHeader->TriangleCount = MaxUntexturedBatchTriangleCount;
+                    batchHeader->OutputGifQwordOffset = UntexturedBatchHeaderQwordCount;
+                    batchHeader->PayloadQwordOffset = UntexturedBatchPayloadQwordOffset;
+                    batchHeader->Reserved = 0u;
+                    packet2_advance_next(packet.get(), sizeof(Ps2VuUntexturedBatchHeader));
+                    for (std::size_t batchTriangleIndex = 0u; batchTriangleIndex < MaxUntexturedBatchTriangleCount; batchTriangleIndex++) {
+                        const Ps2VuLitTrianglePayload& trianglePayload = batchPayloads[batchTriangleIndex];
+                        std::memcpy(packet.get()->next, trianglePayload.GifPacketTemplate, TriangleGifPacketTemplateByteCount);
+                        packet2_advance_next(packet.get(), TriangleGifPacketTemplateByteCount);
+                    }
+                    for (const Ps2VuLitTrianglePayload& trianglePayload : batchPayloads) {
+                        std::memcpy(packet.get()->next, &trianglePayload, sizeof(Ps2VuLitTrianglePayload));
                         packet2_advance_next(packet.get(), sizeof(Ps2VuLitTrianglePayload));
                     }
                     packet2_utils_vu_close_unpack(packet.get());

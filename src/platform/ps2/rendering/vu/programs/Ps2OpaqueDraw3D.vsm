@@ -4,12 +4,11 @@
 ; - read three source positions
 ; - transform them with the precomputed WVP matrix
 ; - convert them to GS XYZ2 values
-; - patch the existing helper-generated packet
-; - xgkick
+; - patch one contiguous helper-generated GIF stream
+; - kick once per batch
 ; Non-goals:
 ; - no VU lighting
 ; - no VU culling
-; - no runtime batch header
 
 		.vu
 		.align 4
@@ -18,18 +17,22 @@
 Ps2OpaqueDraw3D_CodeStart:
 __ps2_opaque_draw_3d:
          NOP                                                        xtop VI02
-         NOP                                                        iaddiu VI05, VI00, 0x0000000c
-__ps2_opaque_draw_3d_batch_loop:
-         NOP                                                        iaddiu VI03, VI02, 0x00000010
-         NOP                                                        lq VF04, 52(VI02)
-         NOP                                                        lq VF05, 53(VI02)
-         NOP                                                        lq VF06, 54(VI02)
-         NOP                                                        lq VF07, 55(VI02)
-         NOP                                                        lq VF08, 56(VI02)
-         NOP                                                        lq VF09, 57(VI02)
-         NOP                                                        lq VF01, 40(VI02)
-         NOP                                                        lq VF02, 41(VI02)
-         NOP                                                        lq VF03, 42(VI02)
+         NOP                                                        ilw.x VI05, 0(VI02)
+         NOP                                                        ilw.y VI03, 0(VI02)
+         NOP                                                        ilw.z VI06, 0(VI02)
+         NOP                                                        iadd VI07, VI02, VI03
+         NOP                                                        iadd VI08, VI07, VI00
+         NOP                                                        iadd VI09, VI02, VI06
+__ps2_opaque_draw_3d_build_batch_loop:
+         NOP                                                        lq VF04, 52(VI09)
+         NOP                                                        lq VF05, 53(VI09)
+         NOP                                                        lq VF06, 54(VI09)
+         NOP                                                        lq VF07, 55(VI09)
+         NOP                                                        lq VF08, 56(VI09)
+         NOP                                                        lq VF09, 57(VI09)
+         NOP                                                        lq VF01, 40(VI09)
+         NOP                                                        lq VF02, 41(VI09)
+         NOP                                                        lq VF03, 42(VI09)
          mulax         ACC,VF04,VF01x                               NOP
          madday        ACC,VF05,VF01y                               NOP
          maddaz        ACC,VF06,VF01z                               NOP
@@ -61,17 +64,18 @@ __ps2_opaque_draw_3d_batch_loop:
          ftoi4.xy      VF03, VF03                                   NOP
          ftoi0.z       VF03, VF03                                   NOP
          NOP                                                        iaddiu VI04, VI00, 0x00000000
-         NOP                                                        isw.w VI04, 22(VI02)
-         NOP                                                        isw.w VI04, 24(VI02)
-         NOP                                                        isw.w VI04, 26(VI02)
-         NOP                                                        sq.xyz VF01, 22(VI02)
-         NOP                                                        sq.xyz VF03, 24(VI02)
-         NOP                                                        sq.xyz VF02, 26(VI02)
-         NOP                                                        xgkick VI03
-         NOP                                                        iaddiu VI02, VI02, 0x0000003a
+         NOP                                                        isw.w VI04, 6(VI08)
+         NOP                                                        isw.w VI04, 8(VI08)
+         NOP                                                        isw.w VI04, 10(VI08)
+         NOP                                                        sq.xyz VF01, 6(VI08)
+         NOP                                                        sq.xyz VF03, 8(VI08)
+         NOP                                                        sq.xyz VF02, 10(VI08)
+         NOP                                                        iaddiu VI08, VI08, 0x0000000b
+         NOP                                                        iaddiu VI09, VI09, 0x0000003a
          NOP                                                        iaddiu VI05, VI05, -1
-         NOP                                                        ibne VI05, VI00, __ps2_opaque_draw_3d_batch_loop
+         NOP                                                        ibne VI05, VI00, __ps2_opaque_draw_3d_build_batch_loop
          NOP                                                        NOP
+         NOP                                                        xgkick VI07
          NOP[E]                                                     NOP
          NOP                                                        NOP
 		.align 4
