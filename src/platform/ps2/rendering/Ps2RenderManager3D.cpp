@@ -604,6 +604,7 @@ namespace helengine::ps2 {
         LastSubmittedTriangleVertexB0 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastSubmittedTriangleVertexB1 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastSubmittedTriangleVertexB2 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        PublishPerformanceOverlayMetrics();
 
         if (GsGlobal == nullptr) {
             return;
@@ -668,6 +669,7 @@ namespace helengine::ps2 {
                 }
 
                 DrawHdrGlowPass(GsGlobal);
+                PublishPerformanceOverlayMetrics();
                 return;
             }
 
@@ -685,6 +687,7 @@ namespace helengine::ps2 {
                 }
             } else {
                 RenderOpaqueWithVuPath(plan, view, projection, viewport, camera->get_NearPlaneDistance());
+                PublishPerformanceOverlayMetrics();
             }
 
             for (const Ps2RenderProxy* proxy : plan.AlphaWorld) {
@@ -700,6 +703,7 @@ namespace helengine::ps2 {
             }
 
             DrawHdrGlowPass(GsGlobal);
+            PublishPerformanceOverlayMetrics();
             return;
         }
 
@@ -712,6 +716,24 @@ namespace helengine::ps2 {
             cameraPosition,
             cameraForward);
         DrawHdrGlowPass(GsGlobal);
+        PublishPerformanceOverlayMetrics();
+    }
+
+    void Ps2RenderManager3D::PublishPerformanceOverlayMetrics() const {
+        if (::Core::get_Instance() == nullptr) {
+            return;
+        }
+
+        ::Core::get_Instance()->SetPerformanceOverlayMetrics(
+            true,
+            LastVuTriangleSetupMilliseconds,
+            LastVuTrianglePrepMilliseconds,
+            LastVuTriangleEmitMilliseconds,
+            LastVuPacketEncodeMilliseconds,
+            LastVuSubmitMilliseconds,
+            LastVuWaitMilliseconds,
+            static_cast<int>(LastSubmittedTriangleCount),
+            static_cast<int>(LastVuBatchDispatchCount));
     }
 
     void Ps2RenderManager3D::RenderOpaqueWithVuPath(const Ps2FramePlan& plan, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {
@@ -751,7 +773,6 @@ namespace helengine::ps2 {
                 GsGlobal,
                 0,
                 0);
-            (void)VuProgramRegistry.ResolveOpaqueProgram(batch);
             packet2_t* packet = VuVifPacketBuilder.GetPacket();
             const std::clock_t vuPacketEncodeEndTicks = std::clock();
             LastVuPacketEncodeMilliseconds += ResolveMillisecondsFromClockTicks(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);
@@ -850,7 +871,6 @@ namespace helengine::ps2 {
                 const std::clock_t vuSubmitStartTicks = std::clock();
                 dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);
                 LastVuPacketPhase = 202;
-                dma_channel_wait(DMA_CHANNEL_VIF1, 0);
                 const std::clock_t vuSubmitEndTicks = std::clock();
                 LastVuSubmitMilliseconds += ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);
                 LastVuPacketPhase = 203;

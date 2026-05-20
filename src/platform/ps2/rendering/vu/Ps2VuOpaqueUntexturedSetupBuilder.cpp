@@ -183,6 +183,35 @@ namespace helengine::ps2 {
             const std::vector<::float3>* runtimeNormals = runtimeModel != nullptr ? &runtimeModel->GetNormals() : nullptr;
             const float* packedPositionWords = reinterpret_cast<const float*>(batch.Model->GetPositionBlockBytes());
             const float* packedNormalWords = reinterpret_cast<const float*>(batch.Model->GetNormalBlockBytes());
+            TriangleSetups.reserve(triangleVertexCount / 3u);
+
+            ::float4x4 worldCopy = world;
+            ::float4x4 viewCopy = view;
+            ::float4x4 projectionCopy = projection;
+            ::float4x4 worldViewMatrix;
+            ::float4x4 worldViewProjectionMatrix;
+            ::float4x4::Multiply(worldCopy, viewCopy, worldViewMatrix);
+            ::float4x4::Multiply(worldViewMatrix, projectionCopy, worldViewProjectionMatrix);
+
+            float worldMatrixWords[16];
+            float viewMatrixWords[16];
+            float projectionMatrixWords[16];
+            float worldViewProjectionMatrixWords[16];
+            float viewportWords[4] = { viewport.X, viewport.Y, viewport.Z, viewport.W };
+            float lightDirectionWords[4] = { normalizedLightDirection.X, normalizedLightDirection.Y, normalizedLightDirection.Z, 0.0f };
+            float lightConstantsWords[4] = { LightingDiffuseScale, LightingAmbientBias, LightingPaletteScale, 0.0f };
+            float gsScaleWords[4] = { viewport.Z * 0.5f, viewport.W * -0.5f, -4194304.0f, 0.0f };
+            float gsOffsetWords[4] = {
+                2048.0f + viewport.X + (viewport.Z * 0.5f),
+                2048.0f + viewport.Y + (viewport.W * 0.5f),
+                4194304.0f,
+                0.0f
+            };
+            CopyMatrix(world, worldMatrixWords);
+            CopyMatrix(view, viewMatrixWords);
+            CopyMatrix(projection, projectionMatrixWords);
+            CopyMatrix(worldViewProjectionMatrix, worldViewProjectionMatrixWords);
+
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
                 const std::clock_t trianglePrepStartTicks = std::clock();
                 const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
@@ -252,21 +281,11 @@ namespace helengine::ps2 {
                 LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
 
                 const std::clock_t triangleEmitStartTicks = std::clock();
-                ::float4x4 worldCopy = world;
-                ::float4x4 viewCopy = view;
-                ::float4x4 projectionCopy = projection;
-                ::float4x4 worldViewMatrix;
-                ::float4x4 worldViewProjectionMatrix;
-                ::float4x4::Multiply(worldCopy, viewCopy, worldViewMatrix);
-                ::float4x4::Multiply(worldViewMatrix, projectionCopy, worldViewProjectionMatrix);
                 Ps2VuOpaqueUntexturedTriangleSetup triangleSetup {};
-                CopyMatrix(world, triangleSetup.WorldMatrix);
-                CopyMatrix(view, triangleSetup.ViewMatrix);
-                CopyMatrix(projection, triangleSetup.ProjectionMatrix);
-                triangleSetup.Viewport[0] = viewport.X;
-                triangleSetup.Viewport[1] = viewport.Y;
-                triangleSetup.Viewport[2] = viewport.Z;
-                triangleSetup.Viewport[3] = viewport.W;
+                std::memcpy(triangleSetup.WorldMatrix, worldMatrixWords, sizeof(worldMatrixWords));
+                std::memcpy(triangleSetup.ViewMatrix, viewMatrixWords, sizeof(viewMatrixWords));
+                std::memcpy(triangleSetup.ProjectionMatrix, projectionMatrixWords, sizeof(projectionMatrixWords));
+                std::memcpy(triangleSetup.Viewport, viewportWords, sizeof(viewportWords));
                 triangleSetup.SourceTriangle.PositionA[0] = packedPositionA.X;
                 triangleSetup.SourceTriangle.PositionA[1] = packedPositionA.Y;
                 triangleSetup.SourceTriangle.PositionA[2] = packedPositionA.Z;
@@ -295,23 +314,11 @@ namespace helengine::ps2 {
                 triangleSetup.FaceNormal[1] = worldFaceNormal.Y;
                 triangleSetup.FaceNormal[2] = worldFaceNormal.Z;
                 triangleSetup.FaceNormal[3] = 0.0f;
-                triangleSetup.LightDirection[0] = normalizedLightDirection.X;
-                triangleSetup.LightDirection[1] = normalizedLightDirection.Y;
-                triangleSetup.LightDirection[2] = normalizedLightDirection.Z;
-                triangleSetup.LightDirection[3] = 0.0f;
-                triangleSetup.LightConstants[0] = LightingDiffuseScale;
-                triangleSetup.LightConstants[1] = LightingAmbientBias;
-                triangleSetup.LightConstants[2] = LightingPaletteScale;
-                triangleSetup.LightConstants[3] = 0.0f;
-                CopyMatrix(worldViewProjectionMatrix, triangleSetup.WorldViewProjectionMatrix);
-                triangleSetup.GsScale[0] = viewport.Z * 0.5f;
-                triangleSetup.GsScale[1] = viewport.W * -0.5f;
-                triangleSetup.GsScale[2] = -4194304.0f;
-                triangleSetup.GsScale[3] = 0.0f;
-                triangleSetup.GsOffset[0] = 2048.0f + viewport.X + (viewport.Z * 0.5f);
-                triangleSetup.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
-                triangleSetup.GsOffset[2] = 4194304.0f;
-                triangleSetup.GsOffset[3] = 0.0f;
+                std::memcpy(triangleSetup.LightDirection, lightDirectionWords, sizeof(lightDirectionWords));
+                std::memcpy(triangleSetup.LightConstants, lightConstantsWords, sizeof(lightConstantsWords));
+                std::memcpy(triangleSetup.WorldViewProjectionMatrix, worldViewProjectionMatrixWords, sizeof(worldViewProjectionMatrixWords));
+                std::memcpy(triangleSetup.GsScale, gsScaleWords, sizeof(gsScaleWords));
+                std::memcpy(triangleSetup.GsOffset, gsOffsetWords, sizeof(gsOffsetWords));
                 TriangleSetups.push_back(triangleSetup);
                 SubmittedTriangleCount++;
                 if (SubmittedTriangleCount == 1u) {

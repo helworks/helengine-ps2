@@ -170,6 +170,338 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that the PS2 renderer publishes its VU counters into the core-owned FPS overlay metrics used by the visible runtime HUD.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenDrawingVuPath_ShouldPublishCorePerformanceOverlayMetrics() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string rendererSourcePath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "Ps2RenderManager3D.cpp");
+        string rendererHeaderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "Ps2RenderManager3D.hpp");
+
+        string source = File.ReadAllText(rendererSourcePath);
+        string header = File.ReadAllText(rendererHeaderPath);
+
+        Assert.Contains("void PublishPerformanceOverlayMetrics() const;", header, StringComparison.Ordinal);
+        Assert.Contains("void Ps2RenderManager3D::PublishPerformanceOverlayMetrics() const", source, StringComparison.Ordinal);
+        Assert.Contains("Core::get_Instance()->SetPerformanceOverlayMetrics(", source, StringComparison.Ordinal);
+        Assert.Contains("static_cast<int>(LastSubmittedTriangleCount)", source, StringComparison.Ordinal);
+        Assert.Contains("static_cast<int>(LastVuBatchDispatchCount)", source, StringComparison.Ordinal);
+        Assert.Contains("PublishPerformanceOverlayMetrics();\n            return;", source, StringComparison.Ordinal);
+        Assert.Contains("RenderOpaqueWithVuPath(plan, view, projection, viewport, camera->get_NearPlaneDistance());\n                PublishPerformanceOverlayMetrics();", source, StringComparison.Ordinal);
+        Assert.Contains("DrawSoftwareDepthPass(\n            plan,\n            view,\n            projection,\n            viewport,\n            camera->get_NearPlaneDistance(),\n            cameraPosition,\n            cameraForward);\n        DrawHdrGlowPass(GsGlobal);\n        PublishPerformanceOverlayMetrics();", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the untextured VU setup builder does not rebuild per-batch payload constants for every triangle.
+    /// </summary>
+    [Fact]
+    public void Ps2VuOpaqueUntexturedSetupBuilder_WhenBuildingTriangleSetups_ShouldHoistInvariantPayloadState() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuOpaqueUntexturedSetupBuilder.cpp");
+
+        string source = File.ReadAllText(builderPath);
+        string runtimeBranch = ExtractSourceRange(
+            source,
+            "const Ps2RuntimeModel* runtimeModel = batch.Proxy != nullptr ? batch.Proxy->GetModel() : nullptr;",
+            "const std::clock_t triangleSetupEndTicks = std::clock();");
+        string triangleLoop = ExtractSourceRange(
+            runtimeBranch,
+            "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
+            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+
+        Assert.Contains("TriangleSetups.reserve(triangleVertexCount / 3u);", runtimeBranch, StringComparison.Ordinal);
+        Assert.Contains("::float4x4::Multiply(worldCopy, viewCopy, worldViewMatrix);", runtimeBranch, StringComparison.Ordinal);
+        Assert.Contains("::float4x4::Multiply(worldViewMatrix, projectionCopy, worldViewProjectionMatrix);", runtimeBranch, StringComparison.Ordinal);
+        Assert.Contains("CopyMatrix(worldViewProjectionMatrix, worldViewProjectionMatrixWords);", runtimeBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("::float4x4::Multiply(", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("CopyMatrix(world, triangleSetup.WorldMatrix);", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("triangleSetup.GsScale[0] = viewport.Z * 0.5f;", triangleLoop, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that untextured VU packet encoding reuses resolved GIF templates instead of rebuilding duplicate templates per triangle.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingUntexturedTriangles_ShouldReuseGifTemplatesByFlatColor() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string source = File.ReadAllText(builderPath);
+        string untexturedSetupBranch = ExtractSourceRange(
+            source,
+            "setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal);",
+            "} else {");
+        string packetLoop = ExtractSourceRange(
+            source,
+            "for (const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup : *untexturedTriangleSetups) {",
+            "                if (EnableVuSingleDispatchDiagnostic) {");
+
+        Assert.Contains("struct Ps2VuGifTemplateCacheEntry final", source, StringComparison.Ordinal);
+        Assert.Contains("std::vector<Ps2VuGifTemplateCacheEntry> gifTemplateCache;", source, StringComparison.Ordinal);
+        Assert.Contains("gifTemplateCache.reserve(untexturedTriangleSetups->size());", untexturedSetupBranch, StringComparison.Ordinal);
+        Assert.Contains("PopulateTrianglePayloadFromSetup(batch, triangleSetup, gsGlobal, gifTemplateCache, *trianglePayload);", packetLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("PopulateTriangleGifPacketTemplate(batch, flatColor, gsGlobal, *trianglePayload);", packetLoop, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that untextured VU packet encoding constructs large triangle payloads in vector storage instead of copying stack payloads into the staging vector.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingUntexturedTriangles_ShouldConstructPayloadsInPlace() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string source = File.ReadAllText(builderPath);
+        string untexturedSetupBranch = ExtractSourceRange(
+            source,
+            "setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal);",
+            "} else {");
+        string packetLoop = ExtractSourceRange(
+            source,
+            "for (const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup : *untexturedTriangleSetups) {",
+            "                if (EnableVuSingleDispatchDiagnostic) {");
+
+        Assert.DoesNotContain("trianglePayloads.emplace_back();", untexturedSetupBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2VuLitTrianglePayload& payload = trianglePayloads.back();", untexturedSetupBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2VuLitTrianglePayload payload {};", untexturedSetupBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("trianglePayloads.push_back(payload);", untexturedSetupBranch, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuLitTrianglePayload* trianglePayload = reinterpret_cast<Ps2VuLitTrianglePayload*>(packet.get()->next);", packetLoop, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the normal untextured VU path streams payloads directly into the final VIF packet instead of staging a second payload vector.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingUntexturedTriangles_ShouldStreamPayloadsIntoPacketMemory() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string source = File.ReadAllText(builderPath);
+        string untexturedSetupBranch = ExtractSourceRange(
+            source,
+            "setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal);",
+            "} else {");
+
+        Assert.Contains("const std::vector<Ps2VuOpaqueUntexturedTriangleSetup>* untexturedTriangleSetups = nullptr;", source, StringComparison.Ordinal);
+        Assert.Contains("untexturedTriangleSetups = &setupBuilder.GetTriangleSetups();", untexturedSetupBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("trianglePayloads.emplace_back();", untexturedSetupBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("PopulateTrianglePayloadFromSetup(", untexturedSetupBranch, StringComparison.Ordinal);
+        Assert.Contains("for (const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup : *untexturedTriangleSetups) {", source, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuLitTrianglePayload* trianglePayload = reinterpret_cast<Ps2VuLitTrianglePayload*>(packet.get()->next);", source, StringComparison.Ordinal);
+        Assert.Contains("PopulateTrianglePayloadFromSetup(batch, triangleSetup, gsGlobal, gifTemplateCache, *trianglePayload);", source, StringComparison.Ordinal);
+        Assert.Contains("} else if (EnableVuFixedTriangleDiagnostics) {\n            for (const Ps2VuLitTrianglePayload& trianglePayload : trianglePayloads) {", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that untextured VU GIF-template caching happens before flat-color lighting resolution so duplicate cube face triangles avoid repeated lighting work.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingUntexturedTriangles_ShouldCacheTemplatesByLightingInputs() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string source = File.ReadAllText(builderPath);
+        string payloadFromSetup = ExtractSourceRange(
+            source,
+            "void PopulateTrianglePayloadFromSetup(",
+            "            std::memcpy(payload.GsOffset, triangleSetup.GsOffset, sizeof(triangleSetup.GsOffset));\n        }");
+        string cacheHelper = ExtractSourceRange(
+            source,
+            "void PopulateTriangleGifPacketTemplateFromCache(",
+            "        }\n\n        void PopulateTrianglePayloadFromSetup(");
+
+        Assert.Contains("float FaceNormal[4];", source, StringComparison.Ordinal);
+        Assert.Contains("float LightDirection[4];", source, StringComparison.Ordinal);
+        Assert.Contains("AreLightingInputsEqual(entry, faceNormal, lightDirection)", cacheHelper, StringComparison.Ordinal);
+        Assert.Contains("ResolveTexturedVertexColor(*batch.Material, faceNormal, lightDirection)", cacheHelper, StringComparison.Ordinal);
+        Assert.DoesNotContain("ResolveTexturedVertexColor", payloadFromSetup, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the normal untextured VU path does not copy diagnostic GIF bytes when direct GIF diagnostics are disabled.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingNormalUntexturedPath_ShouldNotPopulateDiagnosticGifBytes() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string source = File.ReadAllText(builderPath);
+        string normalUntexturedPacketLoop = ExtractSourceRange(
+            source,
+            "for (const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup : *untexturedTriangleSetups) {",
+            "                if (EnableVuSingleDispatchDiagnostic) {");
+
+        Assert.DoesNotContain("GifPacketBytes.resize(TriangleGifPacketTemplateByteCount);", normalUntexturedPacketLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::memcpy(GifPacketBytes.data(), trianglePayload->GifPacketTemplate, TriangleGifPacketTemplateByteCount);", normalUntexturedPacketLoop, StringComparison.Ordinal);
+        Assert.Contains("const std::vector<std::uint8_t>& Ps2VuVifPacketBuilder::GetGifPacketBytes() const", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the normal untextured VU packet path batches payloads in fixed two-triangle diagnostic pairs without using the failed runtime header path.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingNormalUntexturedPath_ShouldDispatchPayloadPairsWithOneVuInvocation() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string source = File.ReadAllText(builderPath);
+        string normalUntexturedPacketBranch = ExtractSourceRange(
+            source,
+            "} else {\n            if (EnableVuTwoTriangleBatchDiagnostic) {",
+            "        }\n\n        LastCompletedPhase = 6;");
+
+        Assert.Contains("constexpr bool EnableVuTwoTriangleBatchDiagnostic = true;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::uint32_t VuDiagnosticBatchTriangleCount = 2u;", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("UntexturedBatchHeaderQwordCount", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("batchHeaderWords", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("for (std::size_t triangleIndex = 0u; triangleIndex < untexturedTriangleSetups->size(); triangleIndex += VuDiagnosticBatchTriangleCount) {", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("const Ps2VuOpaqueUntexturedTriangleSetup& firstTriangleSetup = (*untexturedTriangleSetups)[triangleIndex];", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("const Ps2VuOpaqueUntexturedTriangleSetup& secondTriangleSetup = (triangleIndex + 1u) < untexturedTriangleSetups->size()", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("PopulateTrianglePayloadFromSetup(batch, firstTriangleSetup, gsGlobal, gifTemplateCache, *firstTrianglePayload);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("PopulateTrianglePayloadFromSetup(batch, secondTriangleSetup, gsGlobal, gifTemplateCache, *secondTrianglePayload);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("packet2_vif_mscal(packet.get(), UntexturedMicroProgramAddress, 0);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the untextured VU microprogram consumes exactly two contiguous payloads without the failed runtime batch header.
+    /// </summary>
+    [Fact]
+    public void Ps2OpaqueDraw3DProgram_WhenUsingTwoTriangleDiagnosticBatch_ShouldConsumeTwoPayloads() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string programPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "programs",
+            "Ps2OpaqueDraw3D.vsm");
+
+        string source = File.ReadAllText(programPath);
+
+        Assert.Contains("NOP                                                        xtop VI02", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        iaddiu VI05, VI00, 0x00000002", source, StringComparison.Ordinal);
+        Assert.Contains("__ps2_opaque_draw_3d_triangle_pair_loop:", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        iaddiu VI03, VI02, 0x00000010", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        iaddiu VI02, VI02, 0x0000003a", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        iaddiu VI05, VI05, -1", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        ibne VI05, VI00, __ps2_opaque_draw_3d_triangle_pair_loop", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ilw.x VI05, 0(VI02)", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the timed VU packet encode window only builds the packet and does not include dead program-registry resolution.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenEncodingVuPacket_ShouldNotResolveUnusedProgramKindInsideTimedWindow() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string rendererPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "Ps2RenderManager3D.cpp");
+
+        string source = File.ReadAllText(rendererPath);
+        string timedEncodeWindow = ExtractSourceRange(
+            source,
+            "const std::clock_t vuPacketEncodeStartTicks = std::clock();",
+            "const std::clock_t vuPacketEncodeEndTicks = std::clock();");
+
+        Assert.Contains("VuVifPacketBuilder.AddOpaqueBatch(", timedEncodeWindow, StringComparison.Ordinal);
+        Assert.DoesNotContain("VuProgramRegistry.ResolveOpaqueProgram(batch)", timedEncodeWindow, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that VU submission does not immediately block on VIF1 completion after the packet is sent.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenSubmittingVuPacket_ShouldDeferVifCompletionWaitToNextFrame() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string rendererPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "Ps2RenderManager3D.cpp");
+
+        string source = File.ReadAllText(rendererPath);
+        string normalSubmitBranch = ExtractSourceRange(
+            source,
+            "} else {\n                LastVuPacketPhase = 201;",
+            "            }\n            (void)viewport;");
+
+        Assert.Contains("dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("dma_channel_wait(DMA_CHANNEL_VIF1, 0);", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.Contains("LastVuPacketPhase = 202;", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.Contains("LastVuSubmitMilliseconds += ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);", normalSubmitBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that the opaque untextured VU packet builder does not use CPU near-plane clipping or CPU front-face rejection in the untextured VU path.
     /// </summary>
     [Fact]
