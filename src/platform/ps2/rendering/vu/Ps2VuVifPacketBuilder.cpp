@@ -134,6 +134,11 @@ namespace helengine::ps2 {
             std::uint8_t GifPacketTemplate[TriangleGifPacketTemplateByteCount];
         };
 
+        struct Ps2VuGifTemplateCache final {
+            std::array<Ps2VuGifTemplateCacheEntry, MaxUntexturedBatchTriangleCount> Entries;
+            std::size_t Count = 0u;
+        };
+
         void PopulateTriangleGifPacketTemplate(
             const Ps2VuOpaqueBatch& batch,
             const Ps2VuFlatColor& flatColor,
@@ -192,14 +197,25 @@ namespace helengine::ps2 {
             std::memcpy(outputTemplate, entry.GifPacketTemplate, TriangleGifPacketTemplateByteCount);
         }
 
+        Ps2VuGifTemplateCacheEntry& AllocateGifTemplateCacheEntry(Ps2VuGifTemplateCache& gifTemplateCache) {
+            if (gifTemplateCache.Count >= gifTemplateCache.Entries.size()) {
+                gifTemplateCache.Count = 0u;
+            }
+
+            Ps2VuGifTemplateCacheEntry& entry = gifTemplateCache.Entries[gifTemplateCache.Count];
+            gifTemplateCache.Count++;
+            return entry;
+        }
+
         void PopulateTriangleGifPacketTemplateFromCache(
             const Ps2VuOpaqueBatch& batch,
             const ::float3& faceNormal,
             const ::float3& lightDirection,
             GSGLOBAL* gsGlobal,
-            std::vector<Ps2VuGifTemplateCacheEntry>& gifTemplateCache,
+            Ps2VuGifTemplateCache& gifTemplateCache,
             Ps2VuLitTrianglePayload& payload) {
-            for (const Ps2VuGifTemplateCacheEntry& entry : gifTemplateCache) {
+            for (std::size_t entryIndex = 0u; entryIndex < gifTemplateCache.Count; entryIndex++) {
+                const Ps2VuGifTemplateCacheEntry& entry = gifTemplateCache.Entries[entryIndex];
                 if (AreLightingInputsEqual(entry, faceNormal, lightDirection)) {
                     CopyGifTemplateCacheEntryToPayload(entry, payload);
                     return;
@@ -215,7 +231,7 @@ namespace helengine::ps2 {
             Ps2VuLitTrianglePayload templatePayload {};
             PopulateTriangleGifPacketTemplate(batch, flatColor, gsGlobal, templatePayload);
 
-            Ps2VuGifTemplateCacheEntry entry {};
+            Ps2VuGifTemplateCacheEntry& entry = AllocateGifTemplateCacheEntry(gifTemplateCache);
             entry.FlatColor = flatColor;
             entry.FaceNormal[0] = faceNormal.X;
             entry.FaceNormal[1] = faceNormal.Y;
@@ -227,8 +243,7 @@ namespace helengine::ps2 {
             entry.LightDirection[3] = 0.0f;
             std::memcpy(entry.LightingPalette, templatePayload.LightingPalette, sizeof(entry.LightingPalette));
             std::memcpy(entry.GifPacketTemplate, templatePayload.GifPacketTemplate, sizeof(entry.GifPacketTemplate));
-            gifTemplateCache.push_back(entry);
-            CopyGifTemplateCacheEntryToPayload(gifTemplateCache.back(), payload);
+            CopyGifTemplateCacheEntryToPayload(entry, payload);
         }
 
         void PopulateTriangleGifPacketTemplateFromCache(
@@ -236,9 +251,10 @@ namespace helengine::ps2 {
             const ::float3& faceNormal,
             const ::float3& lightDirection,
             GSGLOBAL* gsGlobal,
-            std::vector<Ps2VuGifTemplateCacheEntry>& gifTemplateCache,
+            Ps2VuGifTemplateCache& gifTemplateCache,
             std::uint8_t* outputTemplate) {
-            for (const Ps2VuGifTemplateCacheEntry& entry : gifTemplateCache) {
+            for (std::size_t entryIndex = 0u; entryIndex < gifTemplateCache.Count; entryIndex++) {
+                const Ps2VuGifTemplateCacheEntry& entry = gifTemplateCache.Entries[entryIndex];
                 if (AreLightingInputsEqual(entry, faceNormal, lightDirection)) {
                     CopyGifTemplateCacheEntryToTemplate(entry, outputTemplate);
                     return;
@@ -253,7 +269,7 @@ namespace helengine::ps2 {
             flatColor.Alpha = static_cast<std::uint8_t>((triangleColor >> 24u) & 0xFFu);
             PopulateTriangleGifPacketTemplateBytes(batch, flatColor, gsGlobal, outputTemplate);
 
-            Ps2VuGifTemplateCacheEntry entry {};
+            Ps2VuGifTemplateCacheEntry& entry = AllocateGifTemplateCacheEntry(gifTemplateCache);
             entry.FlatColor = flatColor;
             entry.FaceNormal[0] = faceNormal.X;
             entry.FaceNormal[1] = faceNormal.Y;
@@ -264,14 +280,13 @@ namespace helengine::ps2 {
             entry.LightDirection[2] = lightDirection.Z;
             entry.LightDirection[3] = 0.0f;
             std::memcpy(entry.GifPacketTemplate, outputTemplate, sizeof(entry.GifPacketTemplate));
-            gifTemplateCache.push_back(entry);
         }
 
         void PopulateTrianglePayloadFromSetup(
             const Ps2VuOpaqueBatch& batch,
             const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup,
             GSGLOBAL* gsGlobal,
-            std::vector<Ps2VuGifTemplateCacheEntry>& gifTemplateCache,
+            Ps2VuGifTemplateCache& gifTemplateCache,
             Ps2VuLitTrianglePayload& payload) {
             const ::float3 faceNormal(
                 triangleSetup.FaceNormal[0],
@@ -920,7 +935,7 @@ namespace helengine::ps2 {
         std::vector<std::vector<std::uint8_t>> texturedTrianglePackets;
         Ps2VuOpaqueUntexturedSetupBuilder setupBuilder;
         const std::vector<Ps2VuOpaqueUntexturedTriangleSetup>* untexturedTriangleSetups = nullptr;
-        std::vector<Ps2VuGifTemplateCacheEntry> gifTemplateCache;
+        Ps2VuGifTemplateCache gifTemplateCache {};
         const std::clock_t triangleSetupStartTicks = std::clock();
         if (EnableVuFixedTriangleDiagnostics) {
             trianglePayloads.reserve(1u);
@@ -967,7 +982,6 @@ namespace helengine::ps2 {
             SubmittedTriangleVertexB1 = setupBuilder.GetSubmittedTriangleVertexB1();
             SubmittedTriangleVertexB2 = setupBuilder.GetSubmittedTriangleVertexB2();
             untexturedTriangleSetups = &setupBuilder.GetTriangleSetups();
-            gifTemplateCache.reserve(untexturedTriangleSetups->size());
         } else {
             std::vector<Ps2VuTexturedClipVertex> clippedTexturedVertices;
             clippedTexturedVertices.reserve(4u);

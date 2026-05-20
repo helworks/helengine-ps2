@@ -533,7 +533,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         string packetSource = ReadSourceText(packetBuilderPath);
         string directTemplateCacheBuilder = ExtractSourceRange(
             packetSource,
-            "std::vector<Ps2VuGifTemplateCacheEntry>& gifTemplateCache,\n            std::uint8_t* outputTemplate) {",
+            "Ps2VuGifTemplateCache& gifTemplateCache,\n            std::uint8_t* outputTemplate) {",
             "        void PopulateTrianglePayloadFromSetup(");
 
         Assert.Contains("void PopulateTriangleGifPacketTemplateBytes(", packetSource, StringComparison.Ordinal);
@@ -568,8 +568,10 @@ public sealed class Ps2NativeBuildExecutorTests {
             "                if (EnableVuSingleDispatchDiagnostic) {");
 
         Assert.Contains("struct Ps2VuGifTemplateCacheEntry final", source, StringComparison.Ordinal);
-        Assert.Contains("std::vector<Ps2VuGifTemplateCacheEntry> gifTemplateCache;", source, StringComparison.Ordinal);
-        Assert.Contains("gifTemplateCache.reserve(untexturedTriangleSetups->size());", untexturedSetupBranch, StringComparison.Ordinal);
+        Assert.Contains("struct Ps2VuGifTemplateCache final", source, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuGifTemplateCache gifTemplateCache {};", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::vector<Ps2VuGifTemplateCacheEntry> gifTemplateCache;", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("gifTemplateCache.reserve(untexturedTriangleSetups->size());", untexturedSetupBranch, StringComparison.Ordinal);
         Assert.Contains("PopulateTrianglePayloadFromSetup(batch, triangleSetup, gsGlobal, gifTemplateCache, *trianglePayload);", packetLoop, StringComparison.Ordinal);
         Assert.DoesNotContain("PopulateTriangleGifPacketTemplate(batch, flatColor, gsGlobal, *trianglePayload);", packetLoop, StringComparison.Ordinal);
     }
