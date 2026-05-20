@@ -301,6 +301,32 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that untextured setup records are constructed directly in vector storage instead of copied from a large stack value.
+    /// </summary>
+    [Fact]
+    public void Ps2VuOpaqueUntexturedSetupBuilder_WhenBuildingTriangleSetups_ShouldConstructRecordsInVectorStorage() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string builderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuOpaqueUntexturedSetupBuilder.cpp");
+
+        string source = ReadSourceText(builderPath);
+        string triangleLoop = ExtractSourceRange(
+            source,
+            "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
+            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+
+        Assert.Contains("Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup = TriangleSetups.emplace_back();", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2VuOpaqueUntexturedTriangleSetup triangleSetup {};", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("TriangleSetups.push_back(triangleSetup);", triangleLoop, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that untextured VU packet encoding reuses resolved GIF templates instead of rebuilding duplicate templates per triangle.
     /// </summary>
     [Fact]

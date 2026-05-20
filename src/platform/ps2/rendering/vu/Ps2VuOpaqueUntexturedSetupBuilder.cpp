@@ -254,7 +254,7 @@ namespace helengine::ps2 {
                 LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
 
                 const std::clock_t triangleEmitStartTicks = std::clock();
-                Ps2VuOpaqueUntexturedTriangleSetup triangleSetup {};
+                Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup = TriangleSetups.emplace_back();
                 std::memcpy(triangleSetup.WorldMatrix, worldMatrixWords, sizeof(worldMatrixWords));
                 std::memcpy(triangleSetup.ViewMatrix, viewMatrixWords, sizeof(viewMatrixWords));
                 std::memcpy(triangleSetup.ProjectionMatrix, projectionMatrixWords, sizeof(projectionMatrixWords));
@@ -280,7 +280,6 @@ namespace helengine::ps2 {
                 std::memcpy(triangleSetup.WorldViewProjectionMatrix, worldViewProjectionMatrixWords, sizeof(worldViewProjectionMatrixWords));
                 std::memcpy(triangleSetup.GsScale, gsScaleWords, sizeof(gsScaleWords));
                 std::memcpy(triangleSetup.GsOffset, gsOffsetWords, sizeof(gsOffsetWords));
-                TriangleSetups.push_back(triangleSetup);
                 const bool captureDebugTriangle = SubmittedTriangleCount < 2u;
                 SubmittedTriangleCount++;
                 if (captureDebugTriangle) {
