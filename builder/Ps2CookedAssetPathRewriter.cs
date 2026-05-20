@@ -629,7 +629,7 @@ public sealed class Ps2CookedAssetPathRewriter {
     }
 
     /// <summary>
-    /// Builds the cooked logical runtime path for one authored material asset path when the scene still points at the uncooked source file.
+    /// Builds the cooked logical runtime path for one material asset path when the scene still points at an unprefixed source or staged material file.
     /// </summary>
     /// <param name="logicalPath">Logical authored runtime path to inspect.</param>
     /// <param name="cookedLogicalPath">Receives the cooked logical path when the source path represents an authored material asset.</param>
@@ -640,17 +640,23 @@ public sealed class Ps2CookedAssetPathRewriter {
             return false;
         }
 
-        if (!logicalPath.EndsWith(SourceMaterialExtension, StringComparison.OrdinalIgnoreCase)) {
-            return false;
-        }
-
         string trimmedPath = logicalPath.TrimStart('/');
         if (trimmedPath.StartsWith("cooked/", StringComparison.OrdinalIgnoreCase)) {
             return false;
         }
 
-        cookedLogicalPath = "cooked/" + Path.ChangeExtension(trimmedPath, CookedMaterialExtension).Replace('\\', '/');
-        return true;
+        if (trimmedPath.StartsWith("materials/", StringComparison.OrdinalIgnoreCase)
+            && trimmedPath.EndsWith(CookedMaterialExtension, StringComparison.OrdinalIgnoreCase)) {
+            cookedLogicalPath = "cooked/" + trimmedPath.Replace('\\', '/');
+            return true;
+        }
+
+        if (trimmedPath.EndsWith(SourceMaterialExtension, StringComparison.OrdinalIgnoreCase)) {
+            cookedLogicalPath = "cooked/" + Path.ChangeExtension(trimmedPath, CookedMaterialExtension).Replace('\\', '/');
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>

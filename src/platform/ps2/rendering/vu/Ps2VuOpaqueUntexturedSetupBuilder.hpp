@@ -12,6 +12,8 @@
 typedef struct gsGlobal GSGLOBAL;
 
 namespace helengine::ps2 {
+    class Ps2RuntimeMaterial;
+
     struct alignas(16) Ps2VuOpaqueSourceTriangle final {
         float PositionA[4];
         float PositionB[4];
@@ -36,6 +38,14 @@ namespace helengine::ps2 {
         float WorldViewProjectionMatrix[16];
         float GsScale[4];
         float GsOffset[4];
+        const Ps2RuntimeMaterial* Material;
+    };
+
+    struct alignas(16) Ps2VuOpaqueUntexturedCompactTriangleSetup final {
+        float PositionA[4];
+        float PositionB[4];
+        float PositionC[4];
+        float FaceNormal[4];
     };
 
     class Ps2VuOpaqueUntexturedSetupBuilder final {
@@ -52,9 +62,13 @@ namespace helengine::ps2 {
             const ::float3& lightDirection,
             float nearPlaneDistance,
             GSGLOBAL* gsGlobal,
-            bool includeFallbackPayload);
+            bool includeFallbackPayload,
+            bool useCompactTriangleSetups = false);
 
         const std::vector<Ps2VuOpaqueUntexturedTriangleSetup>& GetTriangleSetups() const;
+        const std::vector<Ps2VuOpaqueUntexturedCompactTriangleSetup>& GetCompactTriangleSetups() const;
+        std::vector<Ps2VuOpaqueUntexturedTriangleSetup> TakeTriangleSetups();
+        std::vector<Ps2VuOpaqueUntexturedCompactTriangleSetup> TakeCompactTriangleSetups();
         double GetLastTriangleSetupMilliseconds() const;
         double GetLastTrianglePrepMilliseconds() const;
         double GetLastTriangleEmitMilliseconds() const;
@@ -71,6 +85,7 @@ namespace helengine::ps2 {
 
     private:
         std::vector<Ps2VuOpaqueUntexturedTriangleSetup> TriangleSetups;
+        std::vector<Ps2VuOpaqueUntexturedCompactTriangleSetup> CompactTriangleSetups;
         double LastTriangleSetupMilliseconds;
         double LastTrianglePrepMilliseconds;
         double LastTriangleEmitMilliseconds;

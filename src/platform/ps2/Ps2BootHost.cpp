@@ -9,7 +9,7 @@
 #include <packet2_utils.h>
 #include <gsKit.h>
 #include <algorithm>
-#include <ctime>
+#include <cstdint>
 #include <cstring>
 #include <cstdio>
 #include <cmath>
@@ -30,6 +30,7 @@
 #include "SceneAsset.hpp"
 #include "SpriteComponent.hpp"
 #include "platform/ps2/Ps2InputBackend.hpp"
+#include "platform/ps2/Ps2PerformanceTimer.hpp"
 #include "platform/ps2/rendering/Ps2RenderManager3D.hpp"
 #include "TextureUtils.hpp"
 #include "RenderManager2D.hpp"
@@ -66,6 +67,8 @@ namespace {
     constexpr bool EnableCubeTriangle3dDiagnostics = false;
     constexpr bool EnableCubeRuntimeDiagnostics = false;
     constexpr bool EnableCubeRuntimeDiagnosticImmediateHalt = false;
+    constexpr bool EnableHaltBeforeStartupSceneLoad = false;
+    constexpr bool EnableHaltAfterStartupSceneDeserialize = false;
     constexpr double CubeRuntimeDiagnosticWatchSeconds = 5.0;
     constexpr bool EnableFrameTimingDiagnostics = false;
     constexpr bool EnableFrameTimingDiagnosticHalt = false;
@@ -90,7 +93,7 @@ namespace {
     bool DebugConsoleReady = false;
     bool CubeDiagnosticsShown = false;
     bool CubeRuntimeDiagnosticWatchActive = false;
-    std::clock_t CubeRuntimeDiagnosticWatchStartTicks = 0;
+    std::uint64_t CubeRuntimeDiagnosticWatchStartTicks = 0;
     double FrameTimingUpdateSeconds = 0.0;
     double FrameTimingDraw3dSeconds = 0.0;
     double FrameTimingGifWaitSeconds = 0.0;
@@ -120,12 +123,8 @@ namespace {
 
     std::string FormatFloat4(const ::float4& value);
 
-    double ResolveSecondsFromClockTicks(std::clock_t startTicks, std::clock_t endTicks) {
-        if (endTicks <= startTicks) {
-            return 0.0;
-        }
-
-        return static_cast<double>(endTicks - startTicks) / static_cast<double>(CLOCKS_PER_SEC);
+    double ResolveSecondsFromTimerTicks(std::uint64_t startTicks, std::uint64_t endTicks) {
+        return helengine::ps2::Ps2PerformanceTimer::ResolveSeconds(startTicks, endTicks);
     }
 
     void RecordRenderManagerTimingSample(const helengine::ps2::Ps2RenderManager3D& renderManager3DBackend) {
@@ -725,9 +724,9 @@ namespace helengine::ps2 {
         EngineOptions->set_ContentRootPath(ResolveApplicationDirectoryPath());
         EngineOptions->set_UpdateOrderLayers(1);
         EngineOptions->set_RenderOrderLayers3D(1);
-        EngineOptions->set_UpdateListInitialCapacity(4);
-        EngineOptions->set_RenderList2DInitialCapacity(4);
-        EngineOptions->set_RenderList3DInitialCapacity(4);
+        EngineOptions->set_UpdateListInitialCapacity(32);
+        EngineOptions->set_RenderList2DInitialCapacity(32);
+        EngineOptions->set_RenderList3DInitialCapacity(32);
         EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalogFromManifest());
 
         BootLog("input bridge init");
@@ -740,7 +739,7 @@ namespace helengine::ps2 {
 
         EngineRenderManager2D = &RenderManager2DBackend;
         EngineRenderManager3D = &RenderManager3DBackend;
-        EnginePlatformInfo = new PlatformInfo("ps2", "1.0.0");
+        EnginePlatformInfo = new PlatformInfo("ps2", "5.3");
 
         BootLog("core initialize begin");
         EngineCore->Initialize(
@@ -750,6 +749,11 @@ namespace helengine::ps2 {
             EnginePlatformInfo,
             EngineOptions);
         BootLog("core initialized");
+        if (EnableHaltBeforeStartupSceneLoad) {
+            BootLog("diagnostic halt before startup scene load");
+            while (true) {
+            }
+        }
 
         BootLog("startup scene load begin");
         StartupSceneLoaded = LoadPackagedStartupScene();
@@ -836,6 +840,13 @@ namespace helengine::ps2 {
                 return false;
             }
 
+            BootLog("startup scene asset deserialized");
+            if (EnableHaltAfterStartupSceneDeserialize) {
+                BootLog("diagnostic halt after startup scene deserialize");
+                while (true) {
+                }
+            }
+
             SceneAsset* startupScene = static_cast<SceneAsset*>(startupAsset);
             if (EngineCore != nullptr && EngineCore->get_SceneLoadService() != nullptr) {
                 EngineCore->get_SceneLoadService()->Load(startupScene);
@@ -878,12 +889,12 @@ namespace helengine::ps2 {
         bool loggedFirstDrawComplete = false;
         while (true) {
             try {
-                const std::clock_t frameUpdateStartTicks = std::clock();
-                std::clock_t frameUpdateEndTicks = frameUpdateStartTicks;
-                std::clock_t frameDraw3dEndTicks = frameUpdateStartTicks;
-                std::clock_t frameGifWaitEndTicks = frameUpdateStartTicks;
-                std::clock_t frameDrawEndTicks = frameUpdateStartTicks;
-                std::clock_t framePresentEndTicks = frameUpdateStartTicks;
+                const std::uint64_t frameUpdateStartTicks = helengine::ps2::Ps2PerformanceTimer::GetCurrentTicks();
+                std::uint64_t frameUpdateEndTicks = frameUpdateStartTicks;
+                std::uint64_t frameDraw3dEndTicks = frameUpdateStartTicks;
+                std::uint64_t frameGifWaitEndTicks = frameUpdateStartTicks;
+                std::uint64_t frameDrawEndTicks = frameUpdateStartTicks;
+                std::uint64_t framePresentEndTicks = frameUpdateStartTicks;
                 if (EngineCore != 0) {
                     try {
                         EngineCore->Update();
@@ -906,7 +917,7 @@ namespace helengine::ps2 {
                         }
                     }
                 }
-                frameUpdateEndTicks = std::clock();
+                frameUpdateEndTicks = helengine::ps2::Ps2PerformanceTimer::GetCurrentTicks();
 
                 const u64 clearColor = GS_SETREG_RGBAQ(0x10, 0x10, 0x10, 0x00, 0x00);
                 gsKit_clear(GsGlobal, clearColor);
@@ -963,12 +974,12 @@ namespace helengine::ps2 {
                         while (true) {
                         }
                     }
-                    frameDraw3dEndTicks = std::clock();
+                    frameDraw3dEndTicks = helengine::ps2::Ps2PerformanceTimer::GetCurrentTicks();
 
                     // VU opaque rendering emits GIF work asynchronously through VIF1. Wait for the
                     // GIF channel to drain before 2D overlays and the frame submit reuse GS state.
                     dma_channel_wait(DMA_CHANNEL_GIF, 0);
-                    frameGifWaitEndTicks = std::clock();
+                    frameGifWaitEndTicks = helengine::ps2::Ps2PerformanceTimer::GetCurrentTicks();
 
                     if (EnableCubeRuntimeDiagnostics && !CubeDiagnosticsShown) {
                         CubeDiagnosticsShown = true;
@@ -1094,9 +1105,9 @@ namespace helengine::ps2 {
                     }
                 }
                 if (frameGifWaitEndTicks == frameUpdateStartTicks) {
-                    frameGifWaitEndTicks = std::clock();
+                    frameGifWaitEndTicks = helengine::ps2::Ps2PerformanceTimer::GetCurrentTicks();
                 }
-                frameDrawEndTicks = std::clock();
+                frameDrawEndTicks = helengine::ps2::Ps2PerformanceTimer::GetCurrentTicks();
 
                 try {
                     gsKit_queue_exec(GsGlobal);
@@ -1115,25 +1126,25 @@ namespace helengine::ps2 {
                     while (true) {
                     }
                 }
-                framePresentEndTicks = std::clock();
+                framePresentEndTicks = helengine::ps2::Ps2PerformanceTimer::GetCurrentTicks();
                 if (FrameTimingOverlayPending) {
                     FrameTimingOverlayPresented = true;
                 }
                 RecordRenderManagerTimingSample(RenderManager3DBackend);
                 RecordFrameTimingSample(
                     RenderManager3DBackend,
-                    ResolveSecondsFromClockTicks(frameUpdateStartTicks, frameUpdateEndTicks),
-                    ResolveSecondsFromClockTicks(frameUpdateEndTicks, frameDraw3dEndTicks),
-                    ResolveSecondsFromClockTicks(frameDraw3dEndTicks, frameGifWaitEndTicks),
-                    ResolveSecondsFromClockTicks(frameGifWaitEndTicks, frameDrawEndTicks),
-                    ResolveSecondsFromClockTicks(frameUpdateEndTicks, frameDrawEndTicks),
-                    ResolveSecondsFromClockTicks(frameDrawEndTicks, framePresentEndTicks));
+                    ResolveSecondsFromTimerTicks(frameUpdateStartTicks, frameUpdateEndTicks),
+                    ResolveSecondsFromTimerTicks(frameUpdateEndTicks, frameDraw3dEndTicks),
+                    ResolveSecondsFromTimerTicks(frameDraw3dEndTicks, frameGifWaitEndTicks),
+                    ResolveSecondsFromTimerTicks(frameGifWaitEndTicks, frameDrawEndTicks),
+                    ResolveSecondsFromTimerTicks(frameUpdateEndTicks, frameDrawEndTicks),
+                    ResolveSecondsFromTimerTicks(frameDrawEndTicks, framePresentEndTicks));
                 if (EnableCubeRuntimeDiagnostics && CubeDiagnosticsShown) {
                     if (!CubeRuntimeDiagnosticWatchActive) {
                         CubeRuntimeDiagnosticWatchActive = true;
                         CubeRuntimeDiagnosticWatchStartTicks = framePresentEndTicks;
                         BootLog("cube frame presented; watching for 5 seconds");
-                    } else if (ResolveSecondsFromClockTicks(CubeRuntimeDiagnosticWatchStartTicks, framePresentEndTicks) >= CubeRuntimeDiagnosticWatchSeconds) {
+                    } else if (ResolveSecondsFromTimerTicks(CubeRuntimeDiagnosticWatchStartTicks, framePresentEndTicks) >= CubeRuntimeDiagnosticWatchSeconds) {
                         BootLog("cube frame presented; watch window complete; halting");
                         while (true) {
                         }

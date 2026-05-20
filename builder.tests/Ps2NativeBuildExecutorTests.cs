@@ -185,6 +185,30 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that PS2 runtime timing uses the SDK bus-clock timer instead of the coarse C runtime clock.
+    /// </summary>
+    [Fact]
+    public void Ps2PerformanceTimer_WhenMeasuringRuntimePhases_ShouldUseSdkSystemTimer() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string timerHeaderPath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2PerformanceTimer.hpp");
+        string timerSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2PerformanceTimer.cpp");
+        string makefilePath = Path.Combine(repositoryRootPath, "Makefile");
+
+        string header = ReadSourceText(timerHeaderPath);
+        string source = ReadSourceText(timerSourcePath);
+        string makefile = ReadSourceText(makefilePath);
+
+        Assert.Contains("class Ps2PerformanceTimer final", header, StringComparison.Ordinal);
+        Assert.Contains("static std::uint64_t GetCurrentTicks();", header, StringComparison.Ordinal);
+        Assert.Contains("static double ResolveSeconds(std::uint64_t startTicks, std::uint64_t endTicks);", header, StringComparison.Ordinal);
+        Assert.Contains("static double ResolveMilliseconds(std::uint64_t startTicks, std::uint64_t endTicks);", header, StringComparison.Ordinal);
+        Assert.Contains("#include <timer.h>", source, StringComparison.Ordinal);
+        Assert.Contains("return GetTimerSystemTime();", source, StringComparison.Ordinal);
+        Assert.Contains("static_cast<double>(endTicks - startTicks) / static_cast<double>(kBUSCLK)", source, StringComparison.Ordinal);
+        Assert.Contains("$(SOURCE_DIR)/platform/ps2/Ps2PerformanceTimer.cpp", makefile, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that the PS2 renderer publishes its VU counters into the core-owned FPS overlay metrics used by the visible runtime HUD.
     /// </summary>
     [Fact]
@@ -237,11 +261,11 @@ public sealed class Ps2NativeBuildExecutorTests {
         string runtimeBranch = ExtractSourceRange(
             source,
             "const float* packedPositionWords = reinterpret_cast<const float*>(batch.Model->GetPositionBlockBytes());",
-            "const std::clock_t triangleSetupEndTicks = std::clock();");
+            "const std::uint64_t triangleSetupEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
         string triangleLoop = ExtractSourceRange(
             runtimeBranch,
             "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
-            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+            "                const std::uint64_t triangleEmitEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
 
         Assert.Contains("TriangleSetups.reserve(triangleVertexCount / 3u);", runtimeBranch, StringComparison.Ordinal);
         Assert.Contains("::float4x4::Multiply(worldCopy, viewCopy, worldViewMatrix);", runtimeBranch, StringComparison.Ordinal);
@@ -271,7 +295,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         string triangleLoop = ExtractSourceRange(
             source,
             "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
-            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+            "                const std::uint64_t triangleEmitEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
 
         Assert.Contains("if constexpr (EnableVuTriangleDebugProbeCapture) {", triangleLoop, StringComparison.Ordinal);
         Assert.Contains("const bool captureDebugTriangle = SubmittedTriangleCount <= 2u;", triangleLoop, StringComparison.Ordinal);
@@ -303,7 +327,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         string triangleLoop = ExtractSourceRange(
             source,
             "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
-            "const std::clock_t triangleSetupEndTicks = std::clock();");
+            "const std::uint64_t triangleSetupEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
 
         Assert.Contains("constexpr bool EnableVuTriangleDebugProbeCapture = false;", source, StringComparison.Ordinal);
         Assert.Contains("if constexpr (EnableVuTriangleDebugProbeCapture) {", triangleLoop, StringComparison.Ordinal);
@@ -330,7 +354,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         string triangleLoop = ExtractSourceRange(
             source,
             "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
-            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+            "                const std::uint64_t triangleEmitEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
 
         Assert.DoesNotContain("const std::vector<::float3>* runtimeNormals", source, StringComparison.Ordinal);
         Assert.DoesNotContain("const Ps2RuntimeModel* runtimeModel", source, StringComparison.Ordinal);
@@ -362,7 +386,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         string triangleLoop = ExtractSourceRange(
             source,
             "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
-            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+            "                const std::uint64_t triangleEmitEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
 
         Assert.Contains("Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup = TriangleSetups.emplace_back();", triangleLoop, StringComparison.Ordinal);
         Assert.DoesNotContain("Ps2VuOpaqueUntexturedTriangleSetup triangleSetup {};", triangleLoop, StringComparison.Ordinal);
@@ -406,10 +430,10 @@ public sealed class Ps2NativeBuildExecutorTests {
         string triangleLoop = ExtractSourceRange(
             source,
             "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
-            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+            "                const std::uint64_t triangleEmitEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
 
         Assert.Contains("bool includeFallbackPayload", header, StringComparison.Ordinal);
-        Assert.Contains("bool includeFallbackPayload)", source, StringComparison.Ordinal);
+        Assert.Contains("bool includeFallbackPayload,\n        bool useCompactTriangleSetups)", source, StringComparison.Ordinal);
         Assert.Contains("setupBuilder.Build(batch, world, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal, EnableVuSingleTriangleDispatchFallback);", packetSource, StringComparison.Ordinal);
         Assert.Contains("if (includeFallbackPayload) {", triangleLoop, StringComparison.Ordinal);
         Assert.Contains("std::memcpy(triangleSetup.WorldMatrix, worldMatrixWords, sizeof(worldMatrixWords));", triangleLoop, StringComparison.Ordinal);
@@ -435,11 +459,11 @@ public sealed class Ps2NativeBuildExecutorTests {
         string runtimeBranch = ExtractSourceRange(
             source,
             "const float* packedPositionWords = reinterpret_cast<const float*>(batch.Model->GetPositionBlockBytes());",
-            "const std::clock_t triangleSetupEndTicks = std::clock();");
+            "const std::uint64_t triangleSetupEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
         string triangleLoop = ExtractSourceRange(
             runtimeBranch,
             "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
-            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+            "                const std::uint64_t triangleEmitEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
 
         Assert.Contains("bool hasCachedFaceNormal = false;", runtimeBranch, StringComparison.Ordinal);
         Assert.Contains("::float3 cachedFaceNormal = ::float3::get_Zero();", runtimeBranch, StringComparison.Ordinal);
@@ -477,15 +501,78 @@ public sealed class Ps2NativeBuildExecutorTests {
         string triangleLoop = ExtractSourceRange(
             setupSource,
             "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
-            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+            "                const std::uint64_t triangleEmitEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
         string compactPacketBranch = ExtractSourceRange(
             packetSource,
-            "if (!EnableVuSingleTriangleDispatchFallback) {",
-            "            } else {");
+            "void Ps2VuVifPacketBuilder::AddOpaqueBatches(",
+            "    packet2_t* Ps2VuVifPacketBuilder::GetPacket() const");
 
         Assert.Contains("std::memcpy(triangleSetup.LightDirection, lightDirectionWords, sizeof(lightDirectionWords));", ExtractSourceRange(triangleLoop, "if (includeFallbackPayload) {", "                }"), StringComparison.Ordinal);
-        Assert.Contains("const ::float3 lightDirection = normalizedLightDirection;", compactPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("normalizedLightDirection,\n                        gsGlobal,", compactPacketBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("triangleSetup.LightDirection[0]", compactPacketBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the untextured GIF template miss path avoids expensive standard-library power calls while deriving CPU-side lighting.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenResolvingNormalizedTemplateColor_ShouldAvoidStdPow() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string packetBuilderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string source = ReadSourceText(packetBuilderPath);
+        string normalizedColorResolver = ExtractSourceRange(
+            source,
+            "std::uint64_t ResolveNormalizedTexturedVertexColor(",
+            "    Ps2VuVifPacketBuilder::~Ps2VuVifPacketBuilder() {");
+
+        Assert.DoesNotContain("std::pow", normalizedColorResolver, StringComparison.Ordinal);
+        Assert.Contains("const double ndotlSquared = ndotl * ndotl;", normalizedColorResolver, StringComparison.Ordinal);
+        Assert.Contains("const double specularBoost = ndotlSquared * ndotlSquared * specularStrength", normalizedColorResolver, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the combined untextured VU path uses compact setup records instead of fallback payload records.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenBuildingCombinedUntexturedBatches_ShouldUseCompactTriangleSetups() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string setupHeaderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuOpaqueUntexturedSetupBuilder.hpp");
+        string packetBuilderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string setupHeader = ReadSourceText(setupHeaderPath);
+        string packetSource = ReadSourceText(packetBuilderPath);
+        string combinedBatchMethod = ExtractSourceRange(
+            packetSource,
+            "void Ps2VuVifPacketBuilder::AddOpaqueBatches(",
+            "    packet2_t* Ps2VuVifPacketBuilder::GetPacket() const");
+
+        Assert.Contains("struct alignas(16) Ps2VuOpaqueUntexturedCompactTriangleSetup final", setupHeader, StringComparison.Ordinal);
+        Assert.Contains("setupBuilder.Build(batch, batchInstance.World, view, projection, viewport, normalizedLightDirection, nearPlaneDistance, gsGlobal, false, true);", combinedBatchMethod, StringComparison.Ordinal);
+        Assert.Contains("std::vector<std::vector<Ps2VuOpaqueUntexturedCompactTriangleSetup>> setupGroups;", combinedBatchMethod, StringComparison.Ordinal);
+        Assert.Contains("setupBuilder.TakeCompactTriangleSetups()", combinedBatchMethod, StringComparison.Ordinal);
+        Assert.DoesNotContain("setupBuilder.TakeTriangleSetups()", combinedBatchMethod, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -516,16 +603,16 @@ public sealed class Ps2NativeBuildExecutorTests {
         string triangleLoop = ExtractSourceRange(
             setupSource,
             "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
-            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+            "                const std::uint64_t triangleEmitEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
         string compactPacketBranch = ExtractSourceRange(
             packetSource,
-            "if (!EnableVuSingleTriangleDispatchFallback) {",
-            "            } else {");
+            "void Ps2VuVifPacketBuilder::AddOpaqueBatches(",
+            "    packet2_t* Ps2VuVifPacketBuilder::GetPacket() const");
 
         Assert.Contains("const bool shouldWriteBatchConstants = includeFallbackPayload || TriangleSetups.empty();", triangleLoop, StringComparison.Ordinal);
         Assert.Contains("if (shouldWriteBatchConstants) {", triangleLoop, StringComparison.Ordinal);
         Assert.Contains("std::memcpy(triangleSetup.WorldViewProjectionMatrix, worldViewProjectionMatrixWords, sizeof(worldViewProjectionMatrixWords));", ExtractSourceRange(triangleLoop, "if (shouldWriteBatchConstants) {", "                }"), StringComparison.Ordinal);
-        Assert.Contains("PopulateUntexturedBatchConstants((*untexturedTriangleSetups)[0u], *batchConstants);", compactPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("*batchConstants = batchConstantsTemplate;", compactPacketBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("PopulateUntexturedBatchConstants((*untexturedTriangleSetups)[triangleIndex], *batchConstants);", compactPacketBranch, StringComparison.Ordinal);
     }
 
@@ -548,12 +635,43 @@ public sealed class Ps2NativeBuildExecutorTests {
         string triangleLoop = ExtractSourceRange(
             setupSource,
             "for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {",
-            "                const std::clock_t triangleEmitEndTicks = std::clock();");
+            "                const std::uint64_t triangleEmitEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
 
         Assert.Contains("constexpr bool EnableVuTrianglePhaseTiming = false;", setupSource, StringComparison.Ordinal);
         Assert.Contains("if constexpr (EnableVuTrianglePhaseTiming) {", triangleLoop, StringComparison.Ordinal);
-        Assert.DoesNotContain("const std::clock_t trianglePrepStartTicks = std::clock();", triangleLoop, StringComparison.Ordinal);
-        Assert.DoesNotContain("const std::clock_t triangleEmitStartTicks = std::clock();", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("const std::uint64_t trianglePrepStartTicks = Ps2PerformanceTimer::GetCurrentTicks();", triangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("const std::uint64_t triangleEmitStartTicks = Ps2PerformanceTimer::GetCurrentTicks();", triangleLoop, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that GIF template diagnostics are measured per VU batch instead of injecting timer reads into every triangle.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenMeasuringGifTemplateCost_ShouldAvoidPerTriangleTimerReads() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string packetBuilderPath = Path.Combine(
+            repositoryRootPath,
+            "src",
+            "platform",
+            "ps2",
+            "rendering",
+            "vu",
+            "Ps2VuVifPacketBuilder.cpp");
+
+        string packetSource = ReadSourceText(packetBuilderPath);
+        string combinedBatchMethod = ExtractSourceRange(
+            packetSource,
+            "void Ps2VuVifPacketBuilder::AddOpaqueBatches(",
+            "    packet2_t* Ps2VuVifPacketBuilder::GetPacket() const");
+        string batchTriangleLoop = ExtractSourceRange(
+            combinedBatchMethod,
+            "for (std::size_t batchTriangleIndex = 0u; batchTriangleIndex < MaxUntexturedBatchTriangleCount; batchTriangleIndex++) {",
+            "                const std::uint64_t gifTemplateBatchEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
+
+        Assert.Contains("const std::uint64_t gifTemplateBatchStartTicks = Ps2PerformanceTimer::GetCurrentTicks();", combinedBatchMethod, StringComparison.Ordinal);
+        Assert.Contains("const std::uint64_t gifTemplateBatchEndTicks = Ps2PerformanceTimer::GetCurrentTicks();", combinedBatchMethod, StringComparison.Ordinal);
+        Assert.DoesNotContain("const std::uint64_t gifTemplateStartTicks = Ps2PerformanceTimer::GetCurrentTicks();", batchTriangleLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("const std::uint64_t gifTemplateEndTicks = Ps2PerformanceTimer::GetCurrentTicks();", batchTriangleLoop, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -574,8 +692,8 @@ public sealed class Ps2NativeBuildExecutorTests {
         string packetSource = ReadSourceText(packetBuilderPath);
         string compactPacketBranch = ExtractSourceRange(
             packetSource,
-            "if (!EnableVuSingleTriangleDispatchFallback) {",
-            "            } else {");
+            "void Ps2VuVifPacketBuilder::AddOpaqueBatches(",
+            "    packet2_t* Ps2VuVifPacketBuilder::GetPacket() const");
 
         Assert.DoesNotContain("std::array<Ps2VuUntexturedTriangleInput, MaxUntexturedBatchTriangleCount> triangleInputs {}", compactPacketBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("std::array<std::array<std::uint8_t, TriangleGifPacketTemplateByteCount>, MaxUntexturedBatchTriangleCount> outputTemplates {}", compactPacketBranch, StringComparison.Ordinal);
@@ -602,12 +720,12 @@ public sealed class Ps2NativeBuildExecutorTests {
         string packetSource = ReadSourceText(packetBuilderPath);
         string compactPacketBranch = ExtractSourceRange(
             packetSource,
-            "if (!EnableVuSingleTriangleDispatchFallback) {",
-            "            } else {");
+            "void Ps2VuVifPacketBuilder::AddOpaqueBatches(",
+            "    packet2_t* Ps2VuVifPacketBuilder::GetPacket() const");
 
         Assert.Contains("void PopulateTriangleGifPacketTemplateFromCache(", packetSource, StringComparison.Ordinal);
         Assert.Contains("std::uint8_t* outputTemplate)", packetSource, StringComparison.Ordinal);
-        Assert.Contains("PopulateTriangleGifPacketTemplateFromCache(\n                            batch,\n                            faceNormal,\n                            lightDirection,\n                            gsGlobal,\n                            gifTemplateCache,\n                            outputTemplate);", compactPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("PopulateTriangleGifPacketTemplateFromCache(\n                        batch,\n                        faceNormal,\n                        normalizedLightDirection,\n                        gsGlobal,\n                        gifTemplateCache,\n                        gifTemplateBase,\n                        outputTemplate);", compactPacketBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("Ps2VuLitTrianglePayload outputTemplatePayload {}", compactPacketBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("outputTemplatePayload.GifPacketTemplate", compactPacketBranch, StringComparison.Ordinal);
     }
@@ -630,11 +748,11 @@ public sealed class Ps2NativeBuildExecutorTests {
         string packetSource = ReadSourceText(packetBuilderPath);
         string directTemplateCacheBuilder = ExtractSourceRange(
             packetSource,
-            "Ps2VuGifTemplateCache& gifTemplateCache,\n            std::uint8_t* outputTemplate) {",
+            "const std::uint8_t* baseTemplate,\n            std::uint8_t* outputTemplate) {",
             "        void PopulateTrianglePayloadFromSetup(");
 
         Assert.Contains("void PopulateTriangleGifPacketTemplateBytes(", packetSource, StringComparison.Ordinal);
-        Assert.Contains("PopulateTriangleGifPacketTemplateBytes(batch, flatColor, gsGlobal, outputTemplate);", directTemplateCacheBuilder, StringComparison.Ordinal);
+        Assert.Contains("PopulateTriangleGifPacketTemplateBytesFromBase(batch, flatColor, baseTemplate, outputTemplate);", directTemplateCacheBuilder, StringComparison.Ordinal);
         Assert.DoesNotContain("Ps2VuLitTrianglePayload templatePayload {}", directTemplateCacheBuilder, StringComparison.Ordinal);
         Assert.DoesNotContain("PopulateLightingPalette(", directTemplateCacheBuilder, StringComparison.Ordinal);
     }
@@ -700,7 +818,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         string texturedBranch = ExtractSourceRange(
             source,
             "} else {",
-            "        }\n        const std::clock_t triangleSetupEndTicks = std::clock();");
+            "        }\n        const std::uint64_t triangleSetupEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
 
         Assert.DoesNotContain("trianglePayloads.reserve", beforeBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("texturedTrianglePackets.reserve", beforeBranch, StringComparison.Ordinal);
@@ -830,8 +948,8 @@ public sealed class Ps2NativeBuildExecutorTests {
 
         Assert.Contains("float FaceNormal[4];", source, StringComparison.Ordinal);
         Assert.Contains("float LightDirection[4];", source, StringComparison.Ordinal);
-        Assert.Contains("AreLightingInputsEqual(entry, faceNormal, lightDirection)", cacheHelper, StringComparison.Ordinal);
-        Assert.Contains("ResolveTexturedVertexColor(*batch.Material, faceNormal, lightDirection)", cacheHelper, StringComparison.Ordinal);
+        Assert.Contains("AreLightingInputsEqual(entry, batch.Material, faceNormal, lightDirection)", cacheHelper, StringComparison.Ordinal);
+        Assert.Contains("ResolveNormalizedTexturedVertexColor(*batch.Material, faceNormal, lightDirection)", cacheHelper, StringComparison.Ordinal);
         Assert.DoesNotContain("ResolveTexturedVertexColor", payloadFromSetup, StringComparison.Ordinal);
     }
 
@@ -910,7 +1028,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("NOP                                                        ilw.w VI06, 0(VI02)", source, StringComparison.Ordinal);
         Assert.Contains("__ps2_opaque_draw_3d_build_batch_loop:", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        iaddiu VI08, VI08, 0x0000000b", source, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        iaddiu VI09, VI09, 0x00000004", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        iaddiu VI09, VI09, 0x00000003", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        iaddiu VI05, VI05, -1", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        ibne VI05, VI00, __ps2_opaque_draw_3d_build_batch_loop", source, StringComparison.Ordinal);
         Assert.DoesNotContain("__ps2_opaque_draw_3d_triangle_pair_loop", source, StringComparison.Ordinal);
@@ -944,8 +1062,8 @@ public sealed class Ps2NativeBuildExecutorTests {
         string layout = ReadSourceText(layoutPath);
         string normalUntexturedPacketBranch = ExtractSourceRange(
             source,
-            "if (!EnableVuSingleTriangleDispatchFallback) {",
-            "            } else {");
+            "void Ps2VuVifPacketBuilder::AddOpaqueBatches(",
+            "    packet2_t* Ps2VuVifPacketBuilder::GetPacket() const");
 
         Assert.Contains("struct alignas(16) Ps2VuUntexturedBatchHeader final", layout, StringComparison.Ordinal);
         Assert.Contains("std::uint32_t TriangleCount;", layout, StringComparison.Ordinal);
@@ -961,7 +1079,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("batchHeader->TriangleInputQwordOffset = UntexturedBatchTriangleInputQwordOffset;", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("std::uint8_t* outputTemplateBytes = reinterpret_cast<std::uint8_t*>(packet.get()->next);", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("std::uint8_t* outputTemplate = outputTemplateBytes + (batchTriangleIndex * TriangleGifPacketTemplateByteCount);", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("PopulateTriangleGifPacketTemplateFromCache(\n                            batch,\n                            faceNormal,\n                            lightDirection,\n                            gsGlobal,\n                            gifTemplateCache,\n                            outputTemplate);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("PopulateTriangleGifPacketTemplateFromCache(\n                        batch,\n                        faceNormal,\n                        normalizedLightDirection,\n                        gsGlobal,\n                        gifTemplateCache,\n                        gifTemplateBase,\n                        outputTemplate);", normalUntexturedPacketBranch, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1058,12 +1176,17 @@ public sealed class Ps2NativeBuildExecutorTests {
 
         Assert.Contains("struct alignas(16) Ps2VuUntexturedBatchConstants final", layout, StringComparison.Ordinal);
         Assert.Contains("struct alignas(16) Ps2VuUntexturedTriangleInput final", layout, StringComparison.Ordinal);
+        Assert.Contains("float PositionA[4];", layout, StringComparison.Ordinal);
+        Assert.Contains("float PositionB[4];", layout, StringComparison.Ordinal);
+        Assert.Contains("float PositionC[4];", layout, StringComparison.Ordinal);
+        Assert.DoesNotContain("float FaceNormal[4];", layout, StringComparison.Ordinal);
         Assert.Contains("std::uint32_t ConstantsQwordOffset;", layout, StringComparison.Ordinal);
         Assert.Contains("std::uint32_t TriangleInputQwordOffset;", layout, StringComparison.Ordinal);
         Assert.Contains("Ps2VuUntexturedBatchConstants* batchConstants = reinterpret_cast<Ps2VuUntexturedBatchConstants*>(packet.get()->next);", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("Ps2VuUntexturedTriangleInput* triangleInputs = reinterpret_cast<Ps2VuUntexturedTriangleInput*>(packet.get()->next);", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("PopulateUntexturedBatchConstants((*untexturedTriangleSetups)[0u], *batchConstants);", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("PopulateUntexturedTriangleInput(triangleSetup, triangleInputs[batchTriangleIndex]);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::memcpy(triangleInput.FaceNormal, triangleSetup.FaceNormal, sizeof(triangleSetup.FaceNormal));", source, StringComparison.Ordinal);
         Assert.DoesNotContain("std::array<Ps2VuLitTrianglePayload, MaxUntexturedBatchTriangleCount>", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("std::array<Ps2VuUntexturedTriangleInput, MaxUntexturedBatchTriangleCount>", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("std::memcpy(packet.get()->next, &trianglePayload, sizeof(Ps2VuLitTrianglePayload));", normalUntexturedPacketBranch, StringComparison.Ordinal);
@@ -1126,7 +1249,8 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("NOP                                                        lq VF01, 0(VI09)", batchLoop, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        lq VF02, 1(VI09)", batchLoop, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        lq VF03, 2(VI09)", batchLoop, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        iaddiu VI09, VI09, 0x00000004", batchLoop, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        iaddiu VI09, VI09, 0x00000003", batchLoop, StringComparison.Ordinal);
+        Assert.DoesNotContain("NOP                                                        lq VF04, 3(VI09)", batchLoop, StringComparison.Ordinal);
         Assert.DoesNotContain("lq VF04, 52(VI09)", batchLoop, StringComparison.Ordinal);
         Assert.DoesNotContain("iaddiu VI09, VI09, 0x0000003a", batchLoop, StringComparison.Ordinal);
     }
@@ -1148,8 +1272,8 @@ public sealed class Ps2NativeBuildExecutorTests {
         string source = ReadSourceText(rendererPath);
         string timedEncodeWindow = ExtractSourceRange(
             source,
-            "const std::clock_t vuPacketEncodeStartTicks = std::clock();",
-            "const std::clock_t vuPacketEncodeEndTicks = std::clock();");
+            "const std::uint64_t vuPacketEncodeStartTicks = Ps2PerformanceTimer::GetCurrentTicks();",
+            "const std::uint64_t vuPacketEncodeEndTicks = Ps2PerformanceTimer::GetCurrentTicks();");
 
         Assert.Contains("VuVifPacketBuilder.AddOpaqueBatch(", timedEncodeWindow, StringComparison.Ordinal);
         Assert.DoesNotContain("VuProgramRegistry.ResolveOpaqueProgram(batch)", timedEncodeWindow, StringComparison.Ordinal);
@@ -1180,7 +1304,7 @@ public sealed class Ps2NativeBuildExecutorTests {
             normalSubmitBranch.IndexOf("dma_channel_wait(DMA_CHANNEL_VIF1, 0);", StringComparison.Ordinal)
             < normalSubmitBranch.IndexOf("dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);", StringComparison.Ordinal));
         Assert.Contains("LastVuPacketPhase = 202;", normalSubmitBranch, StringComparison.Ordinal);
-        Assert.Contains("const double vuSubmitOnlyMilliseconds = ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.Contains("const double vuSubmitOnlyMilliseconds = Ps2PerformanceTimer::ResolveMilliseconds(vuSubmitStartTicks, vuSubmitEndTicks);", normalSubmitBranch, StringComparison.Ordinal);
         Assert.Contains("LastVuSubmitMilliseconds += vuSubmitOnlyMilliseconds;", normalSubmitBranch, StringComparison.Ordinal);
     }
 
@@ -1250,7 +1374,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         string beforeEncodeWindow = ExtractSourceRange(
             vuPath,
             "for (const Ps2VuOpaqueBatch& batch : batches) {",
-            "const std::clock_t vuPacketEncodeStartTicks = std::clock();");
+            "const std::uint64_t vuPacketEncodeStartTicks = Ps2PerformanceTimer::GetCurrentTicks();");
         string normalSubmitBranch = ExtractSourceRange(
             vuPath,
             "} else {\n                LastVuPacketPhase = 201;",
@@ -1261,7 +1385,7 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("std::vector<packet2_t*> SubmittedVuPackets;", header, StringComparison.Ordinal);
         Assert.DoesNotContain("dma_channel_wait(DMA_CHANNEL_VIF1, 0);", beforeEncodeWindow, StringComparison.Ordinal);
         Assert.Contains("packet2_t* packet = VuVifPacketBuilder.ReleasePacket();", vuPath, StringComparison.Ordinal);
-        Assert.Contains("const std::clock_t vuCompletionWaitStartTicks = std::clock();", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.Contains("const std::uint64_t vuCompletionWaitStartTicks = Ps2PerformanceTimer::GetCurrentTicks();", normalSubmitBranch, StringComparison.Ordinal);
         Assert.Contains("dma_channel_wait(DMA_CHANNEL_VIF1, 0);", normalSubmitBranch, StringComparison.Ordinal);
         Assert.Contains("ReleaseSubmittedVuPackets();", normalSubmitBranch, StringComparison.Ordinal);
         Assert.Contains("SubmittedVuPackets.push_back(packet);", normalSubmitBranch, StringComparison.Ordinal);
@@ -1310,8 +1434,8 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("double Ps2RenderManager3D::GetLastVuCompletionWaitMilliseconds() const", source, StringComparison.Ordinal);
         Assert.Contains("double Ps2RenderManager3D::GetLastVuSubmitOnlyMilliseconds() const", source, StringComparison.Ordinal);
         Assert.Contains("LastVuInitialWaitMilliseconds = 0.0;\n        LastVuCompletionWaitMilliseconds = 0.0;\n        LastVuSubmitOnlyMilliseconds = 0.0;\n        LastVuWaitMilliseconds = 0.0;\n        LastVuSubmitMilliseconds = 0.0;", vuPath, StringComparison.Ordinal);
-        Assert.Contains("const double vuCompletionWaitMilliseconds = ResolveMillisecondsFromClockTicks(vuCompletionWaitStartTicks, vuCompletionWaitEndTicks);\n                LastVuCompletionWaitMilliseconds += vuCompletionWaitMilliseconds;\n                LastVuWaitMilliseconds += vuCompletionWaitMilliseconds;", normalSubmitBranch, StringComparison.Ordinal);
-        Assert.Contains("const double vuSubmitOnlyMilliseconds = ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);\n                LastVuSubmitOnlyMilliseconds += vuSubmitOnlyMilliseconds;\n                LastVuSubmitMilliseconds += vuSubmitOnlyMilliseconds;", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.Contains("const double vuCompletionWaitMilliseconds = Ps2PerformanceTimer::ResolveMilliseconds(vuCompletionWaitStartTicks, vuCompletionWaitEndTicks);\n                LastVuCompletionWaitMilliseconds += vuCompletionWaitMilliseconds;\n                LastVuWaitMilliseconds += vuCompletionWaitMilliseconds;", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.Contains("const double vuSubmitOnlyMilliseconds = Ps2PerformanceTimer::ResolveMilliseconds(vuSubmitStartTicks, vuSubmitEndTicks);\n                LastVuSubmitOnlyMilliseconds += vuSubmitOnlyMilliseconds;\n                LastVuSubmitMilliseconds += vuSubmitOnlyMilliseconds;", normalSubmitBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("EnableVuDirectGifDispatchDiagnostics", normalSubmitBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("dma_channel_wait(DMA_CHANNEL_GIF, 0);", normalSubmitBranch, StringComparison.Ordinal);
     }

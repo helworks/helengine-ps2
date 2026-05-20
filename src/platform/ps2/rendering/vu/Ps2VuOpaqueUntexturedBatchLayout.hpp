@@ -20,6 +20,5 @@ namespace helengine::ps2 {
         float PositionA[4];
         float PositionB[4];
         float PositionC[4];
-        float FaceNormal[4];
     };
 }

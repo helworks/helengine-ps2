@@ -2,7 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <ctime>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -33,6 +33,7 @@
 #include "Ps2MaterialAsset.hpp"
 #include "Ps2MaterialLightingMode.hpp"
 #include "MaterialBlendMode.hpp"
+#include "platform/ps2/Ps2PerformanceTimer.hpp"
 #include "RenderTarget.hpp"
 #include "float2.hpp"
 #include "float3.hpp"
@@ -81,14 +82,6 @@ namespace helengine::ps2 {
         constexpr std::uint32_t VuDirectGifDiagnosticTriangleZ = 0x007FFFFFu;
         const ::float3 DefaultForward(0.0f, 0.0f, -1.0f);
         const ::float3 DefaultUp(0.0f, 1.0f, 0.0f);
-
-        double ResolveMillisecondsFromClockTicks(std::clock_t startTicks, std::clock_t endTicks) {
-            if (endTicks <= startTicks) {
-                return 0.0;
-            }
-
-            return (static_cast<double>(endTicks - startTicks) / static_cast<double>(CLOCKS_PER_SEC)) * 1000.0;
-        }
 
         ::float4 ResolvePixelViewport(::CameraComponent* camera, const int2& windowSize) {
             if (camera == nullptr) {
@@ -473,13 +466,16 @@ namespace helengine::ps2 {
             LastVuCompletionWaitMilliseconds(0.0),
             LastVuSubmitOnlyMilliseconds(0.0),
             LastVuWaitMilliseconds(0.0),
-            LastVuSubmitMilliseconds(0.0),
-            LastVuPacketEncodeMilliseconds(0.0),
-            LastVuTriangleSetupMilliseconds(0.0),
-            LastVuPacketAssemblyMilliseconds(0.0),
-            LastVuTrianglePrepMilliseconds(0.0),
-            LastVuTriangleEmitMilliseconds(0.0),
-            LastResolvedViewport(),
+          LastVuSubmitMilliseconds(0.0),
+          LastVuPacketEncodeMilliseconds(0.0),
+          LastVuTriangleSetupMilliseconds(0.0),
+          LastVuPacketAssemblyMilliseconds(0.0),
+          LastVuGifTemplateMilliseconds(0.0),
+          LastVuTrianglePrepMilliseconds(0.0),
+          LastVuTriangleEmitMilliseconds(0.0),
+          LastVuGifTemplateCacheHitCount(0u),
+          LastVuGifTemplateCacheMissCount(0u),
+          LastResolvedViewport(),
           LastSubmittedScreenBounds(),
           LastSubmittedTriangleBoundsA(),
           LastSubmittedTriangleBoundsB(),
@@ -608,8 +604,11 @@ namespace helengine::ps2 {
         LastVuPacketEncodeMilliseconds = 0.0;
         LastVuTriangleSetupMilliseconds = 0.0;
         LastVuPacketAssemblyMilliseconds = 0.0;
+        LastVuGifTemplateMilliseconds = 0.0;
         LastVuTrianglePrepMilliseconds = 0.0;
         LastVuTriangleEmitMilliseconds = 0.0;
+        LastVuGifTemplateCacheHitCount = 0u;
+        LastVuGifTemplateCacheMissCount = 0u;
         LastResolvedViewport = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastSubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastSubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -660,15 +659,15 @@ namespace helengine::ps2 {
 
         DeferredHdrGlowTriangles.clear();
         ApplyDepthState(GsGlobal->ZBuffering == GS_SETTING_ON);
-        const std::clock_t proxySyncStartTicks = std::clock();
+        const std::uint64_t proxySyncStartTicks = Ps2PerformanceTimer::GetCurrentTicks();
         RebuildProxies();
-        const std::clock_t proxySyncEndTicks = std::clock();
-        LastProxySyncMilliseconds = ResolveMillisecondsFromClockTicks(proxySyncStartTicks, proxySyncEndTicks);
+        const std::uint64_t proxySyncEndTicks = Ps2PerformanceTimer::GetCurrentTicks();
+        LastProxySyncMilliseconds = Ps2PerformanceTimer::ResolveMilliseconds(proxySyncStartTicks, proxySyncEndTicks);
         LastProxyCount = Proxies.size();
-        const std::clock_t framePlanStartTicks = std::clock();
+        const std::uint64_t framePlanStartTicks = Ps2PerformanceTimer::GetCurrentTicks();
         Ps2FramePlan plan = FramePlanner.Build(Proxies);
-        const std::clock_t framePlanEndTicks = std::clock();
-        LastFramePlanMilliseconds = ResolveMillisecondsFromClockTicks(framePlanStartTicks, framePlanEndTicks);
+        const std::uint64_t framePlanEndTicks = Ps2PerformanceTimer::GetCurrentTicks();
+        LastFramePlanMilliseconds = Ps2PerformanceTimer::ResolveMilliseconds(framePlanStartTicks, framePlanEndTicks);
         LastOpaqueWorldCount = plan.OpaqueWorld.size();
         LastOpaqueDynamicCount = plan.OpaqueDynamic.size();
         LastAlphaWorldCount = plan.AlphaWorld.size();
@@ -746,10 +745,10 @@ namespace helengine::ps2 {
             LastVuTrianglePrepMilliseconds,
             LastVuTriangleEmitMilliseconds,
             LastVuPacketEncodeMilliseconds,
-            LastVuSubmitMilliseconds,
+            LastVuGifTemplateMilliseconds,
             LastVuWaitMilliseconds,
-            static_cast<int>(LastSubmittedTriangleCount),
-            static_cast<int>(LastVuBatchDispatchCount));
+            static_cast<int>(LastVuGifTemplateCacheHitCount),
+            static_cast<int>(LastVuGifTemplateCacheMissCount));
     }
 
     void Ps2RenderManager3D::ReleaseSubmittedVuPackets() {
@@ -763,10 +762,10 @@ namespace helengine::ps2 {
     }
 
     void Ps2RenderManager3D::RenderOpaqueWithVuPath(const Ps2FramePlan& plan, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {
-        const std::clock_t vuBatchBuildStartTicks = std::clock();
+        const std::uint64_t vuBatchBuildStartTicks = Ps2PerformanceTimer::GetCurrentTicks();
         std::vector<Ps2VuOpaqueBatch> batches = VuOpaqueBatchBuilder.Build(plan);
-        const std::clock_t vuBatchBuildEndTicks = std::clock();
-        LastVuBatchBuildMilliseconds = ResolveMillisecondsFromClockTicks(vuBatchBuildStartTicks, vuBatchBuildEndTicks);
+        const std::uint64_t vuBatchBuildEndTicks = Ps2PerformanceTimer::GetCurrentTicks();
+        LastVuBatchBuildMilliseconds = Ps2PerformanceTimer::ResolveMilliseconds(vuBatchBuildStartTicks, vuBatchBuildEndTicks);
         LastVuInitialWaitMilliseconds = 0.0;
         LastVuCompletionWaitMilliseconds = 0.0;
         LastVuSubmitOnlyMilliseconds = 0.0;
@@ -774,10 +773,90 @@ namespace helengine::ps2 {
         LastVuSubmitMilliseconds = 0.0;
         ::float3 lightDirection = DefaultForward;
         TryResolveDirectionalLightDirection(lightDirection);
-        LastVuBatchDispatchCount = batches.size();
+        LastVuBatchDispatchCount = 0;
         LastVuRejectedMissingMaterialCount = VuOpaqueBatchBuilder.GetLastRejectedMissingMaterialCount();
         LastVuRejectedMissingModelCount = VuOpaqueBatchBuilder.GetLastRejectedMissingModelCount();
         LastVuRejectedMissingPackedModelCount = VuOpaqueBatchBuilder.GetLastRejectedMissingPackedModelCount();
+        bool canSubmitCombinedUntexturedPacket = !batches.empty();
+        std::vector<Ps2VuOpaqueBatchInstance> untexturedBatchInstances;
+        untexturedBatchInstances.reserve(batches.size());
+        for (const Ps2VuOpaqueBatch& batch : batches) {
+            if (batch.Proxy == nullptr || batch.Textured) {
+                canSubmitCombinedUntexturedPacket = false;
+                break;
+            }
+
+            Ps2VuOpaqueBatchInstance batchInstance {};
+            batchInstance.Batch = batch;
+            batchInstance.World = BuildWorldMatrix(*batch.Proxy);
+            untexturedBatchInstances.push_back(batchInstance);
+        }
+
+        if (canSubmitCombinedUntexturedPacket && !untexturedBatchInstances.empty()) {
+            VuGifStateEncoder.EncodeOpaqueState(batches.front(), GsGlobal);
+            VuVifPacketBuilder.Reset();
+            const std::uint64_t vuPacketEncodeStartTicks = Ps2PerformanceTimer::GetCurrentTicks();
+            VuVifPacketBuilder.AddOpaqueBatches(
+                untexturedBatchInstances,
+                view,
+                projection,
+                viewport,
+                nearPlaneDistance,
+                lightDirection,
+                GsGlobal);
+            const std::uint64_t vuPacketEncodeEndTicks = Ps2PerformanceTimer::GetCurrentTicks();
+            LastVuPacketEncodeMilliseconds += Ps2PerformanceTimer::ResolveMilliseconds(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);
+            LastVuTriangleSetupMilliseconds += VuVifPacketBuilder.GetLastTriangleSetupMilliseconds();
+            LastVuPacketAssemblyMilliseconds += VuVifPacketBuilder.GetLastPacketAssemblyMilliseconds();
+            LastVuGifTemplateMilliseconds += VuVifPacketBuilder.GetLastGifTemplateMilliseconds();
+            LastVuGifTemplateCacheHitCount += VuVifPacketBuilder.GetLastGifTemplateCacheHitCount();
+            LastVuGifTemplateCacheMissCount += VuVifPacketBuilder.GetLastGifTemplateCacheMissCount();
+            LastVuTrianglePrepMilliseconds += VuVifPacketBuilder.GetLastTrianglePrepMilliseconds();
+            LastVuTriangleEmitMilliseconds += VuVifPacketBuilder.GetLastTriangleEmitMilliseconds();
+            const std::size_t packetByteCount = VuVifPacketBuilder.GetPacketByteCount();
+            packet2_t* packet = VuVifPacketBuilder.ReleasePacket();
+            if (packet == nullptr) {
+                return;
+            }
+
+            for (const Ps2VuOpaqueBatchInstance& batchInstance : untexturedBatchInstances) {
+                LastVuTriangleVertexCount += static_cast<std::size_t>(batchInstance.Batch.Model->GetTriangleVertexCount());
+            }
+
+            LastVuPacketByteCount += packetByteCount;
+            LastVuPacketPhase = VuVifPacketBuilder.GetLastCompletedPhase();
+            LastSubmittedTriangleCount += VuVifPacketBuilder.GetSubmittedTriangleCount();
+            LastSubmittedScreenBounds = VuVifPacketBuilder.GetSubmittedScreenBounds();
+            LastSubmittedTriangleBoundsA = VuVifPacketBuilder.GetSubmittedTriangleBoundsA();
+            LastSubmittedTriangleVertexA0 = VuVifPacketBuilder.GetSubmittedTriangleVertexA0();
+            LastSubmittedTriangleVertexA1 = VuVifPacketBuilder.GetSubmittedTriangleVertexA1();
+            LastSubmittedTriangleVertexA2 = VuVifPacketBuilder.GetSubmittedTriangleVertexA2();
+            LastSubmittedTriangleBoundsB = VuVifPacketBuilder.GetSubmittedTriangleBoundsB();
+            LastSubmittedTriangleVertexB0 = VuVifPacketBuilder.GetSubmittedTriangleVertexB0();
+            LastSubmittedTriangleVertexB1 = VuVifPacketBuilder.GetSubmittedTriangleVertexB1();
+            LastSubmittedTriangleVertexB2 = VuVifPacketBuilder.GetSubmittedTriangleVertexB2();
+            LastVuPacketPhase = 201;
+            const std::uint64_t vuCompletionWaitStartTicks = Ps2PerformanceTimer::GetCurrentTicks();
+            dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+            const std::uint64_t vuCompletionWaitEndTicks = Ps2PerformanceTimer::GetCurrentTicks();
+            const double vuCompletionWaitMilliseconds = Ps2PerformanceTimer::ResolveMilliseconds(vuCompletionWaitStartTicks, vuCompletionWaitEndTicks);
+            LastVuCompletionWaitMilliseconds += vuCompletionWaitMilliseconds;
+            LastVuWaitMilliseconds += vuCompletionWaitMilliseconds;
+            ReleaseSubmittedVuPackets();
+            const std::uint64_t vuSubmitStartTicks = Ps2PerformanceTimer::GetCurrentTicks();
+            dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);
+            SubmittedVuPackets.push_back(packet);
+            packet = nullptr;
+            LastVuBatchDispatchCount = 1;
+            LastVuPacketPhase = 202;
+            const std::uint64_t vuSubmitEndTicks = Ps2PerformanceTimer::GetCurrentTicks();
+            const double vuSubmitOnlyMilliseconds = Ps2PerformanceTimer::ResolveMilliseconds(vuSubmitStartTicks, vuSubmitEndTicks);
+            LastVuSubmitOnlyMilliseconds += vuSubmitOnlyMilliseconds;
+            LastVuSubmitMilliseconds += vuSubmitOnlyMilliseconds;
+            LastVuPacketPhase = 203;
+            return;
+        }
+
         for (const Ps2VuOpaqueBatch& batch : batches) {
             if (batch.Proxy == nullptr) {
                 continue;
@@ -786,7 +865,7 @@ namespace helengine::ps2 {
             ::float4x4 world = BuildWorldMatrix(*batch.Proxy);
             VuGifStateEncoder.EncodeOpaqueState(batch, GsGlobal);
             VuVifPacketBuilder.Reset();
-            const std::clock_t vuPacketEncodeStartTicks = std::clock();
+            const std::uint64_t vuPacketEncodeStartTicks = Ps2PerformanceTimer::GetCurrentTicks();
             VuVifPacketBuilder.AddOpaqueBatch(
                 batch,
                 world,
@@ -798,10 +877,13 @@ namespace helengine::ps2 {
                 GsGlobal,
                 0,
                 0);
-            const std::clock_t vuPacketEncodeEndTicks = std::clock();
-            LastVuPacketEncodeMilliseconds += ResolveMillisecondsFromClockTicks(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);
+            const std::uint64_t vuPacketEncodeEndTicks = Ps2PerformanceTimer::GetCurrentTicks();
+            LastVuPacketEncodeMilliseconds += Ps2PerformanceTimer::ResolveMilliseconds(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);
             LastVuTriangleSetupMilliseconds += VuVifPacketBuilder.GetLastTriangleSetupMilliseconds();
             LastVuPacketAssemblyMilliseconds += VuVifPacketBuilder.GetLastPacketAssemblyMilliseconds();
+            LastVuGifTemplateMilliseconds += VuVifPacketBuilder.GetLastGifTemplateMilliseconds();
+            LastVuGifTemplateCacheHitCount += VuVifPacketBuilder.GetLastGifTemplateCacheHitCount();
+            LastVuGifTemplateCacheMissCount += VuVifPacketBuilder.GetLastGifTemplateCacheMissCount();
             LastVuTrianglePrepMilliseconds += VuVifPacketBuilder.GetLastTrianglePrepMilliseconds();
             LastVuTriangleEmitMilliseconds += VuVifPacketBuilder.GetLastTriangleEmitMilliseconds();
             const std::size_t packetByteCount = VuVifPacketBuilder.GetPacketByteCount();
@@ -811,6 +893,7 @@ namespace helengine::ps2 {
             }
 
             LastVuTriangleVertexCount += static_cast<std::size_t>(batch.Model->GetTriangleVertexCount());
+            LastVuBatchDispatchCount += 1;
             LastVuPacketByteCount += packetByteCount;
             LastVuPacketPhase = VuVifPacketBuilder.GetLastCompletedPhase();
             LastSubmittedTriangleCount += VuVifPacketBuilder.GetSubmittedTriangleCount();
@@ -898,20 +981,20 @@ namespace helengine::ps2 {
                 packet = nullptr;
             } else {
                 LastVuPacketPhase = 201;
-                const std::clock_t vuCompletionWaitStartTicks = std::clock();
+                const std::uint64_t vuCompletionWaitStartTicks = Ps2PerformanceTimer::GetCurrentTicks();
                 dma_channel_wait(DMA_CHANNEL_VIF1, 0);
-                const std::clock_t vuCompletionWaitEndTicks = std::clock();
-                const double vuCompletionWaitMilliseconds = ResolveMillisecondsFromClockTicks(vuCompletionWaitStartTicks, vuCompletionWaitEndTicks);
+                const std::uint64_t vuCompletionWaitEndTicks = Ps2PerformanceTimer::GetCurrentTicks();
+                const double vuCompletionWaitMilliseconds = Ps2PerformanceTimer::ResolveMilliseconds(vuCompletionWaitStartTicks, vuCompletionWaitEndTicks);
                 LastVuCompletionWaitMilliseconds += vuCompletionWaitMilliseconds;
                 LastVuWaitMilliseconds += vuCompletionWaitMilliseconds;
                 ReleaseSubmittedVuPackets();
-                const std::clock_t vuSubmitStartTicks = std::clock();
+                const std::uint64_t vuSubmitStartTicks = Ps2PerformanceTimer::GetCurrentTicks();
                 dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);
                 SubmittedVuPackets.push_back(packet);
                 packet = nullptr;
                 LastVuPacketPhase = 202;
-                const std::clock_t vuSubmitEndTicks = std::clock();
-                const double vuSubmitOnlyMilliseconds = ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);
+                const std::uint64_t vuSubmitEndTicks = Ps2PerformanceTimer::GetCurrentTicks();
+                const double vuSubmitOnlyMilliseconds = Ps2PerformanceTimer::ResolveMilliseconds(vuSubmitStartTicks, vuSubmitEndTicks);
                 LastVuSubmitOnlyMilliseconds += vuSubmitOnlyMilliseconds;
                 LastVuSubmitMilliseconds += vuSubmitOnlyMilliseconds;
                 LastVuPacketPhase = 203;
@@ -1060,12 +1143,24 @@ namespace helengine::ps2 {
         return LastVuPacketAssemblyMilliseconds;
     }
 
+    double Ps2RenderManager3D::GetLastVuGifTemplateMilliseconds() const {
+        return LastVuGifTemplateMilliseconds;
+    }
+
     double Ps2RenderManager3D::GetLastVuTrianglePrepMilliseconds() const {
         return LastVuTrianglePrepMilliseconds;
     }
 
     double Ps2RenderManager3D::GetLastVuTriangleEmitMilliseconds() const {
         return LastVuTriangleEmitMilliseconds;
+    }
+
+    std::size_t Ps2RenderManager3D::GetLastVuGifTemplateCacheHitCount() const {
+        return LastVuGifTemplateCacheHitCount;
+    }
+
+    std::size_t Ps2RenderManager3D::GetLastVuGifTemplateCacheMissCount() const {
+        return LastVuGifTemplateCacheMissCount;
     }
 
     bool Ps2RenderManager3D::IsUsingLegacyCpuOpaquePath() const {

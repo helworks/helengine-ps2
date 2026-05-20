@@ -70,8 +70,11 @@ namespace helengine::ps2 {
         double GetLastVuPacketEncodeMilliseconds() const;
         double GetLastVuTriangleSetupMilliseconds() const;
         double GetLastVuPacketAssemblyMilliseconds() const;
+        double GetLastVuGifTemplateMilliseconds() const;
         double GetLastVuTrianglePrepMilliseconds() const;
         double GetLastVuTriangleEmitMilliseconds() const;
+        std::size_t GetLastVuGifTemplateCacheHitCount() const;
+        std::size_t GetLastVuGifTemplateCacheMissCount() const;
         bool IsUsingLegacyCpuOpaquePath() const;
         ::float4 GetLastResolvedViewport() const;
         ::float4 GetLastSubmittedScreenBounds() const;
@@ -175,8 +178,11 @@ namespace helengine::ps2 {
         double LastVuPacketEncodeMilliseconds;
         double LastVuTriangleSetupMilliseconds;
         double LastVuPacketAssemblyMilliseconds;
+        double LastVuGifTemplateMilliseconds;
         double LastVuTrianglePrepMilliseconds;
         double LastVuTriangleEmitMilliseconds;
+        std::size_t LastVuGifTemplateCacheHitCount;
+        std::size_t LastVuGifTemplateCacheMissCount;
         ::float4 LastResolvedViewport;
         ::float4 LastSubmittedScreenBounds;
         ::float4 LastSubmittedTriangleBoundsA;

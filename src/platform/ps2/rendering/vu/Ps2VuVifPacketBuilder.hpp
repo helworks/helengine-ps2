@@ -19,6 +19,7 @@ namespace helengine::ps2 {
         ~Ps2VuVifPacketBuilder();
         void Reset();
         void AddOpaqueBatch(const Ps2VuOpaqueBatch& batch, const ::float4x4& world, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance, const ::float3& lightDirection, GSGLOBAL* gsGlobal, int textureWidth, int textureHeight);
+        void AddOpaqueBatches(const std::vector<Ps2VuOpaqueBatchInstance>& batchInstances, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance, const ::float3& lightDirection, GSGLOBAL* gsGlobal);
         packet2_t* GetPacket() const;
         packet2_t* ReleasePacket();
         std::size_t GetPacketByteCount() const;
@@ -26,8 +27,11 @@ namespace helengine::ps2 {
         std::uint32_t GetLastCompletedPhase() const;
         double GetLastTriangleSetupMilliseconds() const;
         double GetLastPacketAssemblyMilliseconds() const;
+        double GetLastGifTemplateMilliseconds() const;
         double GetLastTrianglePrepMilliseconds() const;
         double GetLastTriangleEmitMilliseconds() const;
+        std::size_t GetLastGifTemplateCacheHitCount() const;
+        std::size_t GetLastGifTemplateCacheMissCount() const;
         std::size_t GetSubmittedTriangleCount() const;
         ::float4 GetSubmittedScreenBounds() const;
         ::float4 GetSubmittedTriangleBoundsA() const;
@@ -45,8 +49,11 @@ namespace helengine::ps2 {
         std::uint32_t LastCompletedPhase = 0;
         double LastTriangleSetupMilliseconds = 0.0;
         double LastPacketAssemblyMilliseconds = 0.0;
+        double LastGifTemplateMilliseconds = 0.0;
         double LastTrianglePrepMilliseconds = 0.0;
         double LastTriangleEmitMilliseconds = 0.0;
+        std::size_t LastGifTemplateCacheHitCount = 0u;
+        std::size_t LastGifTemplateCacheMissCount = 0u;
         std::size_t SubmittedTriangleCount = 0;
         ::float4 SubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         ::float4 SubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);

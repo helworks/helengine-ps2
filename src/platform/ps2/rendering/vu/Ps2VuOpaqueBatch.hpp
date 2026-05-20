@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include "float4x4.hpp"
+
 namespace helengine::ps2 {
     class Ps2RenderProxy;
     class Ps2RuntimeMaterial;
@@ -12,5 +14,10 @@ namespace helengine::ps2 {
         const Ps2VuPackedModel* Model;
         const Ps2RuntimeMaterial* Material;
         bool Textured;
+    };
+
+    struct Ps2VuOpaqueBatchInstance final {
+        Ps2VuOpaqueBatch Batch;
+        ::float4x4 World;
     };
 }

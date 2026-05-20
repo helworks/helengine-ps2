@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "float3.hpp"
-
 namespace helengine::ps2 {
     class Ps2VuPackedModel final {
     public:

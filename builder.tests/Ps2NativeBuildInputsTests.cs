@@ -419,18 +419,20 @@ public sealed class Ps2NativeBuildInputsTests {
     public void Boot_host_supports_frame_timing_diagnostics_for_update_draw_and_present() {
         string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
 
-        Assert.Contains("#include <ctime>", source, StringComparison.Ordinal);
+        Assert.Contains("#include <cstdint>", source, StringComparison.Ordinal);
+        Assert.Contains("#include \"platform/ps2/Ps2PerformanceTimer.hpp\"", source, StringComparison.Ordinal);
         Assert.Contains("constexpr bool EnableFrameTimingDiagnostics = false;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr bool EnableFrameTimingDiagnosticHalt = false;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr int FrameTimingSampleFrameCount = 60;", source, StringComparison.Ordinal);
-        Assert.Contains("double ResolveSecondsFromClockTicks(std::clock_t startTicks, std::clock_t endTicks)", source, StringComparison.Ordinal);
+        Assert.Contains("double ResolveSecondsFromTimerTicks(std::uint64_t startTicks, std::uint64_t endTicks)", source, StringComparison.Ordinal);
+        Assert.Contains("return helengine::ps2::Ps2PerformanceTimer::ResolveSeconds(startTicks, endTicks);", source, StringComparison.Ordinal);
         Assert.Contains("void RecordFrameTimingSample(double updateSeconds, double drawSeconds, double presentSeconds)", source, StringComparison.Ordinal);
         Assert.Contains("\"frame timing avg updateMs=\"", source, StringComparison.Ordinal);
         Assert.Contains("FrameTimingSampleCompleted = true;", source, StringComparison.Ordinal);
-        Assert.Contains("const std::clock_t frameUpdateStartTicks = std::clock();", source, StringComparison.Ordinal);
-        Assert.Contains("frameUpdateEndTicks = std::clock();", source, StringComparison.Ordinal);
-        Assert.Contains("frameDrawEndTicks = std::clock();", source, StringComparison.Ordinal);
-        Assert.Contains("framePresentEndTicks = std::clock();", source, StringComparison.Ordinal);
+        Assert.Contains("const std::uint64_t frameUpdateStartTicks = helengine::ps2::Ps2PerformanceTimer::GetCurrentTicks();", source, StringComparison.Ordinal);
+        Assert.Contains("frameUpdateEndTicks = helengine::ps2::Ps2PerformanceTimer::GetCurrentTicks();", source, StringComparison.Ordinal);
+        Assert.Contains("frameDrawEndTicks = helengine::ps2::Ps2PerformanceTimer::GetCurrentTicks();", source, StringComparison.Ordinal);
+        Assert.Contains("framePresentEndTicks = helengine::ps2::Ps2PerformanceTimer::GetCurrentTicks();", source, StringComparison.Ordinal);
         Assert.Contains("RecordFrameTimingSample(", source, StringComparison.Ordinal);
         Assert.Contains("if (EnableFrameTimingDiagnostics && EnableFrameTimingDiagnosticHalt && FrameTimingSampleCompleted) {", source, StringComparison.Ordinal);
     }

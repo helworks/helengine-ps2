@@ -2,9 +2,11 @@
 
 #include <algorithm>
 #include <cmath>
-#include <ctime>
+#include <cstdint>
 #include <cstring>
+#include <utility>
 
+#include "platform/ps2/Ps2PerformanceTimer.hpp"
 #include "platform/ps2/rendering/Ps2RenderProxy.hpp"
 #include "platform/ps2/rendering/Ps2RuntimeMaterial.hpp"
 #include "platform/ps2/rendering/Ps2RuntimeModel.hpp"
@@ -18,14 +20,6 @@ namespace helengine::ps2 {
         constexpr float LightingDiffuseScale = 0.75f;
         constexpr float LightingPaletteScale = 15.0f;
         constexpr float MinimumClipW = 0.0001f;
-
-        double ResolveMillisecondsFromClockTicks(std::clock_t startTicks, std::clock_t endTicks) {
-            if (endTicks <= startTicks) {
-                return 0.0;
-            }
-
-            return (static_cast<double>(endTicks - startTicks) / static_cast<double>(CLOCKS_PER_SEC)) * 1000.0;
-        }
 
         ::float3 TransformPosition(const ::float4& position, const ::float4x4& matrix) {
             return ::float3(
@@ -116,6 +110,7 @@ namespace helengine::ps2 {
 
     Ps2VuOpaqueUntexturedSetupBuilder::Ps2VuOpaqueUntexturedSetupBuilder()
         : TriangleSetups(),
+          CompactTriangleSetups(),
           LastTriangleSetupMilliseconds(0.0),
           LastTrianglePrepMilliseconds(0.0),
           LastTriangleEmitMilliseconds(0.0),
@@ -133,6 +128,7 @@ namespace helengine::ps2 {
 
     void Ps2VuOpaqueUntexturedSetupBuilder::Reset() {
         TriangleSetups.clear();
+        CompactTriangleSetups.clear();
         LastTriangleSetupMilliseconds = 0.0;
         LastTrianglePrepMilliseconds = 0.0;
         LastTriangleEmitMilliseconds = 0.0;
@@ -157,7 +153,8 @@ namespace helengine::ps2 {
         const ::float3& lightDirection,
         float nearPlaneDistance,
         GSGLOBAL* gsGlobal,
-        bool includeFallbackPayload) {
+        bool includeFallbackPayload,
+        bool useCompactTriangleSetups) {
         Reset();
         if (batch.Model == nullptr || batch.Material == nullptr) {
             return;
@@ -171,10 +168,11 @@ namespace helengine::ps2 {
         (void)nearPlaneDistance;
 
         const ::float3 normalizedLightDirection = NormalizeOrFallback(lightDirection, ::float3(0.0f, 0.0f, -1.0f));
-        const std::clock_t triangleSetupStartTicks = std::clock();
+        const std::uint64_t triangleSetupStartTicks = Ps2PerformanceTimer::GetCurrentTicks();
         if (EnableVuSingleTrianglePayloadDiagnostics) {
             Ps2VuOpaqueUntexturedTriangleSetup triangleSetup {};
             PopulateDiagnosticTriangleSetup(viewport, normalizedLightDirection, triangleSetup);
+            triangleSetup.Material = batch.Material;
             TriangleSetups.push_back(triangleSetup);
             SubmittedTriangleCount = 1u;
             SubmittedTriangleVertexA0 = ::float4(triangleSetup.SourceTriangle.PositionA[0], triangleSetup.SourceTriangle.PositionA[1], triangleSetup.SourceTriangle.PositionA[2], 1.0f);
@@ -183,7 +181,11 @@ namespace helengine::ps2 {
         } else {
             const float* packedPositionWords = reinterpret_cast<const float*>(batch.Model->GetPositionBlockBytes());
             const float* packedNormalWords = reinterpret_cast<const float*>(batch.Model->GetNormalBlockBytes());
-            TriangleSetups.reserve(triangleVertexCount / 3u);
+            if (useCompactTriangleSetups) {
+                CompactTriangleSetups.reserve(triangleVertexCount / 3u);
+            } else {
+                TriangleSetups.reserve(triangleVertexCount / 3u);
+            }
 
             ::float4x4 worldCopy = world;
             ::float4x4 viewCopy = view;
@@ -218,9 +220,9 @@ namespace helengine::ps2 {
             ::float3 cachedWorldFaceNormal = ::float3::get_Zero();
 
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
-                std::clock_t trianglePrepStartTicks = 0;
+                std::uint64_t trianglePrepStartTicks = 0;
                 if constexpr (EnableVuTrianglePhaseTiming) {
-                    trianglePrepStartTicks = std::clock();
+                    trianglePrepStartTicks = Ps2PerformanceTimer::GetCurrentTicks();
                 }
                 const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
                 const std::size_t positionWordIndexB = static_cast<std::size_t>(vertexIndex + 1u) * 4u;
@@ -267,44 +269,67 @@ namespace helengine::ps2 {
                 }
                 const ::float3 worldFaceNormal = cachedWorldFaceNormal;
                 if constexpr (EnableVuTrianglePhaseTiming) {
-                    const std::clock_t trianglePrepEndTicks = std::clock();
-                    LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
+                    const std::uint64_t trianglePrepEndTicks = Ps2PerformanceTimer::GetCurrentTicks();
+                    LastTrianglePrepMilliseconds += Ps2PerformanceTimer::ResolveMilliseconds(trianglePrepStartTicks, trianglePrepEndTicks);
                 }
 
-                std::clock_t triangleEmitStartTicks = 0;
+                std::uint64_t triangleEmitStartTicks = 0;
                 if constexpr (EnableVuTrianglePhaseTiming) {
-                    triangleEmitStartTicks = std::clock();
+                    triangleEmitStartTicks = Ps2PerformanceTimer::GetCurrentTicks();
                 }
-                const bool shouldWriteBatchConstants = includeFallbackPayload || TriangleSetups.empty();
-                Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup = TriangleSetups.emplace_back();
-                if (includeFallbackPayload) {
-                    std::memcpy(triangleSetup.WorldMatrix, worldMatrixWords, sizeof(worldMatrixWords));
-                    std::memcpy(triangleSetup.ViewMatrix, viewMatrixWords, sizeof(viewMatrixWords));
-                    std::memcpy(triangleSetup.ProjectionMatrix, projectionMatrixWords, sizeof(projectionMatrixWords));
-                    std::memcpy(triangleSetup.Viewport, viewportWords, sizeof(viewportWords));
+                if (useCompactTriangleSetups) {
+                    Ps2VuOpaqueUntexturedCompactTriangleSetup& compactTriangleSetup = CompactTriangleSetups.emplace_back();
+                    compactTriangleSetup.PositionA[0] = packedPositionA.X;
+                    compactTriangleSetup.PositionA[1] = packedPositionA.Y;
+                    compactTriangleSetup.PositionA[2] = packedPositionA.Z;
+                    compactTriangleSetup.PositionA[3] = 1.0f;
+                    compactTriangleSetup.PositionB[0] = packedPositionB.X;
+                    compactTriangleSetup.PositionB[1] = packedPositionB.Y;
+                    compactTriangleSetup.PositionB[2] = packedPositionB.Z;
+                    compactTriangleSetup.PositionB[3] = 1.0f;
+                    compactTriangleSetup.PositionC[0] = packedPositionC.X;
+                    compactTriangleSetup.PositionC[1] = packedPositionC.Y;
+                    compactTriangleSetup.PositionC[2] = packedPositionC.Z;
+                    compactTriangleSetup.PositionC[3] = 1.0f;
+                    compactTriangleSetup.FaceNormal[0] = worldFaceNormal.X;
+                    compactTriangleSetup.FaceNormal[1] = worldFaceNormal.Y;
+                    compactTriangleSetup.FaceNormal[2] = worldFaceNormal.Z;
+                    compactTriangleSetup.FaceNormal[3] = 0.0f;
+                } else {
+                    const bool shouldWriteBatchConstants = includeFallbackPayload || TriangleSetups.empty();
+                    Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup = TriangleSetups.emplace_back();
+                    triangleSetup.Material = batch.Material;
+                    if (includeFallbackPayload) {
+                        std::memcpy(triangleSetup.WorldMatrix, worldMatrixWords, sizeof(worldMatrixWords));
+                        std::memcpy(triangleSetup.ViewMatrix, viewMatrixWords, sizeof(viewMatrixWords));
+                        std::memcpy(triangleSetup.ProjectionMatrix, projectionMatrixWords, sizeof(projectionMatrixWords));
+                        std::memcpy(triangleSetup.Viewport, viewportWords, sizeof(viewportWords));
+                        std::memcpy(triangleSetup.LightDirection, lightDirectionWords, sizeof(lightDirectionWords));
+                        std::memcpy(triangleSetup.LightConstants, lightConstantsWords, sizeof(lightConstantsWords));
+                    }
+                    triangleSetup.SourceTriangle.PositionA[0] = packedPositionA.X;
+                    triangleSetup.SourceTriangle.PositionA[1] = packedPositionA.Y;
+                    triangleSetup.SourceTriangle.PositionA[2] = packedPositionA.Z;
+                    triangleSetup.SourceTriangle.PositionA[3] = 1.0f;
+                    triangleSetup.SourceTriangle.PositionB[0] = packedPositionB.X;
+                    triangleSetup.SourceTriangle.PositionB[1] = packedPositionB.Y;
+                    triangleSetup.SourceTriangle.PositionB[2] = packedPositionB.Z;
+                    triangleSetup.SourceTriangle.PositionB[3] = 1.0f;
+                    triangleSetup.SourceTriangle.PositionC[0] = packedPositionC.X;
+                    triangleSetup.SourceTriangle.PositionC[1] = packedPositionC.Y;
+                    triangleSetup.SourceTriangle.PositionC[2] = packedPositionC.Z;
+                    triangleSetup.SourceTriangle.PositionC[3] = 1.0f;
+                    triangleSetup.FaceNormal[0] = worldFaceNormal.X;
+                    triangleSetup.FaceNormal[1] = worldFaceNormal.Y;
+                    triangleSetup.FaceNormal[2] = worldFaceNormal.Z;
+                    triangleSetup.FaceNormal[3] = 0.0f;
                     std::memcpy(triangleSetup.LightDirection, lightDirectionWords, sizeof(lightDirectionWords));
                     std::memcpy(triangleSetup.LightConstants, lightConstantsWords, sizeof(lightConstantsWords));
-                }
-                triangleSetup.SourceTriangle.PositionA[0] = packedPositionA.X;
-                triangleSetup.SourceTriangle.PositionA[1] = packedPositionA.Y;
-                triangleSetup.SourceTriangle.PositionA[2] = packedPositionA.Z;
-                triangleSetup.SourceTriangle.PositionA[3] = 1.0f;
-                triangleSetup.SourceTriangle.PositionB[0] = packedPositionB.X;
-                triangleSetup.SourceTriangle.PositionB[1] = packedPositionB.Y;
-                triangleSetup.SourceTriangle.PositionB[2] = packedPositionB.Z;
-                triangleSetup.SourceTriangle.PositionB[3] = 1.0f;
-                triangleSetup.SourceTriangle.PositionC[0] = packedPositionC.X;
-                triangleSetup.SourceTriangle.PositionC[1] = packedPositionC.Y;
-                triangleSetup.SourceTriangle.PositionC[2] = packedPositionC.Z;
-                triangleSetup.SourceTriangle.PositionC[3] = 1.0f;
-                triangleSetup.FaceNormal[0] = worldFaceNormal.X;
-                triangleSetup.FaceNormal[1] = worldFaceNormal.Y;
-                triangleSetup.FaceNormal[2] = worldFaceNormal.Z;
-                triangleSetup.FaceNormal[3] = 0.0f;
-                if (shouldWriteBatchConstants) {
-                    std::memcpy(triangleSetup.WorldViewProjectionMatrix, worldViewProjectionMatrixWords, sizeof(worldViewProjectionMatrixWords));
-                    std::memcpy(triangleSetup.GsScale, gsScaleWords, sizeof(gsScaleWords));
-                    std::memcpy(triangleSetup.GsOffset, gsOffsetWords, sizeof(gsOffsetWords));
+                    if (shouldWriteBatchConstants) {
+                        std::memcpy(triangleSetup.WorldViewProjectionMatrix, worldViewProjectionMatrixWords, sizeof(worldViewProjectionMatrixWords));
+                        std::memcpy(triangleSetup.GsScale, gsScaleWords, sizeof(gsScaleWords));
+                        std::memcpy(triangleSetup.GsOffset, gsOffsetWords, sizeof(gsOffsetWords));
+                    }
                 }
                 SubmittedTriangleCount++;
                 if constexpr (EnableVuTriangleDebugProbeCapture) {
@@ -325,18 +350,30 @@ namespace helengine::ps2 {
                     }
                 }
                 if constexpr (EnableVuTrianglePhaseTiming) {
-                    const std::clock_t triangleEmitEndTicks = std::clock();
-                    LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
+                    const std::uint64_t triangleEmitEndTicks = Ps2PerformanceTimer::GetCurrentTicks();
+                    LastTriangleEmitMilliseconds += Ps2PerformanceTimer::ResolveMilliseconds(triangleEmitStartTicks, triangleEmitEndTicks);
                 }
             }
         }
 
-        const std::clock_t triangleSetupEndTicks = std::clock();
-        LastTriangleSetupMilliseconds = ResolveMillisecondsFromClockTicks(triangleSetupStartTicks, triangleSetupEndTicks);
+        const std::uint64_t triangleSetupEndTicks = Ps2PerformanceTimer::GetCurrentTicks();
+        LastTriangleSetupMilliseconds = Ps2PerformanceTimer::ResolveMilliseconds(triangleSetupStartTicks, triangleSetupEndTicks);
     }
 
     const std::vector<Ps2VuOpaqueUntexturedTriangleSetup>& Ps2VuOpaqueUntexturedSetupBuilder::GetTriangleSetups() const {
         return TriangleSetups;
+    }
+
+    const std::vector<Ps2VuOpaqueUntexturedCompactTriangleSetup>& Ps2VuOpaqueUntexturedSetupBuilder::GetCompactTriangleSetups() const {
+        return CompactTriangleSetups;
+    }
+
+    std::vector<Ps2VuOpaqueUntexturedTriangleSetup> Ps2VuOpaqueUntexturedSetupBuilder::TakeTriangleSetups() {
+        return std::move(TriangleSetups);
+    }
+
+    std::vector<Ps2VuOpaqueUntexturedCompactTriangleSetup> Ps2VuOpaqueUntexturedSetupBuilder::TakeCompactTriangleSetups() {
+        return std::move(CompactTriangleSetups);
     }
 
     double Ps2VuOpaqueUntexturedSetupBuilder::GetLastTriangleSetupMilliseconds() const {
