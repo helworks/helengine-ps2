@@ -14,8 +14,8 @@ namespace helengine {
         Ps2TextureAsset = 2,
 
         /// <summary>
-        /// The payload stores one <see cref="Ps2PackedModelAsset"/>.
+        /// The payload stores one <see cref="Ps2ModelAsset"/>.
         /// </summary>
-        Ps2PackedModelAsset = 3
+        Ps2ModelAsset = 3
     }
 }

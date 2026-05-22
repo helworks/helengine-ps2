@@ -178,13 +178,20 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             }
 
             string destinationPath = Path.Combine(request.WorkingRoot, "ps2-staging", NormalizeRelativePath(artifact.RelativePath));
+            if (IsModelArtifact(artifact)) {
+                destinationPath = BuildPs2ModelArtifactPath(destinationPath);
+            }
+
             string destinationDirectory = Path.GetDirectoryName(destinationPath);
             if (!string.IsNullOrWhiteSpace(destinationDirectory)) {
                 Directory.CreateDirectory(destinationDirectory);
             }
 
-            File.Copy(sourcePath, destinationPath, true);
-            WritePackedModelSidecar(artifact, destinationPath);
+            if (IsModelArtifact(artifact)) {
+                WritePs2ModelAsset(artifact, sourcePath, destinationPath);
+            } else {
+                File.Copy(sourcePath, destinationPath, true);
+            }
             progressReporter.Report(new PlatformBuildProgressUpdate(
                 "Stage Cooked Artifacts",
                 artifact.LogicalArtifactId,
@@ -221,48 +228,65 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     }
 
     /// <summary>
-    /// Writes one PS2-owned packed-model sidecar beside each staged cooked model artifact.
+    /// Returns whether one staged cooked artifact should be rewritten into the PS2-owned cooked model payload.
     /// </summary>
-    /// <param name="artifact">Artifact being staged.</param>
-    /// <param name="destinationPath">Destination path for the staged artifact.</param>
-    void WritePackedModelSidecar(PlatformBuildArtifact artifact, string destinationPath) {
+    /// <param name="artifact">Artifact metadata to inspect.</param>
+    /// <returns>True when the artifact is a model payload; otherwise false.</returns>
+    static bool IsModelArtifact(PlatformBuildArtifact artifact) {
         if (artifact == null) {
             throw new ArgumentNullException(nameof(artifact));
-        } else if (!string.Equals(artifact.ArtifactKind, "model", StringComparison.OrdinalIgnoreCase)) {
-            return;
+        }
+
+        return string.Equals(artifact.ArtifactKind, "model", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Writes one PS2-owned cooked model asset instead of staging the generic cooked model payload.
+    /// </summary>
+    /// <param name="artifact">Artifact being staged.</param>
+    /// <param name="sourcePath">Source path for the generic cooked model payload.</param>
+    /// <param name="destinationPath">Destination path for the staged PS2-owned cooked model payload.</param>
+    void WritePs2ModelAsset(PlatformBuildArtifact artifact, string sourcePath, string destinationPath) {
+        if (artifact == null) {
+            throw new ArgumentNullException(nameof(artifact));
+        } else if (string.IsNullOrWhiteSpace(sourcePath)) {
+            throw new ArgumentException("Source path must be provided for PS2 cooked model generation.", nameof(sourcePath));
         } else if (string.IsNullOrWhiteSpace(destinationPath)) {
-            throw new ArgumentException("Destination path must be provided for packed model sidecar generation.", nameof(destinationPath));
+            throw new ArgumentException("Destination path must be provided for PS2 cooked model generation.", nameof(destinationPath));
         }
 
         ModelAsset modelAsset;
-        using (FileStream destinationStream = File.OpenRead(destinationPath)) {
-            modelAsset = AssetSerializer.Deserialize(destinationStream) as ModelAsset;
+        using (FileStream sourceStream = File.OpenRead(sourcePath)) {
+            modelAsset = AssetSerializer.Deserialize(sourceStream) as ModelAsset;
         }
         if (modelAsset == null) {
             throw new InvalidOperationException($"Cooked model artifact '{artifact.RelativePath}' did not deserialize as a model asset.");
         }
 
         byte[] packedMeshBytes = PackedMeshCooker.Cook(modelAsset);
-        string sidecarPath = BuildPackedModelSidecarPath(destinationPath);
-        Ps2PackedModelAsset packedModelAsset = new() {
-            Id = artifact.LogicalArtifactId + ".ps2-packed-model",
+        Ps2ModelAsset ps2ModelAsset = new() {
+            Id = string.IsNullOrWhiteSpace(modelAsset.Id) ? artifact.LogicalArtifactId : modelAsset.Id,
+            Positions = modelAsset.Positions,
+            Normals = modelAsset.Normals,
+            TexCoords = modelAsset.TexCoords,
+            Indices16 = ResolvePs2Indices16(modelAsset),
             PackedMeshBytes = packedMeshBytes
         };
 
-        Console.WriteLine($"[helengine-ps2] write packed model sidecar begin path={artifact.RelativePath} bytes={packedMeshBytes.Length}");
-        File.WriteAllBytes(sidecarPath, Ps2AssetSerializer.SerializeToBytes(packedModelAsset));
-        using FileStream verifyStream = File.OpenRead(sidecarPath);
-        Ps2PackedModelAsset verifiedPackedModelAsset = Ps2AssetSerializer.Deserialize(verifyStream) as Ps2PackedModelAsset;
-        int verifiedLength = verifiedPackedModelAsset?.PackedMeshBytes?.Length ?? -1;
-        Console.WriteLine($"[helengine-ps2] write packed model sidecar verify path={artifact.RelativePath} bytes={verifiedLength}");
+        Console.WriteLine($"[helengine-ps2] write ps2 model asset begin path={artifact.RelativePath} bytes={packedMeshBytes.Length}");
+        File.WriteAllBytes(destinationPath, Ps2AssetSerializer.SerializeToBytes(ps2ModelAsset));
+        using FileStream verifyStream = File.OpenRead(destinationPath);
+        Ps2ModelAsset verifiedPs2ModelAsset = Ps2AssetSerializer.Deserialize(verifyStream) as Ps2ModelAsset;
+        int verifiedLength = verifiedPs2ModelAsset?.PackedMeshBytes?.Length ?? -1;
+        Console.WriteLine($"[helengine-ps2] write ps2 model asset verify path={artifact.RelativePath} bytes={verifiedLength}");
     }
 
     /// <summary>
-    /// Builds the PS2 packed-model sidecar path that accompanies one generic cooked model artifact.
+    /// Builds the staged PS2-owned cooked model artifact path from the generic cooked model artifact path.
     /// </summary>
-    /// <param name="modelArtifactPath">Absolute path to the generic cooked model artifact.</param>
-    /// <returns>Absolute path to the PS2 packed-model sidecar.</returns>
-    static string BuildPackedModelSidecarPath(string modelArtifactPath) {
+    /// <param name="modelArtifactPath">Absolute path to the generic cooked model artifact destination.</param>
+    /// <returns>Absolute path to the staged PS2-owned cooked model payload.</returns>
+    static string BuildPs2ModelArtifactPath(string modelArtifactPath) {
         if (string.IsNullOrWhiteSpace(modelArtifactPath)) {
             throw new ArgumentException("Model artifact path must be provided.", nameof(modelArtifactPath));
         }
@@ -270,7 +294,34 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         string directoryPath = Path.GetDirectoryName(modelArtifactPath)
             ?? throw new InvalidOperationException($"Could not resolve the directory for model artifact '{modelArtifactPath}'.");
         string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(modelArtifactPath);
-        return Path.Combine(directoryPath, fileNameWithoutExtension + ".psm");
+        return Path.Combine(directoryPath, fileNameWithoutExtension + ".phm");
+    }
+
+    /// <summary>
+    /// Resolves the 16-bit index buffer stored by one PS2-owned cooked model asset.
+    /// </summary>
+    /// <param name="modelAsset">Generic cooked model asset being converted.</param>
+    /// <returns>16-bit PS2 index buffer.</returns>
+    static ushort[] ResolvePs2Indices16(ModelAsset modelAsset) {
+        if (modelAsset == null) {
+            throw new ArgumentNullException(nameof(modelAsset));
+        } else if (modelAsset.Indices16 != null && modelAsset.Indices16.Length > 0) {
+            return modelAsset.Indices16;
+        } else if (modelAsset.Indices32 == null || modelAsset.Indices32.Length == 0) {
+            return Array.Empty<ushort>();
+        }
+
+        ushort[] indices16 = new ushort[modelAsset.Indices32.Length];
+        for (int index = 0; index < modelAsset.Indices32.Length; index++) {
+            uint rawIndex = modelAsset.Indices32[index];
+            if (rawIndex > ushort.MaxValue) {
+                throw new InvalidOperationException("PS2 cooked models require 16-bit indices.");
+            }
+
+            indices16[index] = (ushort)rawIndex;
+        }
+
+        return indices16;
     }
 
     static void AddDiagnostic(

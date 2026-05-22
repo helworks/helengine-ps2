@@ -30,7 +30,7 @@
 #include "ModelAsset.hpp"
 #include "ObjectManager.hpp"
 #include "PlatformMaterialAsset.hpp"
-#include "Ps2PackedModelAsset.hpp"
+#include "Ps2ModelAsset.hpp"
 #include "Ps2TextureAsset.hpp"
 #include "Ps2MaterialAsset.hpp"
 #include "Ps2MaterialLightingMode.hpp"
@@ -383,25 +383,6 @@ namespace helengine::ps2 {
             return texture;
         }
 
-        std::string BuildPackedModelSidecarPath(const std::string& cookedModelPath) {
-            if (cookedModelPath.empty()) {
-                throw std::invalid_argument("Cooked model path must be provided.");
-            }
-
-            std::string normalizedPath = cookedModelPath;
-            const std::size_t versionSuffixIndex = normalizedPath.rfind(";1");
-            if (versionSuffixIndex != std::string::npos && versionSuffixIndex == normalizedPath.length() - 2) {
-                normalizedPath = normalizedPath.substr(0, versionSuffixIndex);
-            }
-
-            const std::size_t extensionIndex = normalizedPath.rfind('.');
-            if (extensionIndex == std::string::npos) {
-                return normalizedPath + ".PSM";
-            }
-
-            return normalizedPath.substr(0, extensionIndex) + ".PSM";
-        }
-
         void DrawHdrGlowPass(GSGLOBAL* gsGlobal) {
             if (gsGlobal == nullptr || DeferredHdrGlowTriangles.empty()) {
                 DeferredHdrGlowTriangles.clear();
@@ -616,27 +597,14 @@ namespace helengine::ps2 {
                 modelStream->Dispose();
             }
         });
-        ::Asset* modelAssetBase = ::AssetSerializer::Deserialize(modelStream);
-        ::ModelAsset* modelAsset = he_cpp_try_cast<::ModelAsset>(modelAssetBase);
+        ::Asset* modelAssetBase = ::Ps2AssetSerializer::Deserialize(modelStream);
+        ::Ps2ModelAsset* modelAsset = he_cpp_try_cast<::Ps2ModelAsset>(modelAssetBase);
         if (modelAsset == nullptr) {
-            throw std::invalid_argument("PS2 cooked model payload did not deserialize as ModelAsset.");
-        }
-
-        const std::string packedModelPath = BuildPackedModelSidecarPath(cookedAssetPath);
-        ::FileStream* packedModelStream = ::File::OpenRead(packedModelPath);
-        [[maybe_unused]] auto packedModelStreamGuard = he_cpp_make_scope_exit([packedModelStream]() {
-            if (packedModelStream != nullptr) {
-                packedModelStream->Dispose();
-            }
-        });
-        ::Asset* packedModelAssetBase = ::Ps2AssetSerializer::Deserialize(packedModelStream);
-        ::Ps2PackedModelAsset* packedModelAsset = he_cpp_try_cast<::Ps2PackedModelAsset>(packedModelAssetBase);
-        if (packedModelAsset == nullptr) {
-            throw std::invalid_argument("PS2 packed model sidecar did not deserialize as Ps2PackedModelAsset.");
+            throw std::invalid_argument("PS2 cooked model payload did not deserialize as Ps2ModelAsset.");
         }
 
         Ps2RuntimeModel* runtimeModel = new Ps2RuntimeModel();
-        runtimeModel->LoadFromCooked(modelAsset, packedModelAsset);
+        runtimeModel->LoadFromCooked(modelAsset);
         return runtimeModel;
     }
 

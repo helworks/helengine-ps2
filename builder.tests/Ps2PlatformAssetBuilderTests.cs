@@ -966,7 +966,7 @@ public class Ps2PlatformAssetBuilderTests {
             Assert.True(File.Exists(Path.Combine(outputRoot, "disc", Ps2BuildWorkspace.DiscExecutableFileName)));
             Assert.True(File.Exists(Path.Combine(outputRoot, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/scenes/main.hasset"))));
             Assert.True(File.Exists(Path.Combine(outputRoot, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/scenes/rendering/directional_shadow_plaza.hasset"))));
-            Assert.True(File.Exists(Path.Combine(outputRoot, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/imported/box_a.hasset"))));
+            Assert.True(File.Exists(Path.Combine(outputRoot, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/imported/box_a.phm"))));
             Assert.True(File.Exists(Path.Combine(outputRoot, "game.iso")));
             Assert.True(File.Exists(Path.Combine(generatedCoreRoot, "runtime", "runtime_ps2_asset_path_manifest.hpp")));
             Assert.True(File.Exists(Path.Combine(generatedCoreRoot, "runtime", "runtime_ps2_asset_path_manifest.cpp")));
@@ -999,7 +999,7 @@ public class Ps2PlatformAssetBuilderTests {
     }
 
     /// <summary>
-    /// Verifies that PS2 builds embed a qword-aligned packed mesh payload inside staged opaque cube model assets for the first VU path milestone.
+    /// Verifies that PS2 builds emit one PS2-owned cooked model asset containing the qword-aligned packed mesh payload without staging the generic model asset beside it.
     /// </summary>
     [Fact]
     public async Task BuildAsync_WhenSceneContainsOpaqueCube_EmbedsVuPackedMeshBytesInsideCookedModelAsset() {
@@ -1100,45 +1100,31 @@ public class Ps2PlatformAssetBuilderTests {
             Assert.True(report.Succeeded);
             Assert.Empty(diagnosticReporter.Diagnostics);
 
-            string stagedModelPath = Path.Combine(request.WorkingRoot, "ps2-staging", "cooked", "engine", "models", "cube.hasset");
+            string stagedSourceModelPath = Path.Combine(request.WorkingRoot, "ps2-staging", "cooked", "engine", "models", "cube.hasset");
+            string stagedModelPath = Path.Combine(request.WorkingRoot, "ps2-staging", "cooked", "engine", "models", "cube.phm");
             Assert.True(File.Exists(stagedModelPath));
+            Assert.False(File.Exists(stagedSourceModelPath));
 
-            ModelAsset stagedModelAsset;
+            Ps2ModelAsset stagedModelAsset;
             using (FileStream modelStream = File.OpenRead(stagedModelPath)) {
-                stagedModelAsset = Assert.IsType<ModelAsset>(helengine.files.AssetSerializer.Deserialize(modelStream));
+                stagedModelAsset = Assert.IsType<Ps2ModelAsset>(Ps2AssetSerializer.Deserialize(modelStream));
             }
+            Assert.NotNull(stagedModelAsset.PackedMeshBytes);
+            Assert.NotEmpty(stagedModelAsset.PackedMeshBytes);
+            Assert.Equal(0, stagedModelAsset.PackedMeshBytes.Length % 16);
 
-            string stagedPackedModelPath = BuildPackedModelSidecarPath(stagedModelPath);
-            Assert.True(File.Exists(stagedPackedModelPath));
-
-            Ps2PackedModelAsset stagedPackedModelAsset;
-            using (FileStream packedModelStream = File.OpenRead(stagedPackedModelPath)) {
-                stagedPackedModelAsset = Assert.IsType<Ps2PackedModelAsset>(Ps2AssetSerializer.Deserialize(packedModelStream));
-            }
-
-            Assert.NotNull(stagedPackedModelAsset.PackedMeshBytes);
-            Assert.NotEmpty(stagedPackedModelAsset.PackedMeshBytes);
-            Assert.Equal(0, stagedPackedModelAsset.PackedMeshBytes.Length % 16);
-
-            string discModelPath = Path.Combine(outputRoot, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/engine/models/cube.hasset"));
+            string discSourceModelPath = Path.Combine(outputRoot, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/engine/models/cube.hasset"));
+            string discModelPath = Path.Combine(outputRoot, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/engine/models/cube.phm"));
             Assert.True(File.Exists(discModelPath));
+            Assert.False(File.Exists(discSourceModelPath));
 
-            ModelAsset discModelAsset;
+            Ps2ModelAsset discModelAsset;
             using (FileStream discModelStream = File.OpenRead(discModelPath)) {
-                discModelAsset = Assert.IsType<ModelAsset>(helengine.files.AssetSerializer.Deserialize(discModelStream));
+                discModelAsset = Assert.IsType<Ps2ModelAsset>(Ps2AssetSerializer.Deserialize(discModelStream));
             }
-
-            string discPackedModelPath = Path.Combine(outputRoot, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/engine/models/cube.psm"));
-            Assert.True(File.Exists(discPackedModelPath));
-
-            Ps2PackedModelAsset discPackedModelAsset;
-            using (FileStream packedModelStream = File.OpenRead(discPackedModelPath)) {
-                discPackedModelAsset = Assert.IsType<Ps2PackedModelAsset>(Ps2AssetSerializer.Deserialize(packedModelStream));
-            }
-
-            Assert.NotNull(discPackedModelAsset.PackedMeshBytes);
-            Assert.NotEmpty(discPackedModelAsset.PackedMeshBytes);
-            Assert.Equal(0, discPackedModelAsset.PackedMeshBytes.Length % 16);
+            Assert.NotNull(discModelAsset.PackedMeshBytes);
+            Assert.NotEmpty(discModelAsset.PackedMeshBytes);
+            Assert.Equal(0, discModelAsset.PackedMeshBytes.Length % 16);
         } finally {
             try {
                 Directory.SetCurrentDirectory(previousDirectory);
@@ -1315,7 +1301,7 @@ public class Ps2PlatformAssetBuilderTests {
 
             string expectedFontPath = BuildExpectedRuntimePhysicalPath("cooked/fonts/DemoDiscBody.hefont");
             string expectedMaterialPath = BuildExpectedRuntimePhysicalPath("cooked/materials/menu.hasset");
-            string expectedModelPath = BuildExpectedRuntimePhysicalPath("cooked/imported/box_a.hasset");
+            string expectedModelPath = BuildExpectedRuntimePhysicalModelPath("cooked/imported/box_a.hasset");
             string expectedTexturePath = BuildExpectedRuntimePhysicalPath("cooked/textures/test.hasset");
 
             Assert.Equal(expectedFontPath, packagedSceneAsset.AssetReferences[0].RelativePath);
@@ -1492,7 +1478,7 @@ public class Ps2PlatformAssetBuilderTests {
 
             string expectedFontPath = BuildExpectedRuntimePhysicalPath("cooked/fonts/DemoDiscBody.hefont");
             string expectedMaterialPath = BuildExpectedRuntimePhysicalPath("cooked/materials/menu.hasset");
-            string expectedModelPath = BuildExpectedRuntimePhysicalPath("cooked/imported/box_a.hasset");
+            string expectedModelPath = BuildExpectedRuntimePhysicalModelPath("cooked/imported/box_a.hasset");
             string expectedTexturePath = BuildExpectedRuntimePhysicalPath("cooked/textures/test.hasset");
 
             Assert.Equal(expectedFontPath, packagedSceneAsset.AssetReferences[0].RelativePath);
@@ -1672,7 +1658,7 @@ public class Ps2PlatformAssetBuilderTests {
                 packagedSceneAsset = Assert.IsType<SceneAsset>(AssetSerializer.Deserialize(sceneStream));
             }
 
-            string expectedModelPath = BuildExpectedRuntimePhysicalPath("cooked/engine/models/cube.hasset");
+            string expectedModelPath = BuildExpectedRuntimePhysicalModelPath("cooked/engine/models/cube.hasset");
             string expectedMaterialPath = BuildExpectedRuntimePhysicalPath("cooked/engine/materials/standard.hasset");
 
             ReadMeshReferencesVersion2(packagedSceneAsset.RootEntities[0].Components[0], out SceneAssetReference modelReference, out SceneAssetReference[] meshMaterialReferences, out byte renderOrder3D);
@@ -1975,6 +1961,20 @@ public class Ps2PlatformAssetBuilderTests {
         return "cdrom0:\\" + discRelativePath + ";1";
     }
 
+    /// <summary>
+    /// Resolves the runtime physical PS2 path for one authored model logical path after the PS2 builder converts it to the single-file PS2 model extension.
+    /// </summary>
+    /// <param name="logicalRelativePath">Authored logical model path stored by generic scene packaging.</param>
+    /// <returns>Physical PS2 runtime path for the staged PS2-owned cooked model asset.</returns>
+    static string BuildExpectedRuntimePhysicalModelPath(string logicalRelativePath) {
+        if (string.IsNullOrWhiteSpace(logicalRelativePath)) {
+            throw new ArgumentException("Logical relative path must be provided.", nameof(logicalRelativePath));
+        }
+
+        string ps2LogicalRelativePath = Path.ChangeExtension(logicalRelativePath.Replace('\\', '/'), ".phm").Replace('\\', '/');
+        return BuildExpectedRuntimePhysicalPath(ps2LogicalRelativePath);
+    }
+
     static byte ReadByteField(object instance, string fieldName) {
         if (instance == null) {
             throw new ArgumentNullException(nameof(instance));
@@ -2098,22 +2098,6 @@ public class Ps2PlatformAssetBuilderTests {
             new float3(0f, 0f, 0f),
             new float3(1f, 1f, 1f));
         return helengine.files.AssetSerializer.SerializeToBytes(cubeModelAsset);
-    }
-
-    /// <summary>
-    /// Builds the PS2 packed-model sidecar path that accompanies one generic cooked model artifact in staging and packaged outputs.
-    /// </summary>
-    /// <param name="modelArtifactPath">Absolute model artifact path.</param>
-    /// <returns>Absolute packed-model sidecar path.</returns>
-    static string BuildPackedModelSidecarPath(string modelArtifactPath) {
-        if (string.IsNullOrWhiteSpace(modelArtifactPath)) {
-            throw new ArgumentException("Model artifact path must be provided.", nameof(modelArtifactPath));
-        }
-
-        string directoryPath = Path.GetDirectoryName(modelArtifactPath)
-            ?? throw new InvalidOperationException($"Could not resolve the directory for model artifact '{modelArtifactPath}'.");
-        string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(modelArtifactPath);
-        return Path.Combine(directoryPath, fileNameWithoutExtension + ".psm");
     }
 
     /// <summary>

@@ -286,7 +286,7 @@ public sealed class Ps2CookedAssetPathRewriter {
             throw new ArgumentNullException(nameof(asset));
         }
 
-        if (asset is Ps2MaterialAsset || asset is Ps2TextureAsset || asset is Ps2PackedModelAsset) {
+        if (asset is Ps2MaterialAsset || asset is Ps2TextureAsset || asset is Ps2ModelAsset) {
             return Ps2AssetSerializer.SerializeToBytes(asset);
         }
 

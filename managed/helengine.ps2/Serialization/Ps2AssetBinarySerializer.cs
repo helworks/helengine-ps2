@@ -116,8 +116,8 @@ namespace helengine {
                 return Ps2AssetBinaryValueKind.Ps2MaterialAsset;
             } else if (asset is Ps2TextureAsset) {
                 return Ps2AssetBinaryValueKind.Ps2TextureAsset;
-            } else if (asset is Ps2PackedModelAsset) {
-                return Ps2AssetBinaryValueKind.Ps2PackedModelAsset;
+            } else if (asset is Ps2ModelAsset) {
+                return Ps2AssetBinaryValueKind.Ps2ModelAsset;
             }
 
             throw new InvalidOperationException($"Asset type '{asset.GetType().Name}' is not supported by the PS2 asset serializer.");
@@ -135,8 +135,8 @@ namespace helengine {
             } else if (asset is Ps2TextureAsset ps2TextureAsset) {
                 WritePs2TextureAsset(writer, ps2TextureAsset);
                 return;
-            } else if (asset is Ps2PackedModelAsset ps2PackedModelAsset) {
-                WritePs2PackedModelAsset(writer, ps2PackedModelAsset);
+            } else if (asset is Ps2ModelAsset ps2ModelAsset) {
+                WritePs2ModelAsset(writer, ps2ModelAsset);
                 return;
             }
 
@@ -156,8 +156,8 @@ namespace helengine {
                     return ReadPs2MaterialAsset(reader, version);
                 case Ps2AssetBinaryValueKind.Ps2TextureAsset:
                     return ReadPs2TextureAsset(reader, version);
-                case Ps2AssetBinaryValueKind.Ps2PackedModelAsset:
-                    return ReadPs2PackedModelAsset(reader, version);
+                case Ps2AssetBinaryValueKind.Ps2ModelAsset:
+                    return ReadPs2ModelAsset(reader, version);
                 default:
                     throw new InvalidOperationException($"Unsupported PS2 asset value kind '{(ushort)valueKind}'.");
             }
@@ -332,24 +332,110 @@ namespace helengine {
         }
 
         /// <summary>
-        /// Writes one PS2-owned packed-model sidecar payload.
+        /// Writes one three-component floating-point value inside a serialized PS2 model payload array.
+        /// </summary>
+        /// <param name="writer">Destination writer for the current array element.</param>
+        /// <param name="value">Three-component value to serialize.</param>
+        static void WriteFloat3Value(EngineBinaryWriter writer, float3 value) {
+            if (writer == null) {
+                throw new ArgumentNullException(nameof(writer));
+            }
+
+            writer.WriteFloat3(value);
+        }
+
+        /// <summary>
+        /// Writes one two-component floating-point value inside a serialized PS2 model payload array.
+        /// </summary>
+        /// <param name="writer">Destination writer for the current array element.</param>
+        /// <param name="value">Two-component value to serialize.</param>
+        static void WriteFloat2Value(EngineBinaryWriter writer, float2 value) {
+            if (writer == null) {
+                throw new ArgumentNullException(nameof(writer));
+            }
+
+            writer.WriteFloat2(value);
+        }
+
+        /// <summary>
+        /// Writes one 16-bit index value inside a serialized PS2 model payload array.
+        /// </summary>
+        /// <param name="writer">Destination writer for the current array element.</param>
+        /// <param name="value">16-bit index to serialize.</param>
+        static void WriteUInt16Value(EngineBinaryWriter writer, ushort value) {
+            if (writer == null) {
+                throw new ArgumentNullException(nameof(writer));
+            }
+
+            writer.WriteUInt16(value);
+        }
+
+        /// <summary>
+        /// Reads one three-component floating-point value from a serialized PS2 model payload array.
+        /// </summary>
+        /// <param name="reader">Source reader positioned at the current array element.</param>
+        /// <returns>Decoded three-component value.</returns>
+        static float3 ReadFloat3Value(EngineBinaryReader reader) {
+            if (reader == null) {
+                throw new ArgumentNullException(nameof(reader));
+            }
+
+            return reader.ReadFloat3();
+        }
+
+        /// <summary>
+        /// Reads one two-component floating-point value from a serialized PS2 model payload array.
+        /// </summary>
+        /// <param name="reader">Source reader positioned at the current array element.</param>
+        /// <returns>Decoded two-component value.</returns>
+        static float2 ReadFloat2Value(EngineBinaryReader reader) {
+            if (reader == null) {
+                throw new ArgumentNullException(nameof(reader));
+            }
+
+            return reader.ReadFloat2();
+        }
+
+        /// <summary>
+        /// Reads one 16-bit index value from a serialized PS2 model payload array.
+        /// </summary>
+        /// <param name="reader">Source reader positioned at the current array element.</param>
+        /// <returns>Decoded 16-bit index value.</returns>
+        static ushort ReadUInt16Value(EngineBinaryReader reader) {
+            if (reader == null) {
+                throw new ArgumentNullException(nameof(reader));
+            }
+
+            return reader.ReadUInt16();
+        }
+
+        /// <summary>
+        /// Writes one PS2-owned cooked model payload.
         /// </summary>
         /// <param name="writer">Destination writer for the payload.</param>
-        /// <param name="asset">Packed-model asset to serialize.</param>
-        static void WritePs2PackedModelAsset(EngineBinaryWriter writer, Ps2PackedModelAsset asset) {
+        /// <param name="asset">PS2 model asset to serialize.</param>
+        static void WritePs2ModelAsset(EngineBinaryWriter writer, Ps2ModelAsset asset) {
             WriteAssetIdentity(writer, asset);
+            writer.WriteArray(asset.Positions, WriteFloat3Value);
+            writer.WriteArray(asset.Normals, WriteFloat3Value);
+            writer.WriteArray(asset.TexCoords, WriteFloat2Value);
+            writer.WriteArray(asset.Indices16, WriteUInt16Value);
             writer.WriteByteArray(asset.PackedMeshBytes);
         }
 
         /// <summary>
-        /// Reads one PS2-owned packed-model sidecar payload.
+        /// Reads one PS2-owned cooked model payload.
         /// </summary>
         /// <param name="reader">Source reader positioned at the payload.</param>
         /// <param name="version">Serialized PS2 asset version.</param>
-        /// <returns>Deserialized packed-model asset.</returns>
-        static Ps2PackedModelAsset ReadPs2PackedModelAsset(EngineBinaryReader reader, byte version) {
-            Ps2PackedModelAsset asset = new Ps2PackedModelAsset();
+        /// <returns>Deserialized PS2 model asset.</returns>
+        static Ps2ModelAsset ReadPs2ModelAsset(EngineBinaryReader reader, byte version) {
+            Ps2ModelAsset asset = new Ps2ModelAsset();
             ReadAssetIdentity(reader, asset, version);
+            asset.Positions = reader.ReadArray(ReadFloat3Value);
+            asset.Normals = reader.ReadArray(ReadFloat3Value);
+            asset.TexCoords = reader.ReadArray(ReadFloat2Value);
+            asset.Indices16 = reader.ReadArray(ReadUInt16Value);
             asset.PackedMeshBytes = reader.ReadByteArray();
             return asset;
         }

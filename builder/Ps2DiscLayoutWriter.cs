@@ -70,7 +70,27 @@ public sealed class Ps2DiscLayoutWriter {
             string logicalRelativePath = Path.GetRelativePath(sourceRootPath, filePath).Replace('\\', '/');
             string physicalRelativePath = Ps2DiscPathResolver.ResolveDiscRelativePath(logicalRelativePath).Replace('/', '\\');
             logicalToPhysicalPaths[logicalRelativePath] = "\\" + physicalRelativePath.Replace('/', '\\') + ";1";
+            if (TryBuildGenericModelAliasLogicalPath(logicalRelativePath, out string genericModelAliasLogicalPath)) {
+                logicalToPhysicalPaths[genericModelAliasLogicalPath] = "\\" + physicalRelativePath.Replace('/', '\\') + ";1";
+            }
         }
+    }
+
+    /// <summary>
+    /// Builds the generic cooked-model logical path alias that should resolve to one PS2-owned cooked model payload.
+    /// </summary>
+    /// <param name="logicalRelativePath">Staged logical path stored on disk.</param>
+    /// <param name="genericModelAliasLogicalPath">Receives the generic cooked-model alias when the staged file is a PS2-owned model payload.</param>
+    /// <returns>True when the staged file should also answer to the generic cooked-model logical path; otherwise false.</returns>
+    static bool TryBuildGenericModelAliasLogicalPath(string logicalRelativePath, out string genericModelAliasLogicalPath) {
+        genericModelAliasLogicalPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(logicalRelativePath)
+            || !logicalRelativePath.EndsWith(".phm", StringComparison.OrdinalIgnoreCase)) {
+            return false;
+        }
+
+        genericModelAliasLogicalPath = Path.ChangeExtension(logicalRelativePath.Replace('\\', '/'), ".hasset").Replace('\\', '/');
+        return !string.IsNullOrWhiteSpace(genericModelAliasLogicalPath);
     }
 
     /// <summary>

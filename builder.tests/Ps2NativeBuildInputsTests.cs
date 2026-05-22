@@ -7,7 +7,7 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2NativeBuildInputsTests {
     /// <summary>
-    /// Ensures the PS2 runtime model exposes embedded VU packed geometry loaded directly from the cooked model asset payload.
+    /// Ensures the PS2 runtime model exposes embedded VU packed geometry loaded directly from the single-file PS2 cooked model asset payload.
     /// </summary>
     [Fact]
     public void Ps2_runtime_model_exposes_vu_packed_geometry_for_fast_path_loading() {
@@ -16,11 +16,11 @@ public sealed class Ps2NativeBuildInputsTests {
         string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RuntimeModel.cpp"));
 
         Assert.Contains("#include \"platform/ps2/rendering/vu/Ps2VuPackedModel.hpp\"", header, StringComparison.Ordinal);
-        Assert.Contains("void LoadFromCooked(::ModelAsset* modelAsset, ::Ps2PackedModelAsset* packedModelAsset);", header, StringComparison.Ordinal);
+        Assert.Contains("void LoadFromCooked(::Ps2ModelAsset* modelAsset);", header, StringComparison.Ordinal);
         Assert.Contains("const Ps2VuPackedModel* GetVuPackedModel() const;", header, StringComparison.Ordinal);
         Assert.Contains("Ps2VuPackedModel* VuPackedModel;", header, StringComparison.Ordinal);
         Assert.Contains("VuPackedModel = new Ps2VuPackedModel();", source, StringComparison.Ordinal);
-        Assert.Contains("packedModelAsset->PackedMeshBytes", source, StringComparison.Ordinal);
+        Assert.Contains("modelAsset->PackedMeshBytes", source, StringComparison.Ordinal);
         Assert.Contains("VuPackedModel->LoadFromPackedBytes(", source, StringComparison.Ordinal);
         Assert.DoesNotContain("            return;\r\n        }\r\n\r\n        if (modelAsset->Indices32 != nullptr && modelAsset->Indices32->Length > 0) {", source, StringComparison.Ordinal);
     }

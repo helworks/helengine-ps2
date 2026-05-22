@@ -9,14 +9,14 @@
 #include "platform/ps2/rendering/vu/Ps2VuPackedModel.hpp"
 
 class ModelAsset;
-class Ps2PackedModelAsset;
+class Ps2ModelAsset;
 
 namespace helengine::ps2 {
     class Ps2RuntimeModel final : public ::RuntimeModel {
     public:
         Ps2RuntimeModel();
 
-        void LoadFromCooked(::ModelAsset* modelAsset, ::Ps2PackedModelAsset* packedModelAsset);
+        void LoadFromCooked(::Ps2ModelAsset* modelAsset);
         void LoadFromRaw(::ModelAsset* modelAsset);
         void LoadFromRawWithoutPackedMesh(::ModelAsset* modelAsset);
 

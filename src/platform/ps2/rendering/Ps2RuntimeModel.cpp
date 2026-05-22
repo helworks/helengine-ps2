@@ -7,12 +7,22 @@
 #include <stdexcept>
 
 #include "ModelAsset.hpp"
-#include "Ps2PackedModelAsset.hpp"
+#include "Ps2ModelAsset.hpp"
 #include "float2.hpp"
 #include "float3.hpp"
 
 namespace helengine::ps2 {
     namespace {
+        void PopulateRuntimeModelCommonData(Ps2RuntimeModel* runtimeModel, ::Ps2ModelAsset* modelAsset) {
+            if (runtimeModel == nullptr) {
+                throw std::invalid_argument("PS2 runtime model instance is required.");
+            } else if (modelAsset == nullptr) {
+                throw std::invalid_argument("PS2 cooked model data is required.");
+            }
+
+            runtimeModel->set_Id(modelAsset->get_Id());
+        }
+
         void PopulateRuntimeModelCommonData(Ps2RuntimeModel* runtimeModel, ::ModelAsset* modelAsset) {
             if (runtimeModel == nullptr) {
                 throw std::invalid_argument("PS2 runtime model instance is required.");
@@ -32,12 +42,12 @@ namespace helengine::ps2 {
         VuPackedModel = nullptr;
     }
 
-    void Ps2RuntimeModel::LoadFromCooked(::ModelAsset* modelAsset, ::Ps2PackedModelAsset* packedModelAsset) {
+    void Ps2RuntimeModel::LoadFromCooked(::Ps2ModelAsset* modelAsset) {
         if (modelAsset == nullptr) {
             throw std::invalid_argument("PS2 cooked model data is required.");
         }
-        if (packedModelAsset == nullptr || packedModelAsset->PackedMeshBytes == nullptr || packedModelAsset->PackedMeshBytes->Length <= 0) {
-            throw std::invalid_argument("PS2 cooked model data must include a packed model sidecar.");
+        if (modelAsset->PackedMeshBytes == nullptr || modelAsset->PackedMeshBytes->Length <= 0) {
+            throw std::invalid_argument("PS2 cooked model data must include packed mesh bytes.");
         }
 
         PopulateRuntimeModelCommonData(this, modelAsset);
@@ -99,22 +109,12 @@ namespace helengine::ps2 {
             for (int32_t index = 0; index < modelAsset->Indices16->Length; index++) {
                 Indices.push_back(modelAsset->Indices16->Data[index]);
             }
-        } else if (modelAsset->Indices32 != nullptr && modelAsset->Indices32->Length > 0) {
-            Indices.reserve(static_cast<std::size_t>(modelAsset->Indices32->Length));
-            for (int32_t index = 0; index < modelAsset->Indices32->Length; index++) {
-                std::uint32_t rawIndex = modelAsset->Indices32->Data[index];
-                if (rawIndex > static_cast<std::uint32_t>(std::numeric_limits<std::uint16_t>::max())) {
-                    throw std::invalid_argument("PS2 runtime models require 16-bit indices.");
-                }
-
-                Indices.push_back(static_cast<std::uint16_t>(rawIndex));
-            }
         }
 
         VuPackedModel = new Ps2VuPackedModel();
         VuPackedModel->LoadFromPackedBytes(
-            reinterpret_cast<const std::uint8_t*>(packedModelAsset->PackedMeshBytes->Data),
-            static_cast<std::size_t>(packedModelAsset->PackedMeshBytes->Length));
+            reinterpret_cast<const std::uint8_t*>(modelAsset->PackedMeshBytes->Data),
+            static_cast<std::size_t>(modelAsset->PackedMeshBytes->Length));
     }
 
     void Ps2RuntimeModel::LoadFromRaw(::ModelAsset* modelAsset) {
