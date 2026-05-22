@@ -1128,7 +1128,7 @@ public class Ps2PlatformAssetBuilderTests {
                 discModelAsset = Assert.IsType<ModelAsset>(helengine.files.AssetSerializer.Deserialize(discModelStream));
             }
 
-            string discPackedModelPath = Path.Combine(outputRoot, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/engine/models/cube.ps2model.hasset"));
+            string discPackedModelPath = Path.Combine(outputRoot, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/engine/models/cube.psm"));
             Assert.True(File.Exists(discPackedModelPath));
 
             Ps2PackedModelAsset discPackedModelAsset;
@@ -2113,7 +2113,7 @@ public class Ps2PlatformAssetBuilderTests {
         string directoryPath = Path.GetDirectoryName(modelArtifactPath)
             ?? throw new InvalidOperationException($"Could not resolve the directory for model artifact '{modelArtifactPath}'.");
         string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(modelArtifactPath);
-        return Path.Combine(directoryPath, fileNameWithoutExtension + ".ps2model.hasset");
+        return Path.Combine(directoryPath, fileNameWithoutExtension + ".psm");
     }
 
     /// <summary>

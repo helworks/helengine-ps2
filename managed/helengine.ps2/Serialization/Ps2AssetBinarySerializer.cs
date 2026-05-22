@@ -177,7 +177,7 @@ namespace helengine {
 
             EnsureRuntimeAssetIdentity(asset);
             writer.WriteString(asset.Id);
-            writer.WriteInt64(unchecked((long)asset.RuntimeAssetId));
+            WriteRuntimeAssetId(writer, asset.RuntimeAssetId);
         }
 
         /// <summary>
@@ -195,8 +195,39 @@ namespace helengine {
 
             asset.Id = reader.ReadString();
             asset.RuntimeAssetId = version >= RuntimeAssetIdentityVersion
-                ? unchecked((ulong)reader.ReadInt64())
+                ? ReadRuntimeAssetId(reader)
                 : 0ul;
+        }
+
+        /// <summary>
+        /// Writes one runtime asset id using the same eight-byte little-endian layout as the generic asset serializers.
+        /// </summary>
+        /// <param name="writer">Destination writer for the runtime asset id payload.</param>
+        /// <param name="runtimeAssetId">Runtime asset id value to encode.</param>
+        static void WriteRuntimeAssetId(EngineBinaryWriter writer, ulong runtimeAssetId) {
+            if (writer == null) {
+                throw new ArgumentNullException(nameof(writer));
+            }
+
+            uint lower = (uint)(runtimeAssetId & 0xFFFFFFFFul);
+            uint upper = (uint)(runtimeAssetId >> 32);
+            writer.WriteUInt32(lower);
+            writer.WriteUInt32(upper);
+        }
+
+        /// <summary>
+        /// Reads one runtime asset id from the shared eight-byte little-endian identity payload.
+        /// </summary>
+        /// <param name="reader">Source reader positioned at the runtime asset id payload.</param>
+        /// <returns>Decoded runtime asset id.</returns>
+        static ulong ReadRuntimeAssetId(EngineBinaryReader reader) {
+            if (reader == null) {
+                throw new ArgumentNullException(nameof(reader));
+            }
+
+            ulong lower = reader.ReadUInt32();
+            ulong upper = reader.ReadUInt32();
+            return lower | (upper << 32);
         }
 
         /// <summary>

@@ -388,12 +388,18 @@ namespace helengine::ps2 {
                 throw std::invalid_argument("Cooked model path must be provided.");
             }
 
-            const std::size_t extensionIndex = cookedModelPath.rfind(".hasset");
-            if (extensionIndex == std::string::npos) {
-                return cookedModelPath + ".ps2model.hasset";
+            std::string normalizedPath = cookedModelPath;
+            const std::size_t versionSuffixIndex = normalizedPath.rfind(";1");
+            if (versionSuffixIndex != std::string::npos && versionSuffixIndex == normalizedPath.length() - 2) {
+                normalizedPath = normalizedPath.substr(0, versionSuffixIndex);
             }
 
-            return cookedModelPath.substr(0, extensionIndex) + ".ps2model.hasset";
+            const std::size_t extensionIndex = normalizedPath.rfind('.');
+            if (extensionIndex == std::string::npos) {
+                return normalizedPath + ".PSM";
+            }
+
+            return normalizedPath.substr(0, extensionIndex) + ".PSM";
         }
 
         void DrawHdrGlowPass(GSGLOBAL* gsGlobal) {
@@ -530,6 +536,16 @@ namespace helengine::ps2 {
         scr_printf("[helengine-ps2] BuildMaterialFromCooked load begin\n");
         runtimeMaterial->LoadFromCooked(materialAsset);
         scr_printf("[helengine-ps2] BuildMaterialFromCooked load complete\n");
+        return runtimeMaterial;
+    }
+
+    ::RuntimeMaterial* Ps2RenderManager3D::BuildMaterialFromCooked(::Ps2MaterialAsset* materialAsset) {
+        if (materialAsset == nullptr) {
+            throw std::invalid_argument("PS2 cooked material asset is required.");
+        }
+
+        Ps2RuntimeMaterial* runtimeMaterial = new Ps2RuntimeMaterial();
+        runtimeMaterial->LoadFromCooked(materialAsset);
         return runtimeMaterial;
     }
 

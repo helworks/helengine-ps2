@@ -87,6 +87,7 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
         NormalizeGeneratedCoreFile(generatedCoreRootPath, Path.Combine("system", "io", "file-stream.hpp"));
         NormalizeGeneratedCoreFile(generatedCoreRootPath, Path.Combine("system", "io", "file-stream.cpp"));
         NormalizeGeneratedCoreFile(generatedCoreRootPath, "Core.cpp");
+        NormalizeGeneratedCoreFile(generatedCoreRootPath, "RuntimeAssetIdGenerator.cpp");
         NormalizeGeneratedCoreFile(generatedCoreRootPath, "SceneManager.cpp");
         NormalizeGeneratedCoreFile(generatedCoreRootPath, Path.Combine("runtime", "runtime_graphics_renderer_manifest.cpp"));
     }
@@ -220,11 +221,7 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
         }
 
         if (string.Equals(fileName, Path.Combine("system", "io", "file-stream.cpp"), StringComparison.OrdinalIgnoreCase)) {
-            normalizedContents = normalizedContents.Replace(
-                "        memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);\n        usesMemoryBuffer = true;\n        length = memoryBuffer.size();\n        return;\n",
-                "        memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);\n        ownsMemoryBuffer = true;\n        writable = false;\n        length = memoryBuffer.size();\n        return;\n",
-                StringComparison.Ordinal);
-            return normalizedContents;
+            return NormalizeFileStreamSource(normalizedContents);
         }
 
         if (string.Equals(fileName, "RuntimeContentManagerConfiguration.cpp", StringComparison.OrdinalIgnoreCase)) {
@@ -255,6 +252,10 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             return normalizedContents;
         }
 
+        if (string.Equals(fileName, "RuntimeAssetIdGenerator.cpp", StringComparison.OrdinalIgnoreCase)) {
+            return NormalizeRuntimeAssetIdGeneratorSource(normalizedContents);
+        }
+
         if (string.Equals(fileName, "SceneManager.cpp", StringComparison.OrdinalIgnoreCase)) {
             normalizedContents = normalizedContents.Replace(
                 "Console::WriteLine(std::string(\"[SceneTrace] \") + message + std::string(\" loadedSceneCount=\") + std::to_string(LoadedSceneRecords->get_Count()) + std::string(\" primarySceneId=\") + primarySceneId);",
@@ -271,6 +272,147 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             return NormalizeRuntimeGraphicsRendererManifestSource(normalizedContents);
         }
 
+        return normalizedContents;
+    }
+
+    /// <summary>
+    /// Normalizes the generated runtime asset id generator so PS2 exports use std::string-native canonical-key normalization.
+    /// </summary>
+    /// <param name="contents">Generated runtime asset id generator source.</param>
+    /// <returns>Normalized runtime asset id generator source.</returns>
+    static string NormalizeRuntimeAssetIdGeneratorSource(string contents) {
+        return ReplaceRequired(
+            contents,
+            "std::string RuntimeAssetIdGenerator::NormalizeCanonicalKey(std::string canonicalKey)\n{\n    if (String::IsNullOrEmpty(canonicalKey))\n    {\nthrow new ArgumentNullException(\"canonicalKey\");\n    }\nArray<char> *characters = canonicalKey.ToCharArray();\nfor (int32_t index = 0; index < characters->get_Length(); index++) {\nconst char currentCharacter = (*characters)[index];\n    if (currentCharacter == '\\\\')\n    {\n(*characters)[index] = '/';\n    }\nelse {\n(*characters)[index] = Char::ToLowerInvariant(currentCharacter);\n}\n}\nreturn std::string(characters->Data, static_cast<size_t>(characters->Length));}\n",
+            "std::string RuntimeAssetIdGenerator::NormalizeCanonicalKey(std::string canonicalKey)\n{\n    if (String::IsNullOrEmpty(canonicalKey))\n    {\nthrow new ArgumentNullException(\"canonicalKey\");\n    }\nstd::string normalized = canonicalKey;\nfor (size_t index = 0; index < normalized.size(); index++) {\nchar currentCharacter = normalized[index];\n    if (currentCharacter == '\\\\')\n    {\nnormalized[index] = '/';\n    }\nelse     if (currentCharacter >= 'A' && currentCharacter <= 'Z')\n    {\nnormalized[index] = static_cast<char>(currentCharacter + ('a' - 'A'));\n    }\n}\nreturn normalized;}\n",
+            "PS2 generated RuntimeAssetIdGenerator.cpp should normalize canonical keys without unsupported char-array helpers.");
+    }
+
+    /// <summary>
+    /// Normalizes the generated file-stream source so PS2 exports read `cdrom0:` payloads through a direct memory-backed path instead of desktop stdio semantics.
+    /// </summary>
+    /// <param name="contents">Generated file-stream source.</param>
+    /// <returns>Normalized file-stream source.</returns>
+    static string NormalizeFileStreamSource(string contents) {
+        string normalizedContents = contents;
+        if (!normalizedContents.Contains("#include <algorithm>", StringComparison.Ordinal)) {
+            normalizedContents = normalizedContents.Replace(
+                "#include <cstdio>  // For std::FILE*\n",
+                "#include <cstdio>  // For std::FILE*\n#include <algorithm>\n",
+                StringComparison.Ordinal);
+        }
+
+        const string helperBlock = """
+#if HE_CPP_PLATFORM_PS2
+namespace {
+    bool FileStreamSupportStartsWithPs2CdromPrefix(const std::string& path) {
+        return path.rfind("cdrom0:", 0) == 0;
+    }
+
+    std::string FileStreamSupportResolvePs2DiscReadPath(const std::string& path) {
+        if (!FileStreamSupportStartsWithPs2CdromPrefix(path)) {
+            return path;
+        }
+
+        std::string normalizedPath = path;
+        std::replace(normalizedPath.begin(), normalizedPath.end(), '\\', '/');
+        return normalizedPath;
+    }
+
+    std::vector<std::string> BuildPs2DiscReadCandidates(const std::string& resolvedPath) {
+        std::vector<std::string> candidates;
+        candidates.push_back(resolvedPath);
+        if (resolvedPath.rfind("cdrom0:/", 0) == 0) {
+            candidates.push_back("cdrom0:" + resolvedPath.substr(8));
+        }
+
+        return candidates;
+    }
+
+    std::vector<uint8_t> ReadPs2DiscFile(const std::string& path) {
+        const std::vector<std::string> candidates = BuildPs2DiscReadCandidates(path);
+        for (size_t candidateIndex = 0; candidateIndex < candidates.size(); candidateIndex++) {
+            const std::string& candidatePath = candidates[candidateIndex];
+            std::FILE* file = std::fopen(candidatePath.c_str(), "rb");
+            if (file == nullptr) {
+                continue;
+            }
+
+            std::fseek(file, 0, SEEK_END);
+            long fileLength = std::ftell(file);
+            std::fseek(file, 0, SEEK_SET);
+            if (fileLength < 0) {
+                std::fclose(file);
+                throw std::runtime_error(std::string("Failed to determine file length: ") + candidatePath);
+            }
+
+            std::vector<uint8_t> bytes(static_cast<size_t>(fileLength));
+            size_t bytesRead = 0;
+            if (!bytes.empty()) {
+                bytesRead = std::fread(bytes.data(), 1, bytes.size(), file);
+            }
+            std::fclose(file);
+            if (bytesRead != bytes.size()) {
+                throw std::runtime_error(std::string("Failed to read file: ") + candidatePath);
+            }
+
+            return bytes;
+        }
+
+        throw std::runtime_error(std::string("Failed to open file: ") + path);
+    }
+}
+#endif
+
+""";
+        if (!normalizedContents.Contains("FileStreamSupportResolvePs2DiscReadPath", StringComparison.Ordinal)) {
+            normalizedContents = normalizedContents.Replace(
+                "// Helper function to get file mode as C-style string\n",
+                helperBlock + "// Helper function to get file mode as C-style string\n",
+                StringComparison.Ordinal);
+        }
+
+        const string currentConstructor = """
+FileStream::FileStream(const char* path, FileMode mode)
+    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(false), writable(true) {
+    file = std::fopen(path, GetFileMode(mode));
+    if (!file) {
+        throw std::runtime_error(std::string("Failed to open file: ") + path);
+    }
+
+    UpdateLength();
+}
+""";
+        const string normalizedConstructor = """
+FileStream::FileStream(const char* path, FileMode mode)
+    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(false), writable(true) {
+#if HE_CPP_PLATFORM_PS2
+    std::string resolvedPs2ReadPath = FileStreamSupportResolvePs2DiscReadPath(path != nullptr ? path : "");
+    bool usesPs2DirectRead = mode == FileMode::Open && FileStreamSupportStartsWithPs2CdromPrefix(resolvedPs2ReadPath);
+    if (usesPs2DirectRead) {
+        memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);
+        ownsMemoryBuffer = true;
+        writable = false;
+        length = memoryBuffer.size();
+        return;
+    }
+#endif
+    file = std::fopen(path, GetFileMode(mode));
+    if (!file) {
+        throw std::runtime_error(std::string("Failed to open file: ") + path);
+    }
+
+    UpdateLength();
+}
+""";
+        if (normalizedContents.Contains(currentConstructor, StringComparison.Ordinal)) {
+            return normalizedContents.Replace(currentConstructor, normalizedConstructor, StringComparison.Ordinal);
+        }
+
+        normalizedContents = normalizedContents.Replace(
+            "        memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);\n        usesMemoryBuffer = true;\n        length = memoryBuffer.size();\n        return;\n",
+            "        memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);\n        ownsMemoryBuffer = true;\n        writable = false;\n        length = memoryBuffer.size();\n        return;\n",
+            StringComparison.Ordinal);
         return normalizedContents;
     }
 
@@ -335,6 +477,11 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
     /// <param name="contents">Generated runtime scene asset resolver source.</param>
     /// <returns>Normalized runtime scene asset resolver source.</returns>
     static string NormalizeRuntimeSceneAssetReferenceResolverSource(string contents) {
+        if (contents.Contains("BuildMaterialFromCooked(generatedFullPath)", StringComparison.Ordinal)
+            && contents.Contains("BuildMaterialFromCooked(fullPath)", StringComparison.Ordinal)) {
+            return contents;
+        }
+
         if (contents.Contains("BuildMaterialFromCooked(materialAsset)", StringComparison.Ordinal)
             && contents.Contains("PlatformMaterialAsset *materialAsset", StringComparison.Ordinal)) {
             return contents;

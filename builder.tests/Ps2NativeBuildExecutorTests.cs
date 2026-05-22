@@ -946,10 +946,50 @@ this->RenderTextComponent->set_Text(FormatOverlaySecondaryLine(this->RenderFpsTe
     }
 
     /// <summary>
-    /// Verifies that generated PS2 direct-disc file streams become readable owned memory streams without injecting constructor fields that the generated header does not declare.
+    /// Verifies that generated generic file-stream constructors gain the PS2 direct-disc memory-backed read path.
     /// </summary>
     [Fact]
-    public void NormalizeGeneratedCoreSource_WhenPs2FileStreamUsesDirectDiscBuffer_MarksMemoryBufferReadableOwnedAndReadOnlyWithoutInjectingUndefinedFields() {
+    public void NormalizeGeneratedCoreSource_WhenGenericFileStreamOpensCdromPaths_InjectsPs2DirectReadConstructorPath() {
+        const string source = """
+#include <cstdio>  // For std::FILE*
+// Helper function to get file mode as C-style string
+const char* GetFileMode(FileMode mode) {
+    switch (mode) {
+    case FileMode::Open: return "rb";
+    default: throw std::runtime_error("Invalid FileMode");
+    }
+}
+
+FileStream::FileStream(const uint8_t* data, size_t dataLength)
+    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(true), writable(false) {
+}
+
+FileStream::FileStream(const char* path, FileMode mode)
+    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(false), writable(true) {
+    file = std::fopen(path, GetFileMode(mode));
+    if (!file) {
+        throw std::runtime_error(std::string("Failed to open file: ") + path);
+    }
+
+    UpdateLength();
+}
+""";
+
+        string normalizedSource = InvokeNormalizeGeneratedCoreSource(Path.Combine("system", "io", "file-stream.cpp"), source);
+
+        Assert.Contains("#if HE_CPP_PLATFORM_PS2", normalizedSource, StringComparison.Ordinal);
+        Assert.Contains("FileStreamSupportResolvePs2DiscReadPath", normalizedSource, StringComparison.Ordinal);
+        Assert.Contains("memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);", normalizedSource, StringComparison.Ordinal);
+        Assert.Contains("ownsMemoryBuffer = true;", normalizedSource, StringComparison.Ordinal);
+        Assert.Contains("writable = false;", normalizedSource, StringComparison.Ordinal);
+        Assert.Contains("bool usesPs2DirectRead = mode == FileMode::Open && FileStreamSupportStartsWithPs2CdromPrefix(resolvedPs2ReadPath);", normalizedSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that older generated PS2 direct-disc file streams still normalize the retired `usesMemoryBuffer` field into the current owned-memory shape.
+    /// </summary>
+    [Fact]
+    public void NormalizeGeneratedCoreSource_WhenLegacyPs2FileStreamUsesDirectDiscBuffer_MarksMemoryBufferReadableOwnedAndReadOnlyWithoutInjectingUndefinedFields() {
         const string source = """
 FileStream::FileStream(const uint8_t* data, size_t dataLength)
     : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(true), writable(false) {
@@ -973,8 +1013,6 @@ FileStream::FileStream(const char* path, FileMode mode)
         string normalizedSource = InvokeNormalizeGeneratedCoreSource(Path.Combine("system", "io", "file-stream.cpp"), source);
 
         Assert.DoesNotContain("usesMemoryBuffer", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains(": file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(true), writable(false)", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains(": file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(false), writable(true)", normalizedSource, StringComparison.Ordinal);
         Assert.Contains("ownsMemoryBuffer = true;", normalizedSource, StringComparison.Ordinal);
         Assert.Contains("writable = false;", normalizedSource, StringComparison.Ordinal);
     }

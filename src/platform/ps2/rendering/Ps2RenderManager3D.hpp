@@ -83,6 +83,7 @@ namespace helengine::ps2 {
         ::float4 GetLastSubmittedTriangleVertexB2() const;
 
     private:
+        ::RuntimeMaterial* BuildMaterialFromCooked(::Ps2MaterialAsset* materialAsset);
         void RenderOpaqueWithVuPath(const Ps2FramePlan& plan, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
         void PublishPerformanceOverlayMetrics() const;
         ::float4x4 BuildWorldMatrix(const Ps2RenderProxy& proxy) const;

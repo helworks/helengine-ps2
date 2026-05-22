@@ -29,6 +29,7 @@ namespace helengine::ps2 {
         float GetEmissiveStrength() const;
         bool UsesVertexColor() const;
         void LoadFromCooked(::PlatformMaterialAsset* materialAsset);
+        void LoadFromCooked(::Ps2MaterialAsset* materialAsset);
 
     private:
         ::Ps2MaterialAlphaMode AlphaMode;

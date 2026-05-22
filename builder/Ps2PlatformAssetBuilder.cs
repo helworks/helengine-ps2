@@ -270,7 +270,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         string directoryPath = Path.GetDirectoryName(modelArtifactPath)
             ?? throw new InvalidOperationException($"Could not resolve the directory for model artifact '{modelArtifactPath}'.");
         string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(modelArtifactPath);
-        return Path.Combine(directoryPath, fileNameWithoutExtension + ".ps2model.hasset");
+        return Path.Combine(directoryPath, fileNameWithoutExtension + ".psm");
     }
 
     static void AddDiagnostic(
