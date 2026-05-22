@@ -18,6 +18,9 @@ public sealed class Ps2PlatformPluginManifestTests {
         Assert.Null(manifest["serializerHooks"]);
         Assert.Equal("ps2", manifest["platformId"]?.GetValue<string>());
         Assert.Equal("PlayStation 2", manifest["displayName"]?.GetValue<string>());
+        JsonArray generatedCoreProjectPaths = Assert.IsType<JsonArray>(manifest["generatedCoreProjectPaths"]);
+        Assert.Single(generatedCoreProjectPaths);
+        Assert.Equal("managed/helengine.ps2/helengine.ps2.csproj", generatedCoreProjectPaths[0]?.GetValue<string>());
     }
 
     /// <summary>

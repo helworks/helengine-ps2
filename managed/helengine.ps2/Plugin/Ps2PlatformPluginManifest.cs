@@ -15,7 +15,8 @@ public static class Ps2PlatformPluginManifest {
             ["platformId"] = "ps2",
             ["displayName"] = "PlayStation 2",
             ["builderAssemblyPath"] = "builder/helengine.ps2.builder.dll",
-            ["definitionFactoryType"] = "helengine.ps2.builder.Ps2PlatformDefinitionFactory"
+            ["definitionFactoryType"] = "helengine.ps2.builder.Ps2PlatformDefinitionFactory",
+            ["generatedCoreProjectPaths"] = new JsonArray("managed/helengine.ps2/helengine.ps2.csproj")
         };
     }
 }
