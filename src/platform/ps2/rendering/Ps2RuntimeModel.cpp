@@ -7,6 +7,7 @@
 #include <stdexcept>
 
 #include "ModelAsset.hpp"
+#include "Ps2PackedModelAsset.hpp"
 #include "float2.hpp"
 #include "float3.hpp"
 
@@ -31,9 +32,12 @@ namespace helengine::ps2 {
         VuPackedModel = nullptr;
     }
 
-    void Ps2RuntimeModel::LoadFromRaw(::ModelAsset* modelAsset) {
+    void Ps2RuntimeModel::LoadFromCooked(::ModelAsset* modelAsset, ::Ps2PackedModelAsset* packedModelAsset) {
         if (modelAsset == nullptr) {
-            throw std::invalid_argument("PS2 raw model data is required.");
+            throw std::invalid_argument("PS2 cooked model data is required.");
+        }
+        if (packedModelAsset == nullptr || packedModelAsset->PackedMeshBytes == nullptr || packedModelAsset->PackedMeshBytes->Length <= 0) {
+            throw std::invalid_argument("PS2 cooked model data must include a packed model sidecar.");
         }
 
         PopulateRuntimeModelCommonData(this, modelAsset);
@@ -45,11 +49,7 @@ namespace helengine::ps2 {
         VuPackedModel = nullptr;
 
         if (modelAsset->Positions == nullptr || modelAsset->Positions->Length <= 0) {
-            throw std::invalid_argument("PS2 raw model data must include positions.");
-        }
-
-        if (modelAsset->Ps2PackedMeshBytes == nullptr || modelAsset->Ps2PackedMeshBytes->Length <= 0) {
-            throw std::invalid_argument("PS2 raw model data must include packed PS2 mesh bytes.");
+            throw std::invalid_argument("PS2 cooked model data must include positions.");
         }
 
         Positions.reserve(static_cast<std::size_t>(modelAsset->Positions->Length));
@@ -113,8 +113,16 @@ namespace helengine::ps2 {
 
         VuPackedModel = new Ps2VuPackedModel();
         VuPackedModel->LoadFromPackedBytes(
-            reinterpret_cast<const std::uint8_t*>(modelAsset->Ps2PackedMeshBytes->Data),
-            static_cast<std::size_t>(modelAsset->Ps2PackedMeshBytes->Length));
+            reinterpret_cast<const std::uint8_t*>(packedModelAsset->PackedMeshBytes->Data),
+            static_cast<std::size_t>(packedModelAsset->PackedMeshBytes->Length));
+    }
+
+    void Ps2RuntimeModel::LoadFromRaw(::ModelAsset* modelAsset) {
+        if (modelAsset == nullptr) {
+            throw std::invalid_argument("PS2 raw model data is required.");
+        }
+
+        LoadFromRawWithoutPackedMesh(modelAsset);
     }
 
     void Ps2RuntimeModel::LoadFromRawWithoutPackedMesh(::ModelAsset* modelAsset) {

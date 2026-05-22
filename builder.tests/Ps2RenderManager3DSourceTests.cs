@@ -16,7 +16,9 @@ public sealed class Ps2RenderManager3DSourceTests {
 
         string source = File.ReadAllText(sourcePath);
 
+        Assert.Contains("#include \"Ps2AssetSerializer.hpp\"", source, StringComparison.Ordinal);
         Assert.Contains("#include \"Ps2TextureAsset.hpp\"", source, StringComparison.Ordinal);
+        Assert.Contains("::Ps2AssetSerializer::Deserialize(stream)", source, StringComparison.Ordinal);
         Assert.Contains("he_cpp_try_cast<::Ps2TextureAsset>(asset)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("he_cpp_try_cast<::TextureAsset>(asset)", source, StringComparison.Ordinal);
     }

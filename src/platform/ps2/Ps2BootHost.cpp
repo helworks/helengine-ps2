@@ -19,6 +19,7 @@
 
 #include "Asset.hpp"
 #include "AssetSerializer.hpp"
+#include "Ps2AssetSerializer.hpp"
 #include "Core.hpp"
 #include "CoreInitializationOptions.hpp"
 #include "Entity.hpp"
@@ -28,6 +29,8 @@
 #include "ModelAsset.hpp"
 #include "PlatformInfo.hpp"
 #include "SceneAsset.hpp"
+#include "SceneComponentAssetRecord.hpp"
+#include "SceneEntityAsset.hpp"
 #include "SpriteComponent.hpp"
 #include "platform/ps2/Ps2InputBackend.hpp"
 #include "platform/ps2/rendering/Ps2RenderManager3D.hpp"
@@ -35,6 +38,8 @@
 #include "RenderManager2D.hpp"
 #include "RenderManager3D.hpp"
 #include "runtime/runtime_graphics_renderer_manifest.hpp"
+#include "runtime/finally.hpp"
+#include "runtime/native_cast.hpp"
 #include "runtime/runtime_ps2_asset_path_manifest.hpp"
 #include "runtime/runtime_scene_catalog_manifest.hpp"
 #include "runtime/native_exceptions.hpp"
@@ -54,6 +59,7 @@ extern "C" {
 }
 
 namespace {
+    constexpr const char* Ps2BootVersionStamp = "PS2CITYBOOT-4";
     constexpr int Ps2DefaultFramebufferWidth = 640;
     constexpr int Ps2DefaultFramebufferHeight = 448;
     constexpr const char* CubeModelDiagnosticPath = "cdrom0:\\COOKED\\ENGINE\\MODELS\\CUBE.HAS;1";
@@ -114,9 +120,73 @@ namespace {
     std::string FrameTimingOverlayLine1;
     std::string FrameTimingOverlayLine2;
 
+    std::string BuildLoadedSceneIdsDiagnostic(::SceneManager* sceneManager) {
+        if (sceneManager == nullptr) {
+            return "null";
+        }
+
+        List<std::string>* loadedSceneIds = sceneManager->GetLoadedSceneIds();
+        if (loadedSceneIds == nullptr) {
+            return "null";
+        }
+
+        std::string result;
+        for (int32_t index = 0; index < loadedSceneIds->get_Count(); index++) {
+            if (!result.empty()) {
+                result += ",";
+            }
+
+            result += (*loadedSceneIds)[index];
+        }
+
+        delete loadedSceneIds;
+        return result.empty() ? "none" : result;
+    }
+
+    std::string BuildStartupSceneRootSummary(::SceneAsset* sceneAsset) {
+        if (sceneAsset == nullptr) {
+            return "scene=null";
+        }
+
+        Array<::SceneEntityAsset*>* rootEntities = sceneAsset->get_RootEntities();
+        const int32_t rootCount = rootEntities != nullptr ? rootEntities->get_Length() : 0;
+        std::string summary = "roots=" + std::to_string(rootCount);
+        if (rootCount <= 0 || rootEntities == nullptr || (*rootEntities)[0] == nullptr) {
+            return summary;
+        }
+
+        ::SceneEntityAsset* firstRoot = (*rootEntities)[0];
+        Array<::SceneComponentAssetRecord*>* firstRootComponents = firstRoot->get_Components();
+        const int32_t componentCount = firstRootComponents != nullptr ? firstRootComponents->get_Length() : 0;
+        summary += " firstRootComponents=" + std::to_string(componentCount);
+        if (componentCount <= 0 || firstRootComponents == nullptr) {
+            return summary;
+        }
+
+        summary += " firstComponent=";
+        ::SceneComponentAssetRecord* firstComponent = (*firstRootComponents)[0];
+        if (firstComponent == nullptr) {
+            summary += "null";
+            return summary;
+        }
+
+        summary += firstComponent->get_ComponentTypeId();
+        return summary;
+    }
+
     void BootLog(const char* message);
 
     void BootLog(const std::string& message);
+
+    std::string BuildSceneLoadRuntimeDiagnostics(::Core* engineCore);
+
+    void BootLogRuntimeException(const char* phase, const std::string& detail, ::Core* engineCore, bool includeSceneLoadDiagnostics);
+
+    void BootLogRuntimeException(const char* phase, Exception* exception, ::Core* engineCore, bool includeSceneLoadDiagnostics);
+
+    void BootLogRuntimeException(const char* phase, const std::exception& exception, ::Core* engineCore, bool includeSceneLoadDiagnostics);
+
+    void BootLogUnknownRuntimeException(const char* phase, ::Core* engineCore, bool includeSceneLoadDiagnostics);
 
     std::string FormatFloat4(const ::float4& value);
 
@@ -263,6 +333,60 @@ namespace {
 
     void BootLog(const std::string& message) {
         BootLog(message.c_str());
+    }
+
+    std::string BuildSceneLoadRuntimeDiagnostics(::Core* engineCore) {
+        if (engineCore == nullptr) {
+            return std::string();
+        }
+
+        ::SceneManager* sceneManager = engineCore->get_SceneManager();
+        auto* sceneLoadService = engineCore->get_SceneLoadService();
+        if (sceneManager == nullptr && sceneLoadService == nullptr) {
+            return std::string();
+        }
+
+        return std::string(" sceneTrace=")
+            + (sceneManager != nullptr ? sceneManager->get_LastTraceStage() : std::string("null"))
+            + " sceneLoadTrace="
+            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTraceStage() : std::string("null"))
+            + " rootIndex="
+            + std::to_string(sceneLoadService != nullptr ? sceneLoadService->get_LastTraceRootEntityIndex() : -1)
+            + " depth="
+            + std::to_string(sceneLoadService != nullptr ? sceneLoadService->get_LastTraceEntityDepth() : -1)
+            + " component="
+            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTraceComponentTypeId() : std::string("null"))
+            + " textStage="
+            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTextLoadStage() : std::string("null"))
+            + " fontPath="
+            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTextFontRelativePath() : std::string("null"))
+            + " fontDeserialize="
+            + (sceneLoadService != nullptr ? sceneLoadService->get_LastFontDeserializeStage() : std::string("null"));
+    }
+
+    void BootLogRuntimeException(const char* phase, const std::string& detail, ::Core* engineCore, bool includeSceneLoadDiagnostics) {
+        std::string message = std::string(phase) + " exception: " + detail;
+        if (includeSceneLoadDiagnostics) {
+            message += BuildSceneLoadRuntimeDiagnostics(engineCore);
+        }
+
+        BootLog(message);
+    }
+
+    void BootLogRuntimeException(const char* phase, Exception* exception, ::Core* engineCore, bool includeSceneLoadDiagnostics) {
+        BootLogRuntimeException(
+            phase,
+            exception != nullptr ? exception->what() : std::string("null"),
+            engineCore,
+            includeSceneLoadDiagnostics);
+    }
+
+    void BootLogRuntimeException(const char* phase, const std::exception& exception, ::Core* engineCore, bool includeSceneLoadDiagnostics) {
+        BootLogRuntimeException(phase, exception.what(), engineCore, includeSceneLoadDiagnostics);
+    }
+
+    void BootLogUnknownRuntimeException(const char* phase, ::Core* engineCore, bool includeSceneLoadDiagnostics) {
+        BootLogRuntimeException(phase, "unknown", engineCore, includeSceneLoadDiagnostics);
     }
 
     std::string FormatFloat4(const ::float4& value) {
@@ -470,7 +594,7 @@ namespace {
                 stream->Dispose();
             }
         });
-        ::Asset* asset = ::AssetSerializer::Deserialize(stream);
+        ::Asset* asset = ::Ps2AssetSerializer::Deserialize(stream);
         ::Ps2TextureAsset* textureAsset = he_cpp_try_cast<::Ps2TextureAsset>(asset);
         Ps2TextureRecord record;
         if (!PopulateTextureRecordFromPs2TextureAsset(textureAsset, record)) {
@@ -560,6 +684,32 @@ namespace {
             }
 
             return texture;
+        }
+
+        RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath) override {
+            if (cookedAssetPath.empty()) {
+                throw std::invalid_argument("PS2 cooked texture path is required.");
+            }
+
+            ::FileStream* stream = ::File::OpenRead(cookedAssetPath);
+            [[maybe_unused]] auto streamGuard = he_cpp_make_scope_exit([stream]() {
+                if (stream != nullptr) {
+                    stream->Dispose();
+                }
+            });
+            ::Asset* asset = ::Ps2AssetSerializer::Deserialize(stream);
+            ::Ps2TextureAsset* textureAsset = he_cpp_try_cast<::Ps2TextureAsset>(asset);
+            Ps2TextureRecord record;
+            if (!PopulateTextureRecordFromPs2TextureAsset(textureAsset, record)) {
+                throw std::invalid_argument("PS2 cooked texture payload did not deserialize as a usable Ps2TextureAsset.");
+            }
+
+            RuntimeTexture* runtimeTexture = new RuntimeTexture();
+            runtimeTexture->set_Id(textureAsset != nullptr ? textureAsset->get_Id() : std::string());
+            runtimeTexture->set_Width(record.Texture.Width);
+            runtimeTexture->set_Height(record.Texture.Height);
+            TextureRecords.emplace(runtimeTexture, record);
+            return runtimeTexture;
         }
 
         void DrawSprite(ISpriteDrawable2D* sprite) override {
@@ -780,16 +930,12 @@ namespace helengine::ps2 {
     }
 
     bool Ps2BootHost::InitializeRuntime() {
+        BootLog(std::string("boot version: ") + Ps2BootVersionStamp);
         BootLog("runtime init");
         BootLog("cdvd init begin");
         sceCdInit(SCECdINoD);
         sceCdDiskReady(0);
         BootLog("cdvd ready");
-        BootLogDiscProbe("disc probe cube model", CubeModelDiagnosticPath);
-        BootLogDiscProbe("disc probe cube material early", CubeMaterialEarlyDiagnosticPath);
-        BootLogDiscProbe("disc probe cube material late", CubeMaterialLateDiagnosticPath);
-        BootLogDiscProbe("disc probe scene local material cooked", SceneLocalMaterialCookedDiagnosticPath);
-        BootLogDiscProbe("disc probe scene local material root", SceneLocalMaterialRootDiagnosticPath);
         EngineCore = new Core();
         EngineOptions = EngineCore->get_InitializationOptions();
         EngineOptions->set_ContentRootPath(ResolveApplicationDirectoryPath());
@@ -821,7 +967,7 @@ namespace helengine::ps2 {
             EngineOptions);
         BootLog("core initialized");
 
-        BootLog("startup scene load begin");
+        BootLog(std::string("startup scene load begin ") + Ps2BootVersionStamp);
         StartupSceneLoaded = LoadPackagedStartupScene();
         BootLog(StartupSceneLoaded ? "startup scene load succeeded" : "startup scene load failed");
 
@@ -900,14 +1046,18 @@ namespace helengine::ps2 {
                 return false;
             }
 
+            BootLog(std::string("startup scene path: ") + startupScenePhysicalPath);
+
             Asset* startupAsset = LoadPackagedPhysicalAsset(startupScenePhysicalPath);
             if (startupAsset == nullptr) {
                 BootLog("startup scene asset load returned null");
                 return false;
             }
 
+            BootLog("startup scene asset load returned non-null");
             SceneAsset* startupScene = static_cast<SceneAsset*>(startupAsset);
             if (EngineCore != nullptr && EngineCore->get_SceneLoadService() != nullptr) {
+                BootLog("startup scene invoking scene load service");
                 EngineCore->get_SceneLoadService()->Load(startupScene);
                 BootLog("startup scene load returned from scene load service");
                 BootLog(std::string("startup scene loaded: ") + startupScenePhysicalPath);
@@ -917,14 +1067,14 @@ namespace helengine::ps2 {
             BootLog("startup scene load service missing");
             return false;
         } catch (Exception* exception) {
-            BootLog(std::string("startup scene exception: ") + (exception != nullptr ? exception->what() : "null"));
+            BootLogRuntimeException("startup scene", exception, EngineCore, true);
             delete exception;
             return false;
         } catch (const std::exception& exception) {
-            BootLog(std::string("startup scene exception: ") + exception.what());
+            BootLogRuntimeException("startup scene", exception, EngineCore, true);
             return false;
         } catch (...) {
-            BootLog("startup scene exception: unknown");
+            BootLogUnknownRuntimeException("startup scene", EngineCore, true);
             return false;
         }
     }
@@ -959,19 +1109,38 @@ namespace helengine::ps2 {
                         EngineCore->Update();
                         if (!loggedFirstUpdateComplete) {
                             BootLog("first update completed");
+                            ::ObjectManager* objectManager = EngineCore->get_ObjectManager();
+                            ::SceneManager* sceneManager = EngineCore->get_SceneManager();
+                            BootLog(
+                                "first update state: loadedScenes="
+                                + std::to_string(sceneManager != nullptr && sceneManager->get_LoadedScenes() != nullptr ? sceneManager->get_LoadedScenes()->get_Count() : 0)
+                                + " ids="
+                                + BuildLoadedSceneIdsDiagnostic(sceneManager)
+                                + " entities="
+                                + std::to_string(objectManager != nullptr && objectManager->get_Entities() != nullptr ? objectManager->get_Entities()->get_Count() : 0)
+                                + " draw2d="
+                                + std::to_string(objectManager != nullptr && objectManager->get_Drawables2D() != nullptr ? objectManager->get_Drawables2D()->get_Count() : 0)
+                                + " draw3d="
+                                + std::to_string(objectManager != nullptr && objectManager->get_Drawables3D() != nullptr ? objectManager->get_Drawables3D()->get_Count() : 0)
+                                + " cameras="
+                                + std::to_string(objectManager != nullptr && objectManager->get_Cameras() != nullptr ? objectManager->get_Cameras()->get_Count() : 0)
+                                + " sceneTrace="
+                                + (sceneManager != nullptr ? sceneManager->get_LastTraceStage() : std::string("null"))
+                                + " sceneLoadTrace="
+                                + (EngineCore->get_SceneLoadService() != nullptr ? EngineCore->get_SceneLoadService()->get_LastTraceStage() : std::string("null")));
                             loggedFirstUpdateComplete = true;
                         }
                     } catch (Exception* exception) {
-                        BootLog(std::string("frame update exception: ") + (exception != nullptr ? exception->what() : "null"));
+                        BootLogRuntimeException("frame update", exception, EngineCore, false);
                         delete exception;
                         while (true) {
                         }
                     } catch (const std::exception& exception) {
-                        BootLog(std::string("frame update exception: ") + exception.what());
+                        BootLogRuntimeException("frame update", exception, EngineCore, false);
                         while (true) {
                         }
                     } catch (...) {
-                        BootLog("frame update exception: unknown");
+                        BootLogUnknownRuntimeException("frame update", EngineCore, false);
                         while (true) {
                         }
                     }
@@ -1020,16 +1189,16 @@ namespace helengine::ps2 {
                             loggedFirstDrawComplete = true;
                         }
                     } catch (Exception* exception) {
-                        BootLog(std::string("frame draw3d exception: ") + (exception != nullptr ? exception->what() : "null"));
+                        BootLogRuntimeException("frame draw3d", exception, EngineCore, false);
                         delete exception;
                         while (true) {
                         }
                     } catch (const std::exception& exception) {
-                        BootLog(std::string("frame draw3d exception: ") + exception.what());
+                        BootLogRuntimeException("frame draw3d", exception, EngineCore, false);
                         while (true) {
                         }
                     } catch (...) {
-                        BootLog("frame draw3d exception: unknown");
+                        BootLogUnknownRuntimeException("frame draw3d", EngineCore, false);
                         while (true) {
                         }
                     }
@@ -1142,16 +1311,16 @@ namespace helengine::ps2 {
                                     }
                                     drawable->Draw();
                                 } catch (Exception* exception) {
-                                    BootLog(std::string("frame draw2d exception: ") + (exception != nullptr ? exception->what() : "null"));
+                                    BootLogRuntimeException("frame draw2d", exception, EngineCore, false);
                                     delete exception;
                                     while (true) {
                                     }
                                 } catch (const std::exception& exception) {
-                                    BootLog(std::string("frame draw2d exception: ") + exception.what());
+                                    BootLogRuntimeException("frame draw2d", exception, EngineCore, false);
                                     while (true) {
                                     }
                                 } catch (...) {
-                                    BootLog("frame draw2d exception: unknown");
+                                    BootLogUnknownRuntimeException("frame draw2d", EngineCore, false);
                                     while (true) {
                                     }
                                 }
@@ -1168,16 +1337,16 @@ namespace helengine::ps2 {
                     gsKit_queue_exec(GsGlobal);
                     gsKit_sync_flip(GsGlobal);
                 } catch (Exception* exception) {
-                    BootLog(std::string("frame present exception: ") + (exception != nullptr ? exception->what() : "null"));
+                    BootLogRuntimeException("frame present", exception, EngineCore, false);
                     delete exception;
                     while (true) {
                     }
                 } catch (const std::exception& exception) {
-                    BootLog(std::string("frame present exception: ") + exception.what());
+                    BootLogRuntimeException("frame present", exception, EngineCore, false);
                     while (true) {
                     }
                 } catch (...) {
-                    BootLog("frame present exception: unknown");
+                    BootLogUnknownRuntimeException("frame present", EngineCore, false);
                     while (true) {
                     }
                 }
@@ -1214,16 +1383,16 @@ namespace helengine::ps2 {
                     }
                 }
             } catch (Exception* exception) {
-                BootLog(std::string("frame exception: ") + (exception != nullptr ? exception->what() : "null"));
+                BootLogRuntimeException("frame", exception, EngineCore, false);
                 delete exception;
                 while (true) {
                 }
             } catch (const std::exception& exception) {
-                BootLog(std::string("frame exception: ") + exception.what());
+                BootLogRuntimeException("frame", exception, EngineCore, false);
                 while (true) {
                 }
             } catch (...) {
-                BootLog("frame exception: unknown");
+                BootLogUnknownRuntimeException("frame", EngineCore, false);
                 while (true) {
                 }
             }

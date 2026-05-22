@@ -16,10 +16,31 @@ public sealed class Ps2BootHostSourceTests {
 
         string source = File.ReadAllText(sourcePath);
 
-        Assert.Contains("BootLogCompactDiscProbe(\"disc probe h1 pass known\", H1ProbePassKnownDiagnosticPath);", source, StringComparison.Ordinal);
+        Assert.Contains("BootLog(std::string(\"startup scene load begin \") + Ps2BootVersionStamp);", source, StringComparison.Ordinal);
         Assert.Contains("StartupSceneLoaded = LoadPackagedStartupScene();", source, StringComparison.Ordinal);
         Assert.Contains("BootLog(StartupSceneLoaded ? \"startup scene load succeeded\" : \"startup scene load failed\");", source, StringComparison.Ordinal);
         Assert.DoesNotContain("BootLog(\"startup scene probe halt\");", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BootLog(\"startup diagnostic halt after non-null\");", source, StringComparison.Ordinal);
+        Assert.Contains("BootLog(\"startup scene invoking scene load service\");", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures normal runtime initialization no longer emits unconditional compact-disc probe spam and startup-scene runtime exceptions route through the shared boot-log helper.
+    /// </summary>
+    [Fact]
+    public void BootHost_RuntimeExceptionLogging_UsesSharedHelperAndSkipsDefaultDiscProbeSpam() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("void BootLogRuntimeException(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BootLogDiscProbe(\"disc probe cube model\"", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BootLogDiscProbe(\"disc probe cube material early\"", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BootLogDiscProbe(\"disc probe cube material late\"", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BootLogDiscProbe(\"disc probe scene local material cooked\"", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BootLogDiscProbe(\"disc probe scene local material root\"", source, StringComparison.Ordinal);
+        Assert.Contains("BootLogRuntimeException(\"startup scene\"", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -33,6 +54,8 @@ public sealed class Ps2BootHostSourceTests {
         string source = File.ReadAllText(sourcePath);
 
         Assert.Contains("font->get_CookedAtlasTextureRelativePath()", source, StringComparison.Ordinal);
+        Assert.Contains("#include \"Ps2AssetSerializer.hpp\"", source, StringComparison.Ordinal);
+        Assert.Contains("::Ps2AssetSerializer::Deserialize(stream)", source, StringComparison.Ordinal);
         Assert.Contains("he_cpp_try_cast<::Ps2TextureAsset>(asset)", source, StringComparison.Ordinal);
         Assert.Contains("FontTextureRecords", source, StringComparison.Ordinal);
     }

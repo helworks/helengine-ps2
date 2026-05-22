@@ -11,14 +11,16 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_runtime_model_exposes_vu_packed_geometry_for_fast_path_loading() {
-        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RuntimeModel.hpp");
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RuntimeModel.cpp");
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string header = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RuntimeModel.hpp"));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RuntimeModel.cpp"));
 
         Assert.Contains("#include \"platform/ps2/rendering/vu/Ps2VuPackedModel.hpp\"", header, StringComparison.Ordinal);
+        Assert.Contains("void LoadFromCooked(::ModelAsset* modelAsset, ::Ps2PackedModelAsset* packedModelAsset);", header, StringComparison.Ordinal);
         Assert.Contains("const Ps2VuPackedModel* GetVuPackedModel() const;", header, StringComparison.Ordinal);
         Assert.Contains("Ps2VuPackedModel* VuPackedModel;", header, StringComparison.Ordinal);
         Assert.Contains("VuPackedModel = new Ps2VuPackedModel();", source, StringComparison.Ordinal);
-        Assert.Contains("modelAsset->Ps2PackedMeshBytes", source, StringComparison.Ordinal);
+        Assert.Contains("packedModelAsset->PackedMeshBytes", source, StringComparison.Ordinal);
         Assert.Contains("VuPackedModel->LoadFromPackedBytes(", source, StringComparison.Ordinal);
         Assert.DoesNotContain("            return;\r\n        }\r\n\r\n        if (modelAsset->Indices32 != nullptr && modelAsset->Indices32->Length > 0) {", source, StringComparison.Ordinal);
     }

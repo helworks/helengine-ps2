@@ -61,7 +61,7 @@ public sealed class Ps2MaterialCooker {
             EmissiveStrength = ResolveEmissiveStrength(request)
         };
 
-        return new PlatformMaterialCookResult(helengine.files.AssetSerializer.SerializeToBytes(cookedAsset), Array.Empty<string>());
+        return new PlatformMaterialCookResult(Ps2AssetSerializer.SerializeToBytes(cookedAsset), Array.Empty<string>());
     }
 
     /// <summary>

@@ -109,7 +109,10 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
                 WritePhaseMarker(phaseMarkerPath, "workspace created");
                 IReadOnlyDictionary<string, string> logicalToPhysicalPaths = DiscLayoutWriter.BuildLogicalToPhysicalPathMap(workspace);
                 WritePhaseMarker(phaseMarkerPath, "logical path map built");
-                CookedAssetPathRewriter.Rewrite(workspace.StagingRootPath, logicalToPhysicalPaths);
+                CookedAssetPathRewriter.Rewrite(
+                    workspace.StagingRootPath,
+                    logicalToPhysicalPaths,
+                    request.Manifest.PlatformCookWorkItems ?? Array.Empty<PlatformCookWorkItem>());
                 WritePhaseMarker(phaseMarkerPath, "cooked asset paths rewritten");
                 RuntimeAssetPathManifestWriter.Write(workspace.GeneratedCoreRootPath, request.Manifest, logicalToPhysicalPaths);
                 WritePhaseMarker(phaseMarkerPath, "runtime asset path manifest written");
@@ -181,7 +184,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             }
 
             File.Copy(sourcePath, destinationPath, true);
-            EmbedPackedMeshBytes(artifact, destinationPath);
+            WritePackedModelSidecar(artifact, destinationPath);
             progressReporter.Report(new PlatformBuildProgressUpdate(
                 "Stage Cooked Artifacts",
                 artifact.LogicalArtifactId,
@@ -218,17 +221,17 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     }
 
     /// <summary>
-    /// Embeds the first packed PS2 mesh payload inside staged cooked model artifacts.
+    /// Writes one PS2-owned packed-model sidecar beside each staged cooked model artifact.
     /// </summary>
     /// <param name="artifact">Artifact being staged.</param>
     /// <param name="destinationPath">Destination path for the staged artifact.</param>
-    void EmbedPackedMeshBytes(PlatformBuildArtifact artifact, string destinationPath) {
+    void WritePackedModelSidecar(PlatformBuildArtifact artifact, string destinationPath) {
         if (artifact == null) {
             throw new ArgumentNullException(nameof(artifact));
         } else if (!string.Equals(artifact.ArtifactKind, "model", StringComparison.OrdinalIgnoreCase)) {
             return;
         } else if (string.IsNullOrWhiteSpace(destinationPath)) {
-            throw new ArgumentException("Destination path must be provided for packed mesh embedding.", nameof(destinationPath));
+            throw new ArgumentException("Destination path must be provided for packed model sidecar generation.", nameof(destinationPath));
         }
 
         ModelAsset modelAsset;
@@ -240,14 +243,34 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         }
 
         byte[] packedMeshBytes = PackedMeshCooker.Cook(modelAsset);
-        Console.WriteLine($"[helengine-ps2] embed packed mesh begin path={artifact.RelativePath} bytes={packedMeshBytes.Length}");
-        modelAsset.Ps2PackedMeshBytes = packedMeshBytes;
-        File.WriteAllBytes(destinationPath, helengine.files.AssetSerializer.SerializeToBytes(modelAsset));
-        using (FileStream verifyStream = File.OpenRead(destinationPath)) {
-            ModelAsset verifiedModelAsset = AssetSerializer.Deserialize(verifyStream) as ModelAsset;
-            int verifiedLength = verifiedModelAsset?.Ps2PackedMeshBytes?.Length ?? -1;
-            Console.WriteLine($"[helengine-ps2] embed packed mesh verify path={artifact.RelativePath} bytes={verifiedLength}");
+        string sidecarPath = BuildPackedModelSidecarPath(destinationPath);
+        Ps2PackedModelAsset packedModelAsset = new() {
+            Id = artifact.LogicalArtifactId + ".ps2-packed-model",
+            PackedMeshBytes = packedMeshBytes
+        };
+
+        Console.WriteLine($"[helengine-ps2] write packed model sidecar begin path={artifact.RelativePath} bytes={packedMeshBytes.Length}");
+        File.WriteAllBytes(sidecarPath, Ps2AssetSerializer.SerializeToBytes(packedModelAsset));
+        using FileStream verifyStream = File.OpenRead(sidecarPath);
+        Ps2PackedModelAsset verifiedPackedModelAsset = Ps2AssetSerializer.Deserialize(verifyStream) as Ps2PackedModelAsset;
+        int verifiedLength = verifiedPackedModelAsset?.PackedMeshBytes?.Length ?? -1;
+        Console.WriteLine($"[helengine-ps2] write packed model sidecar verify path={artifact.RelativePath} bytes={verifiedLength}");
+    }
+
+    /// <summary>
+    /// Builds the PS2 packed-model sidecar path that accompanies one generic cooked model artifact.
+    /// </summary>
+    /// <param name="modelArtifactPath">Absolute path to the generic cooked model artifact.</param>
+    /// <returns>Absolute path to the PS2 packed-model sidecar.</returns>
+    static string BuildPackedModelSidecarPath(string modelArtifactPath) {
+        if (string.IsNullOrWhiteSpace(modelArtifactPath)) {
+            throw new ArgumentException("Model artifact path must be provided.", nameof(modelArtifactPath));
         }
+
+        string directoryPath = Path.GetDirectoryName(modelArtifactPath)
+            ?? throw new InvalidOperationException($"Could not resolve the directory for model artifact '{modelArtifactPath}'.");
+        string fileNameWithoutExtension = Path.GetFileNameWithoutExtension(modelArtifactPath);
+        return Path.Combine(directoryPath, fileNameWithoutExtension + ".ps2model.hasset");
     }
 
     static void AddDiagnostic(
