@@ -1,0 +1,6 @@
+{
+  "platformId": "ps2",
+  "displayName": "PlayStation 2",
+  "builderAssemblyPath": "builder/helengine.ps2.builder.dll",
+  "definitionFactoryType": "helengine.ps2.builder.Ps2PlatformDefinitionFactory"
+}

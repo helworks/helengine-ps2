@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\builder\helengine.ps2.builder.csproj" />
+    <ProjectReference Include="..\managed\helengine.ps2\helengine.ps2.csproj" />
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.baseplatform\helengine.baseplatform.csproj" />
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.editor\helengine.editor.csproj" />
   </ItemGroup>
