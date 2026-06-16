@@ -3,58 +3,47 @@ using Xunit;
 namespace helengine.ps2.builder.tests;
 
 /// <summary>
-/// Verifies the checked-in untextured PS2 VU path stays on the last known-good single-payload contract.
+/// Verifies the checked-in untextured PS2 VU path stays on the compact per-dispatch payload contract.
 /// </summary>
 public sealed class Ps2VuUntexturedPathSourceTests {
     /// <summary>
-    /// Ensures the setup builder emits one payload per untextured triangle and the VU program consumes the original single-payload layout.
+    /// Ensures the untextured VU packet path uses a compact per-dispatch payload with shared transform state embedded after the GIF template.
     /// </summary>
     [Fact]
-    public void UntexturedVuPath_UsesSinglePayloadContract() {
+    public void UntexturedVuPath_UsesCompactPerDispatchPayloadContract() {
         string repositoryRootPath = ResolveRepositoryRoot();
-        string setupHeader = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuOpaqueUntexturedSetupBuilder.hpp"));
         string setupSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuOpaqueUntexturedSetupBuilder.cpp"));
         string vifSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
         string microProgramSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueDraw3D.vsm"));
 
-        Assert.Contains("struct alignas(16) Ps2VuOpaqueSourceTriangle final", setupHeader, StringComparison.Ordinal);
-        Assert.Contains("float FaceNormal[4];", setupHeader, StringComparison.Ordinal);
-        Assert.Contains("float LightDirection[4];", setupHeader, StringComparison.Ordinal);
-        Assert.Contains("float WorldViewProjectionMatrix[16];", setupHeader, StringComparison.Ordinal);
-
-        Assert.DoesNotContain("constexpr std::uint32_t VuDiagnosticBatchTriangleCount = 2u;", vifSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("constexpr bool EnableVuTwoTriangleBatchDiagnostic", vifSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("struct alignas(16) Ps2VuTriangleBatchHeader final", vifSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("batchHeader->TriangleCount", vifSource, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        xtop VI02", microProgramSource, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        iaddiu VI03, VI02, 0x00000010", microProgramSource, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        lq VF01, 40(VI02)", microProgramSource, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        lq VF02, 41(VI02)", microProgramSource, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        lq VF03, 42(VI02)", microProgramSource, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        lq VF04, 52(VI02)", microProgramSource, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        lq VF05, 53(VI02)", microProgramSource, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        lq VF06, 54(VI02)", microProgramSource, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        lq VF07, 55(VI02)", microProgramSource, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        lq VF08, 56(VI02)", microProgramSource, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        lq VF09, 57(VI02)", microProgramSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2VuOpaqueUntexturedSetupBuilder setupBuilder;", vifSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("setupBuilder.Build(", vifSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("PopulateTrianglePayloadFromSetup(", vifSource, StringComparison.Ordinal);
+        Assert.Contains("struct alignas(16) Ps2VuUntexturedSharedState final", vifSource, StringComparison.Ordinal);
+        Assert.Contains("struct alignas(16) Ps2VuUntexturedTriangleRecord final", vifSource, StringComparison.Ordinal);
+        Assert.Contains("struct alignas(16) Ps2VuUntexturedTrianglePayload final", vifSource, StringComparison.Ordinal);
+        Assert.Contains("static_assert((offsetof(Ps2VuUntexturedTrianglePayload, SharedState) / 16u) == UntexturedTriangleSharedStateQwordOffset);", vifSource, StringComparison.Ordinal);
         Assert.Contains("packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1)", vifSource, StringComparison.Ordinal);
-        Assert.Contains("Ps2VuLitTrianglePayload", vifSource, StringComparison.Ordinal);
-        Assert.Contains("float FaceNormal[4];", vifSource, StringComparison.Ordinal);
-        Assert.Contains("float LightDirection[4];", vifSource, StringComparison.Ordinal);
-        Assert.Contains("float WorldViewProjectionMatrix[16];", vifSource, StringComparison.Ordinal);
-        Assert.Contains("float NormalA[4];", vifSource, StringComparison.Ordinal);
-        Assert.Contains("float TexCoordA[4];", vifSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("sqi VF10, (VI03++)", microProgramSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("sqi VF16, (VI03++)", microProgramSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("__ps2_opaque_draw_3d_triangle_loop", microProgramSource, StringComparison.Ordinal);
-        Assert.Contains("sq.xyz VF01, 22(VI02)", microProgramSource, StringComparison.Ordinal);
-        Assert.Contains("sq.xyz VF03, 24(VI02)", microProgramSource, StringComparison.Ordinal);
-        Assert.Contains("sq.xyz VF02, 26(VI02)", microProgramSource, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(packet.get()->next, &trianglePayload, sizeof(Ps2VuUntexturedTrianglePayload));", vifSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("packet2_utils_vu_open_unpack(packet.get(), UntexturedSharedStateAddress, 1)", vifSource, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        xtop VI02", microProgramSource, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        iaddiu VI03, VI02, 0x00000003", microProgramSource, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF01, 0(VI02)", microProgramSource, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF02, 1(VI02)", microProgramSource, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF03, 2(VI02)", microProgramSource, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF04, 14(VI02)", microProgramSource, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF05, 15(VI02)", microProgramSource, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF06, 16(VI02)", microProgramSource, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF07, 17(VI02)", microProgramSource, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF08, 18(VI02)", microProgramSource, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF09, 19(VI02)", microProgramSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2VuLitTrianglePayload", vifSource, StringComparison.Ordinal);
+        Assert.Contains("sq.xyz VF01, 9(VI02)", microProgramSource, StringComparison.Ordinal);
+        Assert.Contains("sq.xyz VF03, 11(VI02)", microProgramSource, StringComparison.Ordinal);
+        Assert.Contains("sq.xyz VF02, 13(VI02)", microProgramSource, StringComparison.Ordinal);
         Assert.Contains("xgkick VI03", microProgramSource, StringComparison.Ordinal);
         Assert.Contains("::float4x4::Multiply__ref0_ref1_out2(worldCopy, viewCopy, worldViewMatrix);", setupSource, StringComparison.Ordinal);
         Assert.Contains("::float4x4::Multiply__ref0_ref1_out2(worldViewMatrix, projectionCopy, worldViewProjectionMatrix);", setupSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("::float4x4::Multiply(worldCopy, viewCopy, worldViewMatrix);", setupSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("::float4x4::Multiply(worldViewMatrix, projectionCopy, worldViewProjectionMatrix);", setupSource, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -74,18 +63,38 @@ public sealed class Ps2VuUntexturedPathSourceTests {
     }
 
     /// <summary>
-    /// Ensures the compact untextured setup builder still records real projected screen bounds for runtime diagnostics instead of leaving the VU path at zeroed bounds.
+    /// Ensures the untextured setup builder leaves expensive projected submitted-bounds diagnostics disabled by default so normal runtime frames do not pay for debug-only screen-space work.
     /// </summary>
     [Fact]
-    public void UntexturedVuPath_PopulatesProjectedScreenBoundsForRuntimeDiagnostics() {
+    public void UntexturedVuPath_DisablesProjectedSubmittedBoundsDiagnosticsByDefault() {
         string repositoryRootPath = ResolveRepositoryRoot();
         string setupSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuOpaqueUntexturedSetupBuilder.cpp"));
 
-        Assert.Contains("bool ProjectWorldPosition(", setupSource, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableVuSubmittedBoundsDiagnostics = false;", setupSource, StringComparison.Ordinal);
+        Assert.Contains("if (EnableVuSubmittedBoundsDiagnostics) {", setupSource, StringComparison.Ordinal);
+        Assert.Contains("const ::float3 worldPositionA = TransformPosition(positionA, world);", setupSource, StringComparison.Ordinal);
+        Assert.Contains("ProjectWorldPosition(worldPositionA4, worldViewProjectionMatrix, viewport, screenAX, screenAY, screenAZ)", setupSource, StringComparison.Ordinal);
         Assert.Contains("SubmittedScreenBounds = ::float4(minX, minY, maxX, maxY);", setupSource, StringComparison.Ordinal);
-        Assert.Contains("SubmittedTriangleBoundsA = ::float4(minX, minY, maxX, maxY);", setupSource, StringComparison.Ordinal);
-        Assert.Contains("SubmittedTriangleVertexA0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);", setupSource, StringComparison.Ordinal);
         Assert.Contains("SubmittedTriangleVertexB0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);", setupSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures per-triangle timing probes stay disabled by default so the shared VU hot path does not pay `std::clock()` overhead for overlay-only diagnostics.
+    /// </summary>
+    [Fact]
+    public void UntexturedVuPath_DisablesPerTriangleTimingDiagnosticsByDefault() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string setupSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuOpaqueUntexturedSetupBuilder.cpp"));
+        string vifSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+
+        Assert.Contains("constexpr bool EnableVuPerTriangleTimingDiagnostics = false;", setupSource, StringComparison.Ordinal);
+        Assert.Contains("if (EnableVuPerTriangleTimingDiagnostics) {", setupSource, StringComparison.Ordinal);
+        Assert.Contains("trianglePrepStartTicks = std::clock();", setupSource, StringComparison.Ordinal);
+        Assert.Contains("triangleEmitStartTicks = std::clock();", setupSource, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableVuPerTriangleTimingDiagnostics = false;", vifSource, StringComparison.Ordinal);
+        Assert.Contains("if (EnableVuPerTriangleTimingDiagnostics) {", vifSource, StringComparison.Ordinal);
+        Assert.Contains("trianglePrepStartTicks = std::clock();", vifSource, StringComparison.Ordinal);
+        Assert.Contains("triangleEmitStartTicks = std::clock();", vifSource, StringComparison.Ordinal);
     }
 
     /// <summary>

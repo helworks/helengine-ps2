@@ -222,6 +222,31 @@ public sealed class Ps2BootHostSourceTests {
     }
 
     /// <summary>
+    /// Ensures the PS2 boot host disables depth testing around the 2D overlay pass so HUD text and sprites cannot be occluded by previously submitted 3D geometry.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenDrawing2D_DisablesDepthTestingForOverlayPass() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int draw2dCallIndex = source.IndexOf("EngineRenderManager2D->Draw();", StringComparison.Ordinal);
+        Assert.True(draw2dCallIndex >= 0, "Expected PS2 boot host 2D draw call.");
+
+        int sliceStart = Math.Max(0, draw2dCallIndex - 700);
+        int sliceLength = Math.Min(1800, source.Length - sliceStart);
+        string draw2dSlice = source.Substring(sliceStart, sliceLength);
+
+        Assert.Contains("const int32_t previousZBuffering = GsGlobal->ZBuffering;", draw2dSlice, StringComparison.Ordinal);
+        Assert.Contains("GsGlobal->ZBuffering = GS_SETTING_OFF;", draw2dSlice, StringComparison.Ordinal);
+        Assert.Contains("gsKit_set_test(GsGlobal, GS_ZTEST_OFF);", draw2dSlice, StringComparison.Ordinal);
+        Assert.Contains("EngineRenderManager2D->Draw();", draw2dSlice, StringComparison.Ordinal);
+        Assert.Contains("GsGlobal->ZBuffering = previousZBuffering;", draw2dSlice, StringComparison.Ordinal);
+        Assert.Contains("if (GsGlobal->ZBuffering == GS_SETTING_ON) {", draw2dSlice, StringComparison.Ordinal);
+        Assert.Contains("gsKit_set_test(GsGlobal, GS_ZTEST_ON);", draw2dSlice, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 boot host leaves the normal FPS overlay active by default instead of hijacking those text lines with temporary cube-test diagnostics.
     /// </summary>
     [Fact]

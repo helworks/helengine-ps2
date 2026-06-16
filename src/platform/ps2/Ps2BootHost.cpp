@@ -2363,8 +2363,18 @@ namespace helengine::ps2 {
                             }
                         }
 
+                        const int32_t previousZBuffering = GsGlobal->ZBuffering;
+                        GsGlobal->ZBuffering = GS_SETTING_OFF;
+                        gsKit_set_test(GsGlobal, GS_ZTEST_OFF);
+
                         try {
                             EngineRenderManager2D->Draw();
+                            GsGlobal->ZBuffering = previousZBuffering;
+                            if (GsGlobal->ZBuffering == GS_SETTING_ON) {
+                                gsKit_set_test(GsGlobal, GS_ZTEST_ON);
+                            } else {
+                                gsKit_set_test(GsGlobal, GS_ZTEST_OFF);
+                            }
                         } catch (Exception* exception) {
                             BootLogRuntimeException("frame draw2d", exception, EngineCore, false);
                             delete exception;

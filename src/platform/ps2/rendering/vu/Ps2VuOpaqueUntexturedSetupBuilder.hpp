@@ -16,23 +16,12 @@ namespace helengine::ps2 {
         float PositionA[4];
         float PositionB[4];
         float PositionC[4];
-        float NormalA[4];
-        float NormalB[4];
-        float NormalC[4];
-        float TexCoordA[4];
-        float TexCoordB[4];
-        float TexCoordC[4];
     };
 
     struct alignas(16) Ps2VuOpaqueUntexturedTriangleSetup final {
-        float WorldMatrix[16];
-        float ViewMatrix[16];
-        float ProjectionMatrix[16];
-        float Viewport[4];
         Ps2VuOpaqueSourceTriangle SourceTriangle;
         float FaceNormal[4];
         float LightDirection[4];
-        float LightConstants[4];
         float WorldViewProjectionMatrix[16];
         float GsScale[4];
         float GsOffset[4];
