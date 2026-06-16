@@ -175,6 +175,8 @@ namespace helengine::ps2 {
         double LastVuPacketAssemblyMilliseconds;
         double LastVuTrianglePrepMilliseconds;
         double LastVuTriangleEmitMilliseconds;
+        double LastVuTriangleLightingMilliseconds;
+        double LastVuTrianglePayloadFillMilliseconds;
         ::float4 LastResolvedViewport;
         ::float4 LastSubmittedScreenBounds;
         ::float4 LastSubmittedTriangleBoundsA;

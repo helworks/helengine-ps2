@@ -106,6 +106,20 @@ namespace helengine::ps2 {
             std::uint8_t Alpha = 0x80;
         };
 
+        struct Ps2VuLightingConstants final {
+            std::uint8_t BaseColorR = 0xFF;
+            std::uint8_t BaseColorG = 0xFF;
+            std::uint8_t BaseColorB = 0xFF;
+            std::uint8_t BaseColorA = 0x80;
+            bool Unlit = false;
+            bool ShowcaseLit = false;
+            bool ExpensiveModeAllowed = false;
+            double DiffuseScale = 1.0;
+            double SpecularPower = 4.0;
+            double SpecularScale = 0.0;
+            double EmissiveBoost = 0.0;
+        };
+
         void PopulateTriangleGifPacketTemplate(
             const Ps2VuOpaqueBatch& batch,
             const Ps2VuFlatColor& flatColor,
@@ -114,7 +128,11 @@ namespace helengine::ps2 {
 
         packet2_t* CreatePacketOrThrow(std::uint16_t qwords, Packet2Mode mode);
 
+        void PopulateLightingConstants(const Ps2RuntimeMaterial& material, Ps2VuLightingConstants& lightingConstants);
+
         std::uint64_t ResolveTexturedVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection);
+
+        std::uint64_t ResolveTexturedVertexColor(const Ps2VuLightingConstants& lightingConstants, const ::float3& normalizedFaceNormal, const ::float3& normalizedLightDirection);
 
         static_assert((sizeof(Ps2VuUntexturedTriangleRecord) % 16u) == 0u);
         static_assert((sizeof(Ps2VuUntexturedSharedState) % 16u) == 0u);
@@ -494,12 +512,55 @@ namespace helengine::ps2 {
             return GS_SETREG_UV(static_cast<std::uint32_t>(u), static_cast<std::uint32_t>(v));
         }
 
+        std::uint8_t ApplyIntensityToChannel(std::uint8_t channel, std::uint8_t intensity) {
+            const std::uint32_t litChannel = (static_cast<std::uint32_t>(channel) * static_cast<std::uint32_t>(intensity)) + 127u;
+            return static_cast<std::uint8_t>(litChannel / 255u);
+        }
+
+        double ResolveApproximateSpecularFactor(const Ps2VuLightingConstants& lightingConstants, double ndotl) {
+            const double ndotl2 = ndotl * ndotl;
+            const double ndotl4 = ndotl2 * ndotl2;
+            const double ndotl8 = ndotl4 * ndotl4;
+            const double ndotl16 = ndotl8 * ndotl8;
+            double specularFactor = ndotl4;
+            if (lightingConstants.SpecularPower >= 9.0) {
+                specularFactor = ndotl16;
+            } else if (lightingConstants.SpecularPower >= 6.0) {
+                specularFactor = ndotl8;
+            }
+
+            return specularFactor * lightingConstants.SpecularScale;
+        }
+
+        void PopulateLightingConstants(const Ps2RuntimeMaterial& material, Ps2VuLightingConstants& lightingConstants) {
+            lightingConstants.BaseColorR = material.GetBaseColorR();
+            lightingConstants.BaseColorG = material.GetBaseColorG();
+            lightingConstants.BaseColorB = material.GetBaseColorB();
+            lightingConstants.BaseColorA = material.GetBaseColorA();
+            lightingConstants.Unlit = material.GetLightingMode() == ::Ps2MaterialLightingMode::Unlit;
+            lightingConstants.ShowcaseLit = material.GetLightingMode() == ::Ps2MaterialLightingMode::ShowcaseLit;
+            lightingConstants.ExpensiveModeAllowed = material.GetExpensiveModeAllowed();
+            if (lightingConstants.Unlit) {
+                lightingConstants.DiffuseScale = 1.0;
+                lightingConstants.SpecularPower = 4.0;
+                lightingConstants.SpecularScale = 0.0;
+                lightingConstants.EmissiveBoost = 0.0;
+                return;
+            }
+
+            const double roughness = std::clamp(static_cast<double>(material.GetRoughness()), 0.0, 1.0);
+            const double specularStrength = std::clamp(static_cast<double>(material.GetSpecularStrength()), 0.0, 1.0);
+            const double emissiveStrength = std::clamp(static_cast<double>(material.GetEmissiveStrength()), 0.0, 1.0);
+            lightingConstants.DiffuseScale = 1.0 - (roughness * 0.35);
+            lightingConstants.SpecularPower = 4.0 + ((1.0 - roughness) * 8.0);
+            lightingConstants.SpecularScale = specularStrength * (lightingConstants.ShowcaseLit ? 96.0 : 48.0);
+            lightingConstants.EmissiveBoost = emissiveStrength * (lightingConstants.ShowcaseLit ? 72.0 : 24.0);
+        }
+
         std::uint64_t ResolveTexturedVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection) {
-            const std::uint8_t baseColorR = material.GetBaseColorR();
-            const std::uint8_t baseColorG = material.GetBaseColorG();
-            const std::uint8_t baseColorB = material.GetBaseColorB();
-            const std::uint8_t baseColorA = material.GetBaseColorA();
-            if (material.GetLightingMode() == ::Ps2MaterialLightingMode::Unlit) {
+            Ps2VuLightingConstants lightingConstants {};
+            PopulateLightingConstants(material, lightingConstants);
+            if (lightingConstants.Unlit) {
                 return GS_SETREG_RGBAQ(0xC0, 0xC0, 0xC0, 0x80, 0x00);
             }
 
@@ -512,35 +573,32 @@ namespace helengine::ps2 {
 
             const ::float3 normalizedFaceNormal = NormalizeOrFallback(normal, ::float3(0.0f, 0.0f, -1.0f));
             const ::float3 normalizedLightDirection = NormalizeOrFallback(lightDirection, ::float3(0.0f, 0.0f, -1.0f));
+            return ResolveTexturedVertexColor(lightingConstants, normalizedFaceNormal, normalizedLightDirection);
+        }
+
+        std::uint64_t ResolveTexturedVertexColor(const Ps2VuLightingConstants& lightingConstants, const ::float3& normalizedFaceNormal, const ::float3& normalizedLightDirection) {
+            if (lightingConstants.Unlit) {
+                return GS_SETREG_RGBAQ(0xC0, 0xC0, 0xC0, 0x80, 0x00);
+            }
+
             const double ndotl = std::max(
                 0.0,
                 (static_cast<double>(normalizedFaceNormal.X) * static_cast<double>(normalizedLightDirection.X))
                     + (static_cast<double>(normalizedFaceNormal.Y) * static_cast<double>(normalizedLightDirection.Y))
                     + (static_cast<double>(normalizedFaceNormal.Z) * static_cast<double>(normalizedLightDirection.Z)));
-            const double roughness = std::clamp(static_cast<double>(material.GetRoughness()), 0.0, 1.0);
-            const double specularStrength = std::clamp(static_cast<double>(material.GetSpecularStrength()), 0.0, 1.0);
-            const double emissiveStrength = std::clamp(static_cast<double>(material.GetEmissiveStrength()), 0.0, 1.0);
-            const double diffuseScale = 1.0 - (roughness * 0.35);
-            const double baseIntensity = CpuLightingBias + (ndotl * CpuLightingScale * diffuseScale);
-            const double specularPower = 4.0 + ((1.0 - roughness) * 8.0);
-            const double specularBoost = std::pow(ndotl, specularPower) * specularStrength * (material.GetLightingMode() == ::Ps2MaterialLightingMode::ShowcaseLit ? 96.0 : 48.0);
-            const double emissiveBoost = emissiveStrength * (material.GetLightingMode() == ::Ps2MaterialLightingMode::ShowcaseLit ? 72.0 : 24.0);
-            double intensityValue = baseIntensity + specularBoost + emissiveBoost;
-            if (material.GetLightingMode() == ::Ps2MaterialLightingMode::ShowcaseLit && material.GetExpensiveModeAllowed()) {
+            const double baseIntensity = CpuLightingBias + (ndotl * CpuLightingScale * lightingConstants.DiffuseScale);
+            const double specularBoost = ResolveApproximateSpecularFactor(lightingConstants, ndotl);
+            double intensityValue = baseIntensity + specularBoost + lightingConstants.EmissiveBoost;
+            if (lightingConstants.ShowcaseLit && lightingConstants.ExpensiveModeAllowed) {
                 intensityValue += 24.0 + (ndotl * 28.0);
             }
 
             const std::uint8_t intensity = static_cast<std::uint8_t>(std::clamp(std::lround(intensityValue), 0l, 255l));
-            const auto applyIntensity = [intensity](std::uint8_t channel) {
-                const double litChannel = (static_cast<double>(channel) * static_cast<double>(intensity)) / 255.0;
-                return static_cast<std::uint8_t>(std::clamp(std::lround(litChannel), 0l, 255l));
-            };
-
             return GS_SETREG_RGBAQ(
-                applyIntensity(baseColorR),
-                applyIntensity(baseColorG),
-                applyIntensity(baseColorB),
-                baseColorA,
+                ApplyIntensityToChannel(lightingConstants.BaseColorR, intensity),
+                ApplyIntensityToChannel(lightingConstants.BaseColorG, intensity),
+                ApplyIntensityToChannel(lightingConstants.BaseColorB, intensity),
+                lightingConstants.BaseColorA,
                 0x00);
         }
 
@@ -604,6 +662,8 @@ namespace helengine::ps2 {
         LastPacketAssemblyMilliseconds = 0.0;
         LastTrianglePrepMilliseconds = 0.0;
         LastTriangleEmitMilliseconds = 0.0;
+        LastTriangleLightingMilliseconds = 0.0;
+        LastTrianglePayloadFillMilliseconds = 0.0;
         SubmittedTriangleCount = 0;
         SubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         SubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -679,11 +739,12 @@ namespace helengine::ps2 {
             const float* packedPositionWords = reinterpret_cast<const float*>(batch.Model->GetPositionBlockBytes());
             const float* packedNormalWords = reinterpret_cast<const float*>(batch.Model->GetNormalBlockBytes());
             PopulateUntexturedSharedState(world, view, projection, viewport, sharedStateTemplate);
+            Ps2VuLightingConstants lightingConstants {};
+            PopulateLightingConstants(*batch.Material, lightingConstants);
+            std::clock_t accumulatedTriangleLightingTicks = 0;
+            std::clock_t accumulatedTrianglePayloadFillTicks = 0;
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
-                std::clock_t trianglePrepStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    trianglePrepStartTicks = std::clock();
-                }
+                const std::clock_t trianglePrepStartTicks = std::clock();
 
                 const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
                 const std::size_t positionWordIndexB = static_cast<std::size_t>(vertexIndex + 1u) * 4u;
@@ -709,22 +770,22 @@ namespace helengine::ps2 {
                 const ::float3 worldFaceNormal = NormalizeOrFallback(
                     TransformPosition(::float4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f), world),
                     ::float3(0.0f, 0.0f, -1.0f));
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    const std::clock_t trianglePrepEndTicks = std::clock();
-                    LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
-                }
+                const std::clock_t trianglePrepEndTicks = std::clock();
+                LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
 
-                std::clock_t triangleEmitStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    triangleEmitStartTicks = std::clock();
-                }
+                const std::clock_t triangleEmitStartTicks = std::clock();
 
-                const std::uint64_t triangleColor = ResolveTexturedVertexColor(*batch.Material, worldFaceNormal, normalizedLightDirection);
+                const std::clock_t triangleLightingStartTicks = std::clock();
+                const std::uint64_t triangleColor = ResolveTexturedVertexColor(lightingConstants, worldFaceNormal, normalizedLightDirection);
                 Ps2VuFlatColor flatColor {};
                 flatColor.Red = static_cast<std::uint8_t>(triangleColor & 0xFFu);
                 flatColor.Green = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
                 flatColor.Blue = static_cast<std::uint8_t>((triangleColor >> 16u) & 0xFFu);
                 flatColor.Alpha = static_cast<std::uint8_t>((triangleColor >> 24u) & 0xFFu);
+                const std::clock_t triangleLightingEndTicks = std::clock();
+                accumulatedTriangleLightingTicks += (triangleLightingEndTicks - triangleLightingStartTicks);
+
+                const std::clock_t trianglePayloadFillStartTicks = std::clock();
                 Ps2VuUntexturedTrianglePayload payload {};
                 CopyCachedTriangleGifPacketTemplate(batch, flatColor, gsGlobal, gifTemplateCache, payload.TriangleRecord);
                 std::memcpy(&payload.SharedState, &sharedStateTemplate, sizeof(sharedStateTemplate));
@@ -741,15 +802,17 @@ namespace helengine::ps2 {
                 payload.TriangleRecord.SourceTriangle.PositionC[2] = packedPositionWords[positionWordIndexC + 2u];
                 payload.TriangleRecord.SourceTriangle.PositionC[3] = 1.0f;
                 untexturedTrianglePayloads.push_back(payload);
+                const std::clock_t trianglePayloadFillEndTicks = std::clock();
+                accumulatedTrianglePayloadFillTicks += (trianglePayloadFillEndTicks - trianglePayloadFillStartTicks);
                 SubmittedTriangleCount++;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    const std::clock_t triangleEmitEndTicks = std::clock();
-                    LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
-                }
+                const std::clock_t triangleEmitEndTicks = std::clock();
+                LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
                 if (EnableVuSingleDispatchDiagnostic) {
                     break;
                 }
             }
+            LastTriangleLightingMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTriangleLightingTicks);
+            LastTrianglePayloadFillMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTrianglePayloadFillTicks);
         } else {
             std::vector<Ps2VuTexturedClipVertex> clippedTexturedVertices;
             clippedTexturedVertices.reserve(4u);
@@ -1101,6 +1164,14 @@ namespace helengine::ps2 {
 
     double Ps2VuVifPacketBuilder::GetLastTriangleEmitMilliseconds() const {
         return LastTriangleEmitMilliseconds;
+    }
+
+    double Ps2VuVifPacketBuilder::GetLastTriangleLightingMilliseconds() const {
+        return LastTriangleLightingMilliseconds;
+    }
+
+    double Ps2VuVifPacketBuilder::GetLastTrianglePayloadFillMilliseconds() const {
+        return LastTrianglePayloadFillMilliseconds;
     }
 
     std::size_t Ps2VuVifPacketBuilder::GetSubmittedTriangleCount() const {

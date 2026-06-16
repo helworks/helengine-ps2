@@ -558,6 +558,8 @@ namespace helengine::ps2 {
             LastVuPacketAssemblyMilliseconds(0.0),
             LastVuTrianglePrepMilliseconds(0.0),
             LastVuTriangleEmitMilliseconds(0.0),
+            LastVuTriangleLightingMilliseconds(0.0),
+            LastVuTrianglePayloadFillMilliseconds(0.0),
             LastResolvedViewport(),
           LastSubmittedScreenBounds(),
           LastSubmittedTriangleBoundsA(),
@@ -737,6 +739,8 @@ namespace helengine::ps2 {
         LastVuPacketAssemblyMilliseconds = 0.0;
         LastVuTrianglePrepMilliseconds = 0.0;
         LastVuTriangleEmitMilliseconds = 0.0;
+        LastVuTriangleLightingMilliseconds = 0.0;
+        LastVuTrianglePayloadFillMilliseconds = 0.0;
         LastResolvedViewport = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastSubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastSubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -896,9 +900,9 @@ namespace helengine::ps2 {
             LastVuTriangleSetupMilliseconds,
             LastVuTrianglePrepMilliseconds,
             LastVuTriangleEmitMilliseconds,
-            LastVuPacketEncodeMilliseconds,
-            LastVuSubmitMilliseconds,
-            LastVuWaitMilliseconds,
+            LastVuPacketAssemblyMilliseconds,
+            LastVuTriangleLightingMilliseconds,
+            LastVuTrianglePayloadFillMilliseconds,
             static_cast<int>(LastSubmittedTriangleCount),
             static_cast<int>(LastVuBatchDispatchCount));
     }
@@ -947,6 +951,8 @@ namespace helengine::ps2 {
             LastVuPacketAssemblyMilliseconds += VuVifPacketBuilder.GetLastPacketAssemblyMilliseconds();
             LastVuTrianglePrepMilliseconds += VuVifPacketBuilder.GetLastTrianglePrepMilliseconds();
             LastVuTriangleEmitMilliseconds += VuVifPacketBuilder.GetLastTriangleEmitMilliseconds();
+            LastVuTriangleLightingMilliseconds += VuVifPacketBuilder.GetLastTriangleLightingMilliseconds();
+            LastVuTrianglePayloadFillMilliseconds += VuVifPacketBuilder.GetLastTrianglePayloadFillMilliseconds();
             if (packet == nullptr) {
                 continue;
             }

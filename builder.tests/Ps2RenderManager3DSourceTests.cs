@@ -174,6 +174,29 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures the PS2 renderer publishes the coarse untextured VU profiling split through the existing overlay fields without changing the packet-builder runtime contract.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenPublishingPerformanceOverlay_UsesAssemblyLightingAndPayloadFillMetricsWithoutLayoutChanges() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 render manager source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int publishIndex = source.IndexOf("void Ps2RenderManager3D::PublishPerformanceOverlayMetrics() const", StringComparison.Ordinal);
+        Assert.True(publishIndex >= 0, "Expected PS2 render manager to publish performance overlay metrics.");
+        string publishBody = source.Substring(publishIndex, Math.Min(1200, source.Length - publishIndex));
+
+        Assert.Contains("LastVuPacketAssemblyMilliseconds,", publishBody, StringComparison.Ordinal);
+        Assert.Contains("LastVuTriangleLightingMilliseconds,", publishBody, StringComparison.Ordinal);
+        Assert.Contains("LastVuTrianglePayloadFillMilliseconds,", publishBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("LastVuPacketEncodeMilliseconds,", publishBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("LastVuSubmitMilliseconds,", publishBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("LastVuWaitMilliseconds,", publishBody, StringComparison.Ordinal);
+        Assert.Contains("LastVuTriangleLightingMilliseconds += VuVifPacketBuilder.GetLastTriangleLightingMilliseconds();", source, StringComparison.Ordinal);
+        Assert.Contains("LastVuTrianglePayloadFillMilliseconds += VuVifPacketBuilder.GetLastTrianglePayloadFillMilliseconds();", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures unlit PS2 materials preserve their authored base color instead of collapsing every cube to the same diagnostic gray.
     /// </summary>
     [Fact]
