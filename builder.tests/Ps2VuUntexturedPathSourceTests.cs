@@ -98,10 +98,47 @@ public sealed class Ps2VuUntexturedPathSourceTests {
     }
 
     /// <summary>
+    /// Ensures the stable compact untextured payload contract still hoists batch-invariant transform state and reuses identical flat-color GIF templates instead of rebuilding both for every triangle.
+    /// </summary>
+    [Fact]
+    public void UntexturedVuPath_HoistsSharedStateAndCachesGifTemplates() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string vifSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        string untexturedBranch = ExtractSourceRange(
+            vifSource,
+            "} else if (!textured) {",
+            "} else {");
+
+        Assert.Contains("struct Ps2VuGifTemplateCacheEntry final", vifSource, StringComparison.Ordinal);
+        Assert.Contains("std::vector<Ps2VuGifTemplateCacheEntry> gifTemplateCache;", vifSource, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuUntexturedSharedState sharedStateTemplate {};", vifSource, StringComparison.Ordinal);
+        Assert.Contains("PopulateUntexturedSharedState(world, view, projection, viewport, sharedStateTemplate);", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("CopyCachedTriangleGifPacketTemplate(batch, flatColor, gsGlobal, gifTemplateCache, payload.TriangleRecord);", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(&payload.SharedState, &sharedStateTemplate, sizeof(sharedStateTemplate));", untexturedBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("PopulateUntexturedSharedState(world, view, projection, viewport, payload.SharedState);", untexturedBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("PopulateTriangleGifPacketTemplate(batch, flatColor, gsGlobal, payload.TriangleRecord);", untexturedBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Resolves the repository root path from the current test binary location.
     /// </summary>
     /// <returns>Absolute repository root path.</returns>
     static string ResolveRepositoryRoot() {
         return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+    }
+
+    /// <summary>
+    /// Extracts one source range delimited by stable sentinel text.
+    /// </summary>
+    /// <param name="source">Full source text.</param>
+    /// <param name="startSentinel">Inclusive start sentinel.</param>
+    /// <param name="endSentinel">Exclusive end sentinel.</param>
+    /// <returns>Substring bounded by the sentinel pair.</returns>
+    static string ExtractSourceRange(string source, string startSentinel, string endSentinel) {
+        int startIndex = source.IndexOf(startSentinel, StringComparison.Ordinal);
+        Assert.True(startIndex >= 0, $"Could not find start sentinel: {startSentinel}");
+        int endIndex = source.IndexOf(endSentinel, startIndex, StringComparison.Ordinal);
+        Assert.True(endIndex >= 0, $"Could not find end sentinel: {endSentinel}");
+        return source.Substring(startIndex, endIndex - startIndex);
     }
 }

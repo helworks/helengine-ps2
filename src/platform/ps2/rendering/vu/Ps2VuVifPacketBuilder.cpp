@@ -89,6 +89,11 @@ namespace helengine::ps2 {
             Ps2VuUntexturedSharedState SharedState;
         };
 
+        struct Ps2VuGifTemplateCacheEntry final {
+            std::uint32_t FlatColorKey = 0u;
+            std::array<std::uint8_t, TriangleGifPacketTemplateByteCount> GifPacketTemplate {};
+        };
+
         struct Ps2VuTexturedClipVertex final {
             ::float3 ViewPosition = ::float3::get_Zero();
             ::float2 TexCoord = ::float2(0.0f, 0.0f);
@@ -160,6 +165,36 @@ namespace helengine::ps2 {
             sharedState.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
             sharedState.GsOffset[2] = 4194304.0f;
             sharedState.GsOffset[3] = 0.0f;
+        }
+
+        std::uint32_t ResolveFlatColorKey(const Ps2VuFlatColor& flatColor) {
+            return static_cast<std::uint32_t>(flatColor.Red)
+                | (static_cast<std::uint32_t>(flatColor.Green) << 8u)
+                | (static_cast<std::uint32_t>(flatColor.Blue) << 16u)
+                | (static_cast<std::uint32_t>(flatColor.Alpha) << 24u);
+        }
+
+        void CopyCachedTriangleGifPacketTemplate(
+            const Ps2VuOpaqueBatch& batch,
+            const Ps2VuFlatColor& flatColor,
+            GSGLOBAL* gsGlobal,
+            std::vector<Ps2VuGifTemplateCacheEntry>& gifTemplateCache,
+            Ps2VuUntexturedTriangleRecord& record) {
+            const std::uint32_t flatColorKey = ResolveFlatColorKey(flatColor);
+            for (const Ps2VuGifTemplateCacheEntry& cacheEntry : gifTemplateCache) {
+                if (cacheEntry.FlatColorKey != flatColorKey) {
+                    continue;
+                }
+
+                std::memcpy(record.GifPacketTemplate, cacheEntry.GifPacketTemplate.data(), TriangleGifPacketTemplateByteCount);
+                return;
+            }
+
+            PopulateTriangleGifPacketTemplate(batch, flatColor, gsGlobal, record);
+            Ps2VuGifTemplateCacheEntry cacheEntry {};
+            cacheEntry.FlatColorKey = flatColorKey;
+            std::memcpy(cacheEntry.GifPacketTemplate.data(), record.GifPacketTemplate, TriangleGifPacketTemplateByteCount);
+            gifTemplateCache.push_back(cacheEntry);
         }
 
         void PopulateGifColorQword(
@@ -604,6 +639,9 @@ namespace helengine::ps2 {
         const bool textured = batch.Textured && textureWidth > 0 && textureHeight > 0;
         std::vector<Ps2VuUntexturedTrianglePayload> untexturedTrianglePayloads;
         untexturedTrianglePayloads.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);
+        std::vector<Ps2VuGifTemplateCacheEntry> gifTemplateCache;
+        gifTemplateCache.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);
+        Ps2VuUntexturedSharedState sharedStateTemplate {};
         std::vector<std::vector<std::uint8_t>> texturedTrianglePackets;
         texturedTrianglePackets.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);
         const std::clock_t triangleSetupStartTicks = std::clock();
@@ -615,8 +653,9 @@ namespace helengine::ps2 {
             flatColor.Green = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
             flatColor.Blue = static_cast<std::uint8_t>((triangleColor >> 16u) & 0xFFu);
             flatColor.Alpha = static_cast<std::uint8_t>((triangleColor >> 24u) & 0xFFu);
-            PopulateUntexturedSharedState(world, view, projection, viewport, payload.SharedState);
-            PopulateTriangleGifPacketTemplate(batch, flatColor, gsGlobal, payload.TriangleRecord);
+            PopulateUntexturedSharedState(world, view, projection, viewport, sharedStateTemplate);
+            std::memcpy(&payload.SharedState, &sharedStateTemplate, sizeof(sharedStateTemplate));
+            CopyCachedTriangleGifPacketTemplate(batch, flatColor, gsGlobal, gifTemplateCache, payload.TriangleRecord);
             payload.TriangleRecord.SourceTriangle.PositionA[0] = 0.0f;
             payload.TriangleRecord.SourceTriangle.PositionA[1] = 0.5f;
             payload.TriangleRecord.SourceTriangle.PositionA[2] = 0.0f;
@@ -639,6 +678,7 @@ namespace helengine::ps2 {
         } else if (!textured) {
             const float* packedPositionWords = reinterpret_cast<const float*>(batch.Model->GetPositionBlockBytes());
             const float* packedNormalWords = reinterpret_cast<const float*>(batch.Model->GetNormalBlockBytes());
+            PopulateUntexturedSharedState(world, view, projection, viewport, sharedStateTemplate);
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
                 std::clock_t trianglePrepStartTicks = 0;
                 if (EnableVuPerTriangleTimingDiagnostics) {
@@ -686,8 +726,8 @@ namespace helengine::ps2 {
                 flatColor.Blue = static_cast<std::uint8_t>((triangleColor >> 16u) & 0xFFu);
                 flatColor.Alpha = static_cast<std::uint8_t>((triangleColor >> 24u) & 0xFFu);
                 Ps2VuUntexturedTrianglePayload payload {};
-                PopulateTriangleGifPacketTemplate(batch, flatColor, gsGlobal, payload.TriangleRecord);
-                PopulateUntexturedSharedState(world, view, projection, viewport, payload.SharedState);
+                CopyCachedTriangleGifPacketTemplate(batch, flatColor, gsGlobal, gifTemplateCache, payload.TriangleRecord);
+                std::memcpy(&payload.SharedState, &sharedStateTemplate, sizeof(sharedStateTemplate));
                 payload.TriangleRecord.SourceTriangle.PositionA[0] = packedPositionWords[positionWordIndexA + 0u];
                 payload.TriangleRecord.SourceTriangle.PositionA[1] = packedPositionWords[positionWordIndexA + 1u];
                 payload.TriangleRecord.SourceTriangle.PositionA[2] = packedPositionWords[positionWordIndexA + 2u];
