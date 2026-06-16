@@ -34,6 +34,48 @@ The build emits:
 - `game.iso` in the requested export root
 - `disc/` in the requested export root for inspection
 
+## Editor CLI build
+
+If your workspace keeps `helengine-ps2`, `helengine`, and `helprojs` as sibling directories, use the shared wrapper like this:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\helengine\artifacts\build-platform.ps1 `
+  -Project ..\helprojs\city\project.heproj `
+  -Platform ps2 `
+  -Output ..\helprojs\city\ps2-build
+```
+
+That wrapper runs the main editor CLI with `--build ps2` and writes the generated PS2 package to the output directory you provide.
+
 ## Boot check
 
 Boot `game.iso` in PCSX2. The expected result for this milestone is that the image is recognized as bootable and enters the Helengine PS2 runtime instead of returning to the BIOS browser.
+
+## Launching in PCSX2
+
+Use the checked-in launcher script:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\launch_ps2_iso_in_pcsx2.ps1 `
+  -IsoPath .\tmp\packaged-disc-proof-life\game.iso
+```
+
+The launcher requires an explicit `-IsoPath`. Before launch it force-closes any running `pcsx2-qt.exe` processes, recreates an isolated launcher output directory under `tmp\`, verifies the installed PCSX2 executable and the global PCSX2 profile root, and writes the emulator log to `tmp\pcsx2-launcher\pcsx2-emulog.txt`.
+
+The launcher prints:
+
+- the ISO path
+- the ISO last write time
+- the PCSX2 executable path
+- the PCSX2 profile root
+- the emulator log file path
+- the spawned PCSX2 process id
+
+It then starts PCSX2 with `-fastboot -logfile <log> -- <iso>`.
+
+The script fails fast when:
+
+- `-IsoPath` is missing
+- the ISO file is missing
+- the PCSX2 executable is missing
+- the PCSX2 profile root is missing
