@@ -5,14 +5,29 @@ using Xunit;
 namespace helengine.ps2.builder.tests;
 
 /// <summary>
-/// Verifies the remaining generated-core normalization behavior required by the PS2 native build executor.
+/// Verifies the remaining generated-core validation behavior required by the PS2 native build executor.
 /// </summary>
 public sealed class Ps2NativeBuildExecutorTests {
     /// <summary>
-    /// Verifies that the opaque untextured VU program starts from the current xgkick-only baseline before transform work is reintroduced.
+    /// Verifies that the builder smoke-test entrypoint still completes after generated runtime manifest requirements change.
     /// </summary>
     [Fact]
-    public void Ps2OpaqueDraw3DProgram_ShouldStartAsKickOnlyBaseline() {
+    public void ProgramRunSmokeTest_WhenInvoked_CompletesWithoutException() {
+        MethodInfo runSmokeTestMethod = typeof(helengine.ps2.builder.Program).GetMethod(
+            "RunSmokeTest",
+            BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.NotNull(runSmokeTestMethod);
+
+        Exception exception = Record.Exception(() => runSmokeTestMethod!.Invoke(null, null));
+
+        Assert.Null(exception);
+    }
+
+    /// <summary>
+    /// Verifies that the opaque untextured VU program assembles one contiguous GS packet and kicks it once after processing the batch.
+    /// </summary>
+    [Fact]
+    public void Ps2OpaqueDraw3DProgram_ShouldAssembleOneContiguousPacketPerBatch() {
         string repositoryRootPath = ResolveRepositoryRoot();
         string programPath = Path.Combine(
             repositoryRootPath,
@@ -26,16 +41,17 @@ public sealed class Ps2NativeBuildExecutorTests {
 
         string source = File.ReadAllText(programPath);
 
-        Assert.Contains("xtop VI02", source, StringComparison.Ordinal);
-        Assert.Contains("iaddiu VI03, VI02, 0x00000010", source, StringComparison.Ordinal);
-        Assert.Contains("xgkick VI03", source, StringComparison.Ordinal);
+        Assert.Contains("__ps2_opaque_draw_3d_output_start_loop:", source, StringComparison.Ordinal);
+        Assert.Contains("sqi VF10, (VI03++)", source, StringComparison.Ordinal);
+        Assert.Contains("sqi VF16, (VI03++)", source, StringComparison.Ordinal);
+        Assert.Contains("xgkick VI06", source, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies that the transform-only opaque VU path writes the XYZ2 ADC lane into packet memory before storing XYZ data.
+    /// Verifies that the current compact opaque VU path writes the XYZ2 ADC lane into the output packet before storing XYZ data.
     /// </summary>
     [Fact]
-    public void Ps2OpaqueDraw3DProgram_WhenUsingTransformOnlyPacketPath_ShouldWriteAdcWordsIntoXyz2Slots() {
+    public void Ps2OpaqueDraw3DProgram_WhenUsingCompactPacketPath_ShouldWriteAdcWordsIntoXyz2Slots() {
         string repositoryRootPath = ResolveRepositoryRoot();
         string programPath = Path.Combine(
             repositoryRootPath,
@@ -50,19 +66,19 @@ public sealed class Ps2NativeBuildExecutorTests {
         string source = File.ReadAllText(programPath);
 
         Assert.Contains("isw.w", source, StringComparison.Ordinal);
-        Assert.Contains("22(VI02)", source, StringComparison.Ordinal);
-        Assert.Contains("24(VI02)", source, StringComparison.Ordinal);
-        Assert.Contains("26(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("2(VI04)", source, StringComparison.Ordinal);
+        Assert.Contains("4(VI04)", source, StringComparison.Ordinal);
+        Assert.Contains("6(VI04)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("mfir.w VF01", source, StringComparison.Ordinal);
         Assert.DoesNotContain("mfir.w VF02", source, StringComparison.Ordinal);
         Assert.DoesNotContain("mfir.w VF03", source, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies that the transform-only opaque VU path writes triangle vertices into packet slots using the CPU-facing winding order.
+    /// Verifies that the current compact opaque VU path writes triangle vertices into packet slots using the CPU-facing winding order.
     /// </summary>
     [Fact]
-    public void Ps2OpaqueDraw3DProgram_WhenUsingTransformOnlyPacketPath_ShouldSwapSecondAndThirdVertexStores() {
+    public void Ps2OpaqueDraw3DProgram_WhenUsingCompactPacketPath_ShouldSwapSecondAndThirdVertexStores() {
         string repositoryRootPath = ResolveRepositoryRoot();
         string programPath = Path.Combine(
             repositoryRootPath,
@@ -76,11 +92,11 @@ public sealed class Ps2NativeBuildExecutorTests {
 
         string source = File.ReadAllText(programPath);
 
-        Assert.Contains("sq.xyz VF01, 22(VI02)", source, StringComparison.Ordinal);
-        Assert.Contains("sq.xyz VF03, 24(VI02)", source, StringComparison.Ordinal);
-        Assert.Contains("sq.xyz VF02, 26(VI02)", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("sq.xyz VF02, 24(VI02)", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("sq.xyz VF03, 26(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("sq.xyz VF01, 2(VI04)", source, StringComparison.Ordinal);
+        Assert.Contains("sq.xyz VF03, 4(VI04)", source, StringComparison.Ordinal);
+        Assert.Contains("sq.xyz VF02, 6(VI04)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("sq.xyz VF02, 4(VI04)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("sq.xyz VF03, 6(VI04)", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -131,10 +147,10 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
-    /// Verifies that the last visible rotating cube_test VU baseline stays on the earlier transform-only path instead of the later VU clip-flag variant that regressed to a black frame.
+    /// Verifies that the current compact opaque VU baseline stays on the non-clip-flag path that preserved the visible cube test.
     /// </summary>
     [Fact]
-    public void Ps2OpaqueDraw3DProgram_WhenUsingLastVisibleCubeTestBaseline_ShouldStayOnTransformOnlyPath() {
+    public void Ps2OpaqueDraw3DProgram_WhenUsingLastVisibleCubeTestBaseline_ShouldStayOnCompactPacketPath() {
         string repositoryRootPath = ResolveRepositoryRoot();
         string programPath = Path.Combine(
             repositoryRootPath,
@@ -150,7 +166,7 @@ public sealed class Ps2NativeBuildExecutorTests {
 
         Assert.DoesNotContain("clipw.xyz", source, StringComparison.Ordinal);
         Assert.DoesNotContain("fcand", source, StringComparison.Ordinal);
-        Assert.Contains("iaddiu VI04, VI00, 0x00000000", source, StringComparison.Ordinal);
+        Assert.Contains("iadd VI04, VI03, VI00", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -167,6 +183,54 @@ public sealed class Ps2NativeBuildExecutorTests {
         Assert.Contains("$(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp", source, StringComparison.Ordinal);
         Assert.DoesNotContain("$(GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp", source, StringComparison.Ordinal);
         Assert.DoesNotContain("$(HOST_GENERATED_CORE_STAGE_ROOT)/helengine_core_amalgamated.cpp", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Verifies that the PS2 render-manager contract validator accepts the current generated-core layout that exposes cooked platform materials plus raw-asset loading without the removed raw-material virtual.
+    /// </summary>
+    [Fact]
+    public void Ps2NativeBuildExecutor_WhenGeneratedCoreUsesCookedPlatformMaterialAndRawAssetEntry_DoesNotRequireRemovedRawMaterialVirtual() {
+        string workingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+        string repositoryRoot = Path.Combine(workingRoot, "repo");
+        string generatedHeaderPath = Path.Combine(generatedCoreRoot, "RenderManager3D.hpp");
+        string nativeHeaderDirectoryPath = Path.Combine(repositoryRoot, "src", "platform", "ps2", "rendering");
+        string nativeHeaderPath = Path.Combine(nativeHeaderDirectoryPath, "Ps2RenderManager3D.hpp");
+
+        Directory.CreateDirectory(generatedCoreRoot);
+        Directory.CreateDirectory(nativeHeaderDirectoryPath);
+        File.WriteAllText(
+            generatedHeaderPath,
+            """
+class RuntimeMaterial;
+class PlatformMaterialAsset;
+class ContentManager;
+
+class RenderManager3D
+{
+public:
+    virtual ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset);
+    virtual ::RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath);
+    virtual ::RuntimeMaterial* BuildMaterialFromRawAsset(::ContentManager* assetContentManager, std::string contentRootPath, std::string materialAssetPath);
+};
+""");
+        File.WriteAllText(
+            nativeHeaderPath,
+            """
+class RuntimeMaterial;
+class PlatformMaterialAsset;
+
+class Ps2RenderManager3D
+{
+public:
+    ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset) override;
+    ::RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath) override;
+};
+""");
+
+        Exception exception = Record.Exception(() => InvokeValidateRenderManager3DContractPairing(repositoryRoot, generatedCoreRoot));
+
+        Assert.Null(exception);
     }
 
     /// <summary>
@@ -229,8 +293,8 @@ public sealed class Ps2NativeBuildExecutorTests {
             "                const std::clock_t triangleEmitEndTicks = std::clock();");
 
         Assert.Contains("TriangleSetups.reserve(triangleVertexCount / 3u);", runtimeBranch, StringComparison.Ordinal);
-        Assert.Contains("::float4x4::Multiply(worldCopy, viewCopy, worldViewMatrix);", runtimeBranch, StringComparison.Ordinal);
-        Assert.Contains("::float4x4::Multiply(worldViewMatrix, projectionCopy, worldViewProjectionMatrix);", runtimeBranch, StringComparison.Ordinal);
+        Assert.Contains("::float4x4::Multiply__ref0_ref1_out2(worldCopy, viewCopy, worldViewMatrix);", runtimeBranch, StringComparison.Ordinal);
+        Assert.Contains("::float4x4::Multiply__ref0_ref1_out2(worldViewMatrix, projectionCopy, worldViewProjectionMatrix);", runtimeBranch, StringComparison.Ordinal);
         Assert.Contains("CopyMatrix(worldViewProjectionMatrix, worldViewProjectionMatrixWords);", runtimeBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("::float4x4::Multiply(", triangleLoop, StringComparison.Ordinal);
         Assert.DoesNotContain("CopyMatrix(world, triangleSetup.WorldMatrix);", triangleLoop, StringComparison.Ordinal);
@@ -391,10 +455,10 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
-    /// Verifies that the normal untextured VU packet path batches payloads in fixed two-triangle diagnostic pairs without using the failed runtime header path.
+    /// Verifies that the normal untextured VU packet path streams one payload per VU invocation on the last known-good single-payload contract.
     /// </summary>
     [Fact]
-    public void Ps2VuVifPacketBuilder_WhenEncodingNormalUntexturedPath_ShouldDispatchPayloadPairsWithOneVuInvocation() {
+    public void Ps2VuVifPacketBuilder_WhenEncodingNormalUntexturedPath_ShouldUseSinglePayloadContract() {
         string repositoryRootPath = ResolveRepositoryRoot();
         string builderPath = Path.Combine(
             repositoryRootPath,
@@ -408,26 +472,23 @@ public sealed class Ps2NativeBuildExecutorTests {
         string source = File.ReadAllText(builderPath);
         string normalUntexturedPacketBranch = ExtractSourceRange(
             source,
-            "} else {\n            if (EnableVuTwoTriangleBatchDiagnostic) {",
+            "} else {\n            for (const Ps2VuLitTrianglePayload& trianglePayload : trianglePayloads) {",
             "        }\n\n        LastCompletedPhase = 6;");
 
-        Assert.Contains("constexpr bool EnableVuTwoTriangleBatchDiagnostic = true;", source, StringComparison.Ordinal);
-        Assert.Contains("constexpr std::uint32_t VuDiagnosticBatchTriangleCount = 2u;", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("UntexturedBatchHeaderQwordCount", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("batchHeaderWords", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("for (std::size_t triangleIndex = 0u; triangleIndex < untexturedTriangleSetups->size(); triangleIndex += VuDiagnosticBatchTriangleCount) {", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("const Ps2VuOpaqueUntexturedTriangleSetup& firstTriangleSetup = (*untexturedTriangleSetups)[triangleIndex];", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("const Ps2VuOpaqueUntexturedTriangleSetup& secondTriangleSetup = (triangleIndex + 1u) < untexturedTriangleSetups->size()", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("PopulateTrianglePayloadFromSetup(batch, firstTriangleSetup, gsGlobal, gifTemplateCache, *firstTrianglePayload);", normalUntexturedPacketBranch, StringComparison.Ordinal);
-        Assert.Contains("PopulateTrianglePayloadFromSetup(batch, secondTriangleSetup, gsGlobal, gifTemplateCache, *secondTrianglePayload);", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("EnableVuTwoTriangleBatchDiagnostic", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("VuDiagnosticBatchTriangleCount", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2VuTriangleBatchHeader", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("batchHeader", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("for (const Ps2VuLitTrianglePayload& trianglePayload : trianglePayloads) {", normalUntexturedPacketBranch, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(packet.get()->next, &trianglePayload, sizeof(Ps2VuLitTrianglePayload));", normalUntexturedPacketBranch, StringComparison.Ordinal);
         Assert.Contains("packet2_vif_mscal(packet.get(), UntexturedMicroProgramAddress, 0);", normalUntexturedPacketBranch, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies that the untextured VU microprogram consumes exactly two contiguous payloads without the failed runtime batch header.
+    /// Verifies that the untextured VU microprogram consumes one payload from `xtop` using the last known-good fixed offsets.
     /// </summary>
     [Fact]
-    public void Ps2OpaqueDraw3DProgram_WhenUsingTwoTriangleDiagnosticBatch_ShouldConsumeTwoPayloads() {
+    public void Ps2OpaqueDraw3DProgram_WhenUsingSinglePayloadContract_ShouldConsumeOnePayloadFromXtop() {
         string repositoryRootPath = ResolveRepositoryRoot();
         string programPath = Path.Combine(
             repositoryRootPath,
@@ -442,13 +503,25 @@ public sealed class Ps2NativeBuildExecutorTests {
         string source = File.ReadAllText(programPath);
 
         Assert.Contains("NOP                                                        xtop VI02", source, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        iaddiu VI05, VI00, 0x00000002", source, StringComparison.Ordinal);
-        Assert.Contains("__ps2_opaque_draw_3d_triangle_pair_loop:", source, StringComparison.Ordinal);
         Assert.Contains("NOP                                                        iaddiu VI03, VI02, 0x00000010", source, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        iaddiu VI02, VI02, 0x0000003a", source, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        iaddiu VI05, VI05, -1", source, StringComparison.Ordinal);
-        Assert.Contains("NOP                                                        ibne VI05, VI00, __ps2_opaque_draw_3d_triangle_pair_loop", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("ilw.x VI05, 0(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF01, 40(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF02, 41(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF03, 42(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF04, 52(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF05, 53(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF06, 54(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF07, 55(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF08, 56(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        lq VF09, 57(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        isw.w VI04, 22(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        isw.w VI04, 24(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        isw.w VI04, 26(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        sq.xyz VF01, 22(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        sq.xyz VF03, 24(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        sq.xyz VF02, 26(VI02)", source, StringComparison.Ordinal);
+        Assert.Contains("NOP                                                        xgkick VI03", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("__ps2_opaque_draw_3d_triangle_loop", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("sqi VF10, (VI03++)", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -527,10 +600,10 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
-    /// Verifies that the opaque-untextured VU packet template uses an explicit VU-owned header instead of the draw_prim helper packet seam.
+    /// Verifies that the opaque-untextured VU packet template kicks only the draw giftag and payload, with GS state emitted outside the kicked packet.
     /// </summary>
     [Fact]
-    public void Ps2VuVifPacketBuilder_WhenBuildingOpaqueUntexturedTemplate_ShouldUseVuOwnedPacketHeader() {
+    public void Ps2VuVifPacketBuilder_WhenBuildingOpaqueUntexturedTemplate_ShouldKickOnlyDrawPayload() {
         string repositoryRootPath = ResolveRepositoryRoot();
         string builderPath = Path.Combine(
             repositoryRootPath,
@@ -543,19 +616,18 @@ public sealed class Ps2NativeBuildExecutorTests {
 
         string source = File.ReadAllText(builderPath);
 
-        Assert.Contains("packet2_utils_gif_add_set(gifPacket.get(), 1);", source, StringComparison.Ordinal);
-        Assert.Contains("packet2_utils_gs_add_lod(gifPacket.get(), &lod);", source, StringComparison.Ordinal);
-        Assert.Contains("packet2_add_2x_s64(", source, StringComparison.Ordinal);
-        Assert.Contains("GS_REG_TEST", source, StringComparison.Ordinal);
         Assert.Contains("packet2_utils_gs_add_prim_giftag(gifPacket.get(), &prim, 3u, UntexturedTriangleRegisterList, 2u, 0);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("packet2_utils_gif_add_set(gifPacket.get(), 1);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("packet2_utils_gs_add_lod(gifPacket.get(), &lod);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("GS_REG_TEST", source, StringComparison.Ordinal);
         Assert.DoesNotContain("draw_prim_end(gifPacket.get()->next, 2, UntexturedTriangleRegisterList)", source, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies that the opaque-untextured VU packet header mirrors the active depth-test state instead of hardcoding all-pass depth behavior.
+    /// Verifies that the VU GIF state encoder mirrors the active depth-test state without injecting a separate direct-GIF DMA packet outside the VIF-driven opaque path.
     /// </summary>
     [Fact]
-    public void Ps2VuVifPacketBuilder_WhenBuildingOpaqueUntexturedTemplate_ShouldRespectActiveDepthState() {
+    public void Ps2VuGifStateEncoder_WhenEmittingOpaqueState_ShouldRespectActiveDepthStateWithoutDirectGifSubmission() {
         string repositoryRootPath = ResolveRepositoryRoot();
         string builderPath = Path.Combine(
             repositoryRootPath,
@@ -564,34 +636,24 @@ public sealed class Ps2NativeBuildExecutorTests {
             "ps2",
             "rendering",
             "vu",
-            "Ps2VuVifPacketBuilder.cpp");
+            "Ps2VuGifStateEncoder.cpp");
 
         string source = File.ReadAllText(builderPath);
 
-        Assert.Contains("gsGlobal != nullptr && gsGlobal->ZBuffering == GS_SETTING_ON", source, StringComparison.Ordinal);
-        Assert.Contains("rendererZTestMethod", source, StringComparison.Ordinal);
-        Assert.Contains("rendererDepthTestEnabled", source, StringComparison.Ordinal);
-        Assert.Contains("rendererDepthTestEnabled ? DRAW_ENABLE : DRAW_DISABLE", source, StringComparison.Ordinal);
+        Assert.Contains("if (gsGlobal == nullptr) {", source, StringComparison.Ordinal);
+        Assert.Contains("if (gsGlobal->ZBuffering == GS_SETTING_ON) {", source, StringComparison.Ordinal);
+        Assert.Contains("gsKit_set_test(gsGlobal, GS_ZTEST_ON);", source, StringComparison.Ordinal);
+        Assert.Contains("gsKit_set_test(gsGlobal, GS_ZTEST_OFF);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("packet2_create(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("packet2_utils_gif_add_set(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("dma_channel_send_packet2(packet.get(), DMA_CHANNEL_GIF, true);", source, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies that the PS2 generated-core normalization rewrites ScrollComponent size initialization to the current value-type int2 API.
+    /// Verifies that raw generated content-manager material registration now fails fast instead of being rewritten back onto the cooked-platform material contract.
     /// </summary>
     [Fact]
-    public void NormalizeGeneratedCoreSource_WhenScrollComponentUsesPointerSizedInt2_RewritesToValueInitialization() {
-        const string source = "ScrollComponent::ScrollComponent() : SizeValue(new int2())\n{\n}\n";
-
-        string normalizedSource = InvokeNormalizeGeneratedCoreSource("ScrollComponent.cpp", source);
-
-        Assert.Contains("SizeValue(int2())", normalizedSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("SizeValue(new int2())", normalizedSource, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies that raw generated content-manager material registration is normalized back onto the cooked-platform material contract required by PS2 exports.
-    /// </summary>
-    [Fact]
-    public void NormalizeGeneratedCoreSource_WhenContentManagerUsesRawMaterialContract_RewritesToCookedPlatformContract() {
+    public void NormalizeGeneratedCoreSource_WhenContentManagerUsesRawMaterialContract_ThrowsInsteadOfRewriting() {
         const string source = """
 #include "RuntimeContentManagerConfiguration.hpp"
 #include "ContentManager.hpp"
@@ -605,18 +667,19 @@ RegisterProcessorIfMissing<MaterialAsset*>(contentManager, RuntimeContentProcess
 }
 """;
 
-        string normalizedSource = InvokeNormalizeGeneratedCoreSource("RuntimeContentManagerConfiguration.cpp", source);
+        TargetInvocationException exception = Assert.Throws<TargetInvocationException>(
+            () => InvokeNormalizeGeneratedCoreSource("RuntimeContentManagerConfiguration.cpp", source));
 
-        Assert.Contains("#include \"PlatformMaterialAsset.hpp\"", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("RegisterProcessorIfMissing<PlatformMaterialAsset*>", normalizedSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("RegisterProcessorIfMissing<MaterialAsset*>", normalizedSource, StringComparison.Ordinal);
+        Assert.NotNull(exception.InnerException);
+        Assert.IsType<InvalidOperationException>(exception.InnerException);
+        Assert.Contains("should already register cooked platform materials", exception.InnerException.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies that raw generated scene material resolution is normalized back onto the cooked-platform material contract required by PS2 exports.
+    /// Verifies that raw generated scene material resolution now fails fast instead of being rewritten back onto the cooked-platform material contract.
     /// </summary>
     [Fact]
-    public void NormalizeGeneratedCoreSource_WhenResolverUsesCurrentRawMaterialContract_RewritesToCookedPlatformContract() {
+    public void NormalizeGeneratedCoreSource_WhenResolverUsesCurrentRawMaterialContract_ThrowsInsteadOfRewriting() {
         const string source = """
 #include "RuntimeSceneAssetReferenceResolver.hpp"
 #include "MaterialAsset.hpp"
@@ -636,19 +699,19 @@ this->ApplyMaterialDiffuseTexture(runtimeMaterial, materialAsset, fullPath);
 return runtimeMaterial;}
 """;
 
-        string normalizedSource = InvokeNormalizeGeneratedCoreSource("RuntimeSceneAssetReferenceResolver.cpp", source);
+        TargetInvocationException exception = Assert.Throws<TargetInvocationException>(
+            () => InvokeNormalizeGeneratedCoreSource("RuntimeSceneAssetReferenceResolver.cpp", source));
 
-        Assert.Contains("#include \"PlatformMaterialAsset.hpp\"", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("Load<PlatformMaterialAsset*>", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("BuildMaterialFromCooked(materialAsset)", normalizedSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("BuildMaterialFromRaw(materialAsset, shaderAsset)", normalizedSource, StringComparison.Ordinal);
+        Assert.NotNull(exception.InnerException);
+        Assert.IsType<InvalidOperationException>(exception.InnerException);
+        Assert.Contains("should already resolve cooked platform-owned materials", exception.InnerException.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies that the older ownership-guarded raw resolver shape is also normalized back onto the cooked-platform material contract required by PS2 exports.
+    /// Verifies that the older ownership-guarded raw resolver shape now fails fast instead of being rewritten back onto the cooked-platform material contract.
     /// </summary>
     [Fact]
-    public void NormalizeGeneratedCoreSource_WhenResolverUsesLegacyGuardedRawMaterialContract_RewritesToCookedPlatformContract() {
+    public void NormalizeGeneratedCoreSource_WhenResolverUsesLegacyGuardedRawMaterialContract_ThrowsInsteadOfRewriting() {
         const string source = """
 #include "RuntimeSceneAssetReferenceResolver.hpp"
 #include "runtime/finally.hpp"
@@ -675,19 +738,19 @@ this->ApplyMaterialDiffuseTexture(runtimeMaterial, materialAsset, fullPath);
 return runtimeMaterial;}
 """;
 
-        string normalizedSource = InvokeNormalizeGeneratedCoreSource("RuntimeSceneAssetReferenceResolver.cpp", source);
+        TargetInvocationException exception = Assert.Throws<TargetInvocationException>(
+            () => InvokeNormalizeGeneratedCoreSource("RuntimeSceneAssetReferenceResolver.cpp", source));
 
-        Assert.Contains("#include \"PlatformMaterialAsset.hpp\"", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("Load<PlatformMaterialAsset*>", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("BuildMaterialFromCooked(materialAsset)", normalizedSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("BuildMaterialFromRaw(materialAsset, shaderAsset)", normalizedSource, StringComparison.Ordinal);
+        Assert.NotNull(exception.InnerException);
+        Assert.IsType<InvalidOperationException>(exception.InnerException);
+        Assert.Contains("should already resolve cooked platform-owned materials", exception.InnerException.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies that raw generated render-manager headers are normalized back onto the cooked-platform material contract required by PS2 exports.
+    /// Verifies that raw generated render-manager headers now fail fast instead of being rewritten back onto the cooked-platform material contract.
     /// </summary>
     [Fact]
-    public void NormalizeGeneratedCoreSource_WhenRenderManagerHeaderUsesRawMaterialContract_RewritesToCookedPlatformContract() {
+    public void NormalizeGeneratedCoreSource_WhenRenderManagerHeaderUsesRawMaterialContract_ThrowsInsteadOfRewriting() {
         const string source = """
 #pragma once
 class RuntimeMaterial;
@@ -704,17 +767,19 @@ public:
 };
 """;
 
-        string normalizedSource = InvokeNormalizeGeneratedCoreSource("RenderManager3D.hpp", source);
+        TargetInvocationException exception = Assert.Throws<TargetInvocationException>(
+            () => InvokeNormalizeGeneratedCoreSource("RenderManager3D.hpp", source));
 
-        Assert.Contains("class PlatformMaterialAsset;", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset);", normalizedSource, StringComparison.Ordinal);
+        Assert.NotNull(exception.InnerException);
+        Assert.IsType<InvalidOperationException>(exception.InnerException);
+        Assert.Contains("should already expose the cooked platform material contract", exception.InnerException.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Verifies that raw generated render-manager sources are normalized back onto the cooked-platform material contract required by PS2 exports.
+    /// Verifies that raw generated render-manager sources now fail fast instead of being rewritten back onto the cooked-platform material contract.
     /// </summary>
     [Fact]
-    public void NormalizeGeneratedCoreSource_WhenRenderManagerSourceUsesRawMaterialContract_RewritesToCookedPlatformContract() {
+    public void NormalizeGeneratedCoreSource_WhenRenderManagerSourceUsesRawMaterialContract_ThrowsInsteadOfRewriting() {
         const string source = """
 #include "RenderManager3D.hpp"
 #include "runtime/native_exceptions.hpp"
@@ -725,10 +790,12 @@ throw new NotSupportedException("This renderer does not support material creatio
 }
 """;
 
-        string normalizedSource = InvokeNormalizeGeneratedCoreSource("RenderManager3D.cpp", source);
+        TargetInvocationException exception = Assert.Throws<TargetInvocationException>(
+            () => InvokeNormalizeGeneratedCoreSource("RenderManager3D.cpp", source));
 
-        Assert.Contains("BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset)", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("platform-owned cooked material creation", normalizedSource, StringComparison.Ordinal);
+        Assert.NotNull(exception.InnerException);
+        Assert.IsType<InvalidOperationException>(exception.InnerException);
+        Assert.Contains("should already expose the cooked platform material default implementation", exception.InnerException.Message, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -852,185 +919,244 @@ return Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromCooked(mate
     }
 
     /// <summary>
-    /// Verifies that the PS2 generated runtime graphics manifest stays on the simplest supported graphics path.
+    /// Verifies that already-disabled runtime graphics manifests pass through unchanged instead of being treated as rewrite failures.
     /// </summary>
     [Fact]
-    public void NormalizeGeneratedCoreSource_WhenRuntimeGraphicsManifestEnablesHdrAndHighPostProcess_RewritesToDisabledValues() {
+    public void NormalizeGeneratedCoreSource_WhenRuntimeGraphicsManifestAlreadyUsesDisabledValues_LeavesSourceUnchanged() {
         const string source = """
 const HERuntimeGraphicsRendererManifest RuntimeGraphicsRendererManifest =
 {
-    true,
-    HERuntimePostProcessTier::High,
+    false,
+    HERuntimePostProcessTier::Disabled,
 };
 """;
 
         string normalizedSource = InvokeNormalizeGeneratedCoreSource(Path.Combine("runtime", "runtime_graphics_renderer_manifest.cpp"), source);
 
-        Assert.Contains("false", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("HERuntimePostProcessTier::Disabled", normalizedSource, StringComparison.Ordinal);
+        Assert.Equal(source.Replace("\r\n", "\n", StringComparison.Ordinal), normalizedSource);
     }
 
     /// <summary>
-    /// Verifies that generated font scaling loops are normalized from managed dictionary accessors onto native std::pair field access.
+    /// Verifies that current generated light-component includes already use the plain light-type header name and require no PS2 rewrite.
     /// </summary>
     [Fact]
-    public void NormalizeGeneratedCoreSource_WhenFontAssetUsesManagedPairAccessors_RewritesToStdPairFields() {
+    public void NormalizeGeneratedCoreSource_WhenLightComponentAlreadyUsesPlainHeaderName_LeavesSourceUnchanged() {
         const string source = """
-for (const auto& entry : *Characters)
+#include "AmbientLightComponent.hpp"
+#include "LightType.hpp"
+""";
+
+        string normalizedSource = InvokeNormalizeGeneratedCoreSource("AmbientLightComponent.cpp", source);
+
+        Assert.Equal(source, normalizedSource);
+    }
+
+    /// <summary>
+    /// Verifies that generated-core validation leaves valid files untouched on disk instead of normalizing line endings and rewriting them.
+    /// </summary>
+    [Fact]
+    public void ValidateGeneratedCoreSources_WhenValidFileUsesCrLf_DoesNotRewriteFile() {
+        string generatedCoreRootPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(generatedCoreRootPath);
+
+        try {
+            string sourcePath = Path.Combine(generatedCoreRootPath, "RenderManager3D.hpp");
+            const string source = "virtual ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset);\r\n";
+            File.WriteAllText(sourcePath, source);
+
+            InvokeValidateGeneratedCoreSources(generatedCoreRootPath);
+
+            string currentContents = File.ReadAllText(sourcePath);
+            Assert.Equal(source, currentContents);
+        } finally {
+            Directory.Delete(generatedCoreRootPath, true);
+        }
+    }
+
+    /// <summary>
+    /// Verifies that current generated scroll components already use value-default `int2` construction and require no PS2 rewrite.
+    /// </summary>
+    [Fact]
+    public void NormalizeGeneratedCoreSource_WhenScrollComponentAlreadyUsesValueDefaultInt2Construction_LeavesSourceUnchanged() {
+        const string source = """
+ScrollComponent::ScrollComponent() : ScrollOffsetChanged(), ScrollOffset(0), SizeValue(), ItemCountValue(0)
 {
-::FontChar glyph = entry.get_Value();
-glyph.SourceX = glyph.SourceX * widthScale;
-(*scaledCharacters)[entry.get_Key()] = glyph;
+}
+""";
+
+        string normalizedSource = InvokeNormalizeGeneratedCoreSource("ScrollComponent.cpp", source);
+
+        Assert.Equal(source, normalizedSource);
+    }
+
+    /// <summary>
+    /// Verifies that current generated font-asset loops already use standard map entry access and require no PS2 rewrite.
+    /// </summary>
+    [Fact]
+    public void NormalizeGeneratedCoreSource_WhenFontAssetAlreadyUsesStandardMapEntryAccess_LeavesSourceUnchanged() {
+        const string source = """
+for (const auto& entry : this->Characters->Items()) {
+    const char key = entry.first;
+    ::FontChar value = entry.second;
 }
 """;
 
         string normalizedSource = InvokeNormalizeGeneratedCoreSource("FontAsset.cpp", source);
 
-        Assert.Contains("::FontChar glyph = entry.second;", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("(*scaledCharacters)[entry.first] = glyph;", normalizedSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("entry.get_Value()", normalizedSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("entry.get_Key()", normalizedSource, StringComparison.Ordinal);
+        Assert.Equal(source, normalizedSource);
     }
 
     /// <summary>
-    /// Verifies that generated FPS component headers declare the private overlay helper referenced by the translated PS2 source.
+    /// Verifies that current generated FPS components already call the overlay helper through the instance and require no PS2 rewrite.
     /// </summary>
     [Fact]
-    public void NormalizeGeneratedCoreSource_WhenFpsComponentHeaderMissesOverlayHelperDeclaration_InsertsDeclaration() {
+    public void NormalizeGeneratedCoreSource_WhenFpsComponentAlreadyUsesInstanceOverlayHelper_LeavesSourceUnchanged() {
         const string source = """
-private:
-    std::string FormatFpsValue(double fps);
-
-    std::string FormatRenderFpsText(double renderFps, double drawMilliseconds);
-
-    void RefreshOverlayActivation();
-""";
-
-        string normalizedSource = InvokeNormalizeGeneratedCoreSource("FPSComponent.hpp", source);
-
-        Assert.Contains("std::string FormatOverlaySecondaryLine(std::string baseRenderText);", normalizedSource, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies that generated FPS component sources call the overlay helper through the component instance so the PS2 native compiler can resolve the private member.
-    /// </summary>
-    [Fact]
-    public void NormalizeGeneratedCoreSource_WhenFpsComponentSourceCallsOverlayHelperUnqualified_RewritesToThisCall() {
-        const string source = """
-if (this->RenderTextComponent != nullptr)
+class FPSComponent
 {
-this->RenderTextComponent->set_Text(FormatOverlaySecondaryLine(this->RenderFpsText));
+private:
+    std::string FormatOverlaySecondaryLine(std::string baseRenderText);
+};
+
+void FPSComponent::ApplyCurrentOverlayText()
+{
+    this->RenderTextComponent->set_Text(this->FormatOverlaySecondaryLine(this->RenderFpsText));
 }
 """;
 
+        string normalizedHeader = InvokeNormalizeGeneratedCoreSource("FPSComponent.hpp", source);
         string normalizedSource = InvokeNormalizeGeneratedCoreSource("FPSComponent.cpp", source);
 
-        Assert.Contains("this->RenderTextComponent->set_Text(this->FormatOverlaySecondaryLine(this->RenderFpsText));", normalizedSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("set_Text(FormatOverlaySecondaryLine(", normalizedSource, StringComparison.Ordinal);
+        Assert.Equal(source, normalizedHeader);
+        Assert.Equal(source, normalizedSource);
     }
 
     /// <summary>
-    /// Verifies that generated light-component includes are normalized when the current engine rewrite emits the invalid `LightType::hpp` form.
+    /// Verifies that current generated scene-manager trace helpers no longer require the PS2-specific array helper rename.
     /// </summary>
     [Fact]
-    public void NormalizeGeneratedCoreSource_WhenLightComponentIncludesUseScopedHeaderToken_RewritesToPlainHeaderName() {
+    public void NormalizeGeneratedCoreSource_WhenSceneManagerDoesNotUseLegacyArrayDeletionHelper_LeavesSourceUnchanged() {
         const string source = """
-#include "AmbientLightComponent.hpp"
-#include "LightType::hpp"
+void SceneManager::ReleaseOwnedTextures()
+{
+    DeleteGeneratedArray_SceneManager(cachedTextureArray);
+}
 """;
 
-        string normalizedSource = InvokeNormalizeGeneratedCoreSource("AmbientLightComponent.cpp", source);
+        string normalizedSource = InvokeNormalizeGeneratedCoreSource("SceneManager.cpp", source);
 
-        Assert.Contains("#include \"LightType.hpp\"", normalizedSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("LightType::hpp", normalizedSource, StringComparison.Ordinal);
+        Assert.Equal(source, normalizedSource);
     }
 
     /// <summary>
-    /// Verifies that generated generic file-stream constructors gain the PS2 direct-disc memory-backed read path.
+    /// Verifies that current generated file-stream sources already own the PS2 direct-disc read path and require no PS2 build rewrite.
     /// </summary>
     [Fact]
-    public void NormalizeGeneratedCoreSource_WhenGenericFileStreamOpensCdromPaths_InjectsPs2DirectReadConstructorPath() {
+    public void NormalizeGeneratedCoreSource_WhenFileStreamAlreadyOwnsPs2DirectReadSupport_LeavesSourceUnchanged() {
         const string source = """
 #include <cstdio>  // For std::FILE*
-// Helper function to get file mode as C-style string
-const char* GetFileMode(FileMode mode) {
-    switch (mode) {
-    case FileMode::Open: return "rb";
-    default: throw std::runtime_error("Invalid FileMode");
+#include <algorithm>
+#include <cerrno>
+#include <fcntl.h>
+#if defined(_WIN32)
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
+
+#if HE_CPP_PLATFORM_PS2
+namespace {
+    bool FileStreamSupportStartsWithPs2CdromPrefix(const std::string& path) {
+        return path.rfind("cdrom0:", 0) == 0;
     }
 }
-
-FileStream::FileStream(const uint8_t* data, size_t dataLength)
-    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(true), writable(false) {
-}
-
-FileStream::FileStream(const char* path, FileMode mode)
-    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(false), writable(true) {
-    file = std::fopen(path, GetFileMode(mode));
-    if (!file) {
-        throw std::runtime_error(std::string("Failed to open file: ") + path);
-    }
-
-    UpdateLength();
-}
-""";
-
-        string normalizedSource = InvokeNormalizeGeneratedCoreSource(Path.Combine("system", "io", "file-stream.cpp"), source);
-
-        Assert.Contains("#if HE_CPP_PLATFORM_PS2", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("FileStreamSupportResolvePs2DiscReadPath", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("ownsMemoryBuffer = true;", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("writable = false;", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("bool usesPs2DirectRead = mode == FileMode::Open && FileStreamSupportStartsWithPs2CdromPrefix(resolvedPs2ReadPath);", normalizedSource, StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Verifies that older generated PS2 direct-disc file streams still normalize the retired `usesMemoryBuffer` field into the current owned-memory shape.
-    /// </summary>
-    [Fact]
-    public void NormalizeGeneratedCoreSource_WhenLegacyPs2FileStreamUsesDirectDiscBuffer_MarksMemoryBufferReadableOwnedAndReadOnlyWithoutInjectingUndefinedFields() {
-        const string source = """
-FileStream::FileStream(const uint8_t* data, size_t dataLength)
-    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(true), writable(false) {
-}
+#endif
 
 FileStream::FileStream(const char* path, FileMode mode)
     : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(false), writable(true) {
 #if HE_CPP_PLATFORM_PS2
-    std::string resolvedPs2ReadPath = FileStreamSupportResolvePs2DiscReadPath(path);
-    bool usesPs2DirectRead = FileStreamSupportStartsWithPs2CdromPrefix(resolvedPs2ReadPath) || resolvedPs2ReadPath.find(';') != std::string::npos;
+    std::string resolvedPs2ReadPath = FileStreamSupportResolvePs2DiscReadPath(path != nullptr ? path : "");
+    bool usesPs2DirectRead = mode == FileMode::Open && FileStreamSupportStartsWithPs2CdromPrefix(resolvedPs2ReadPath);
     if (usesPs2DirectRead) {
         memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);
-        usesMemoryBuffer = true;
+        ownsMemoryBuffer = true;
+        writable = false;
         length = memoryBuffer.size();
         return;
     }
 #endif
+    file = std::fopen(path, GetFileMode(mode));
 }
 """;
 
         string normalizedSource = InvokeNormalizeGeneratedCoreSource(Path.Combine("system", "io", "file-stream.cpp"), source);
 
-        Assert.DoesNotContain("usesMemoryBuffer", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("ownsMemoryBuffer = true;", normalizedSource, StringComparison.Ordinal);
-        Assert.Contains("writable = false;", normalizedSource, StringComparison.Ordinal);
+        Assert.Equal(source, normalizedSource);
     }
 
     /// <summary>
-    /// Invokes the private generated-core normalization entry point so tests can assert the PS2 build-specific source rewrite contract.
+    /// Verifies that current generated file-stream headers already use the owned-memory layout directly and require no PS2 build rewrite.
     /// </summary>
-    /// <param name="fileName">Generated source file name passed to the normalization routine.</param>
-    /// <param name="contents">Generated source contents passed to the normalization routine.</param>
-    /// <returns>Normalized generated source contents.</returns>
+    [Fact]
+    public void NormalizeGeneratedCoreSource_WhenFileStreamHeaderAlreadyUsesOwnedMemoryLayout_LeavesSourceUnchanged() {
+        const string source = """
+class FileStream : public Stream {
+private:
+    std::FILE* file;
+    std::vector<uint8_t> memoryBuffer;
+    size_t position;
+    size_t length;
+    bool ownsMemoryBuffer;
+    bool writable;
+};
+""";
+
+        string normalizedSource = InvokeNormalizeGeneratedCoreSource(Path.Combine("system", "io", "file-stream.hpp"), source);
+
+        Assert.Equal(source, normalizedSource);
+    }
+
+    /// <summary>
+    /// Invokes the private generated-core validation entry point so tests can assert the PS2 generated-source contract checks.
+    /// </summary>
+    /// <param name="fileName">Generated source file name passed to the validation routine.</param>
+    /// <param name="contents">Generated source contents passed to the validation routine.</param>
+    /// <returns>The original generated source contents when validation succeeds.</returns>
     static string InvokeNormalizeGeneratedCoreSource(string fileName, string contents) {
         MethodInfo normalizeMethod = typeof(Ps2NativeBuildExecutor).GetMethod(
-            "NormalizeGeneratedCoreSource",
+            "ValidateGeneratedCoreSource",
             BindingFlags.NonPublic | BindingFlags.Static)
-            ?? throw new InvalidOperationException("NormalizeGeneratedCoreSource reflection lookup failed.");
+            ?? throw new InvalidOperationException("ValidateGeneratedCoreSource reflection lookup failed.");
 
-        return (string)(normalizeMethod.Invoke(null, [fileName, contents])
-            ?? throw new InvalidOperationException("NormalizeGeneratedCoreSource returned null."));
+        normalizeMethod.Invoke(null, [fileName, contents]);
+        return contents;
+    }
+
+    /// <summary>
+    /// Invokes the private generated-core directory validation entry point so tests can assert that valid files are not rewritten on disk.
+    /// </summary>
+    /// <param name="generatedCoreRootPath">Generated-core root passed to the validation routine.</param>
+    static void InvokeValidateGeneratedCoreSources(string generatedCoreRootPath) {
+        MethodInfo validateMethod = typeof(Ps2NativeBuildExecutor).GetMethod(
+            "ValidateGeneratedCoreSources",
+            BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException("ValidateGeneratedCoreSources reflection lookup failed.");
+
+        validateMethod.Invoke(null, [generatedCoreRootPath]);
+    }
+
+    /// <summary>
+    /// Invokes the private render-manager contract validator so tests can assert compatibility decisions against generated-core headers.
+    /// </summary>
+    /// <param name="repositoryRootPath">Repository root path passed to the validator.</param>
+    /// <param name="generatedCoreRootPath">Generated-core root path passed to the validator.</param>
+    static void InvokeValidateRenderManager3DContractPairing(string repositoryRootPath, string generatedCoreRootPath) {
+        MethodInfo validateMethod = typeof(Ps2NativeBuildExecutor).GetMethod(
+            "ValidateRenderManager3DContractPairing",
+            BindingFlags.NonPublic | BindingFlags.Static)
+            ?? throw new InvalidOperationException("ValidateRenderManager3DContractPairing reflection lookup failed.");
+
+        validateMethod.Invoke(null, [repositoryRootPath, generatedCoreRootPath]);
     }
 
     /// <summary>

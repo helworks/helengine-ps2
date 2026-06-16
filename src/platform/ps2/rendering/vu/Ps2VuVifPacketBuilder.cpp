@@ -46,8 +46,6 @@ namespace helengine::ps2 {
         constexpr bool EnableVuGifTemplateLayoutDiagnostics = false;
         constexpr bool EnableVuFlatColorDiagnostics = false;
         constexpr bool EnableVuSingleDispatchDiagnostic = false;
-        constexpr bool EnableVuTwoTriangleBatchDiagnostic = true;
-        constexpr std::uint32_t VuDiagnosticBatchTriangleCount = 2u;
         constexpr std::size_t LightingPaletteEntryCount = 16u;
         constexpr float LightingAmbientBias = 0.25f;
         constexpr float LightingDiffuseScale = 0.75f;
@@ -123,19 +121,13 @@ namespace helengine::ps2 {
             std::uint8_t Alpha = 0x80;
         };
 
-        struct Ps2VuGifTemplateCacheEntry final {
-            Ps2VuFlatColor FlatColor;
-            float FaceNormal[4];
-            float LightDirection[4];
-            Ps2VuGifQword LightingPalette[LightingPaletteEntryCount];
-            std::uint8_t GifPacketTemplate[TriangleGifPacketTemplateByteCount];
-        };
-
         void PopulateTriangleGifPacketTemplate(
             const Ps2VuOpaqueBatch& batch,
             const Ps2VuFlatColor& flatColor,
             GSGLOBAL* gsGlobal,
             Ps2VuLitTrianglePayload& payload);
+
+        packet2_t* CreatePacketOrThrow(std::uint16_t qwords, Packet2Mode mode);
 
         std::uint64_t ResolveTexturedVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection);
 
@@ -155,64 +147,10 @@ namespace helengine::ps2 {
         static_assert((offsetof(Ps2VuLitTrianglePayload, GsScale) / 16u) == LitTriangleGsScaleQwordOffset);
         static_assert((offsetof(Ps2VuLitTrianglePayload, GsOffset) / 16u) == LitTriangleGsOffsetQwordOffset);
 
-        bool AreLightingInputsEqual(const Ps2VuGifTemplateCacheEntry& entry, const ::float3& faceNormal, const ::float3& lightDirection) {
-            return entry.FaceNormal[0] == faceNormal.X
-                && entry.FaceNormal[1] == faceNormal.Y
-                && entry.FaceNormal[2] == faceNormal.Z
-                && entry.LightDirection[0] == lightDirection.X
-                && entry.LightDirection[1] == lightDirection.Y
-                && entry.LightDirection[2] == lightDirection.Z;
-        }
-
-        void CopyGifTemplateCacheEntryToPayload(const Ps2VuGifTemplateCacheEntry& entry, Ps2VuLitTrianglePayload& payload) {
-            std::memcpy(payload.LightingPalette, entry.LightingPalette, sizeof(entry.LightingPalette));
-            std::memcpy(payload.GifPacketTemplate, entry.GifPacketTemplate, sizeof(entry.GifPacketTemplate));
-        }
-
-        void PopulateTriangleGifPacketTemplateFromCache(
-            const Ps2VuOpaqueBatch& batch,
-            const ::float3& faceNormal,
-            const ::float3& lightDirection,
-            GSGLOBAL* gsGlobal,
-            std::vector<Ps2VuGifTemplateCacheEntry>& gifTemplateCache,
-            Ps2VuLitTrianglePayload& payload) {
-            for (const Ps2VuGifTemplateCacheEntry& entry : gifTemplateCache) {
-                if (AreLightingInputsEqual(entry, faceNormal, lightDirection)) {
-                    CopyGifTemplateCacheEntryToPayload(entry, payload);
-                    return;
-                }
-            }
-
-            const std::uint64_t triangleColor = ResolveTexturedVertexColor(*batch.Material, faceNormal, lightDirection);
-            Ps2VuFlatColor flatColor {};
-            flatColor.Red = static_cast<std::uint8_t>(triangleColor & 0xFFu);
-            flatColor.Green = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
-            flatColor.Blue = static_cast<std::uint8_t>((triangleColor >> 16u) & 0xFFu);
-            flatColor.Alpha = static_cast<std::uint8_t>((triangleColor >> 24u) & 0xFFu);
-            Ps2VuLitTrianglePayload templatePayload {};
-            PopulateTriangleGifPacketTemplate(batch, flatColor, gsGlobal, templatePayload);
-
-            Ps2VuGifTemplateCacheEntry entry {};
-            entry.FlatColor = flatColor;
-            entry.FaceNormal[0] = faceNormal.X;
-            entry.FaceNormal[1] = faceNormal.Y;
-            entry.FaceNormal[2] = faceNormal.Z;
-            entry.FaceNormal[3] = 0.0f;
-            entry.LightDirection[0] = lightDirection.X;
-            entry.LightDirection[1] = lightDirection.Y;
-            entry.LightDirection[2] = lightDirection.Z;
-            entry.LightDirection[3] = 0.0f;
-            std::memcpy(entry.LightingPalette, templatePayload.LightingPalette, sizeof(entry.LightingPalette));
-            std::memcpy(entry.GifPacketTemplate, templatePayload.GifPacketTemplate, sizeof(entry.GifPacketTemplate));
-            gifTemplateCache.push_back(entry);
-            CopyGifTemplateCacheEntryToPayload(gifTemplateCache.back(), payload);
-        }
-
         void PopulateTrianglePayloadFromSetup(
             const Ps2VuOpaqueBatch& batch,
             const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup,
             GSGLOBAL* gsGlobal,
-            std::vector<Ps2VuGifTemplateCacheEntry>& gifTemplateCache,
             Ps2VuLitTrianglePayload& payload) {
             const ::float3 faceNormal(
                 triangleSetup.FaceNormal[0],
@@ -222,12 +160,16 @@ namespace helengine::ps2 {
                 triangleSetup.LightDirection[0],
                 triangleSetup.LightDirection[1],
                 triangleSetup.LightDirection[2]);
-            PopulateTriangleGifPacketTemplateFromCache(
+            const std::uint64_t triangleColor = ResolveTexturedVertexColor(*batch.Material, faceNormal, lightDirection);
+            Ps2VuFlatColor flatColor {};
+            flatColor.Red = static_cast<std::uint8_t>(triangleColor & 0xFFu);
+            flatColor.Green = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
+            flatColor.Blue = static_cast<std::uint8_t>((triangleColor >> 16u) & 0xFFu);
+            flatColor.Alpha = static_cast<std::uint8_t>((triangleColor >> 24u) & 0xFFu);
+            PopulateTriangleGifPacketTemplate(
                 batch,
-                faceNormal,
-                lightDirection,
+                flatColor,
                 gsGlobal,
-                gifTemplateCache,
                 payload);
             std::memcpy(payload.WorldMatrix, triangleSetup.WorldMatrix, sizeof(triangleSetup.WorldMatrix));
             std::memcpy(payload.ViewMatrix, triangleSetup.ViewMatrix, sizeof(triangleSetup.ViewMatrix));
@@ -248,13 +190,6 @@ namespace helengine::ps2 {
             std::memcpy(payload.WorldViewProjectionMatrix, triangleSetup.WorldViewProjectionMatrix, sizeof(triangleSetup.WorldViewProjectionMatrix));
             std::memcpy(payload.GsScale, triangleSetup.GsScale, sizeof(triangleSetup.GsScale));
             std::memcpy(payload.GsOffset, triangleSetup.GsOffset, sizeof(triangleSetup.GsOffset));
-        }
-
-        std::uint32_t BuildVifCode(std::uint16_t immediate, std::uint8_t number, std::uint8_t command, bool irq) {
-            return static_cast<std::uint32_t>(immediate)
-                | (static_cast<std::uint32_t>(number) << 16u)
-                | (static_cast<std::uint32_t>(command) << 24u)
-                | (irq ? 0x80000000u : 0u);
         }
 
         void PopulateGifColorQword(
@@ -328,33 +263,6 @@ namespace helengine::ps2 {
                 start.TexCoord.X + ((end.TexCoord.X - start.TexCoord.X) * amount),
                 start.TexCoord.Y + ((end.TexCoord.Y - start.TexCoord.Y) * amount));
             return vertex;
-        }
-
-        void ClipTriangleAgainstNearPlane(const ::float3& first, const ::float3& second, const ::float3& third, float nearPlaneDistance, std::vector<::float3>& clippedVertices) {
-            clippedVertices.clear();
-
-            const float nearPlaneZ = -nearPlaneDistance;
-            ::float3 previous = third;
-            bool previousInside = previous.Z <= nearPlaneZ;
-            const ::float3 vertices[3] = { first, second, third };
-
-            for (const ::float3& current : vertices) {
-                const bool currentInside = current.Z <= nearPlaneZ;
-                if (currentInside != previousInside) {
-                    const float denominator = current.Z - previous.Z;
-                    if (std::abs(denominator) > MinimumNearPlaneEpsilon) {
-                        const float amount = (nearPlaneZ - previous.Z) / denominator;
-                        clippedVertices.push_back(InterpolateViewPosition(previous, current, amount));
-                    }
-                }
-
-                if (currentInside) {
-                    clippedVertices.push_back(current);
-                }
-
-                previous = current;
-                previousInside = currentInside;
-            }
         }
 
         void ClipTexturedTriangleAgainstNearPlane(
@@ -442,87 +350,6 @@ namespace helengine::ps2 {
             return true;
         }
 
-        std::uint64_t BuildFixedTrianglePositionRegister(float screenX, float screenY, float screenZ, GSGLOBAL* gsGlobal) {
-            const std::int32_t gsX = static_cast<std::int32_t>((2048.0f + screenX) * 16.0f);
-            const std::int32_t gsY = static_cast<std::int32_t>((2048.0f + screenY) * 16.0f);
-            const float gsDepth = 1.0f - screenZ;
-            const std::uint32_t gsZ = static_cast<std::uint32_t>(gsDepth * static_cast<float>(ResolveMaximumDepth(gsGlobal)));
-            return GS_SETREG_XYZ2(gsX, gsY, gsZ);
-        }
-
-        void PopulateIdentityMatrix(float* matrix) {
-            std::memset(matrix, 0, sizeof(float) * 16u);
-            matrix[0] = 1.0f;
-            matrix[5] = 1.0f;
-            matrix[10] = 1.0f;
-            matrix[15] = 1.0f;
-        }
-
-        void PopulateDiagnosticOpaqueTrianglePayload(
-            const Ps2VuOpaqueBatch& batch,
-            const ::float4& viewport,
-            const ::float3& normalizedLightDirection,
-            Ps2VuLitTrianglePayload& payload) {
-            Ps2VuFlatColor flatColor {};
-            flatColor.Red = batch.Material->GetBaseColorR();
-            flatColor.Green = batch.Material->GetBaseColorG();
-            flatColor.Blue = batch.Material->GetBaseColorB();
-            flatColor.Alpha = batch.Material->GetBaseColorA();
-            PopulateTriangleGifPacketTemplate(batch, flatColor, nullptr, payload);
-            PopulateIdentityMatrix(payload.WorldMatrix);
-            PopulateIdentityMatrix(payload.ViewMatrix);
-            PopulateIdentityMatrix(payload.ProjectionMatrix);
-            PopulateIdentityMatrix(payload.WorldViewProjectionMatrix);
-            payload.Viewport[0] = viewport.X;
-            payload.Viewport[1] = viewport.Y;
-            payload.Viewport[2] = viewport.Z;
-            payload.Viewport[3] = viewport.W;
-            payload.SourceTriangle.PositionA[0] = -0.5f;
-            payload.SourceTriangle.PositionA[1] = -0.5f;
-            payload.SourceTriangle.PositionA[2] = 0.5f;
-            payload.SourceTriangle.PositionA[3] = 1.0f;
-            payload.SourceTriangle.PositionB[0] = -0.5f;
-            payload.SourceTriangle.PositionB[1] = 0.5f;
-            payload.SourceTriangle.PositionB[2] = 0.5f;
-            payload.SourceTriangle.PositionB[3] = 1.0f;
-            payload.SourceTriangle.PositionC[0] = 0.5f;
-            payload.SourceTriangle.PositionC[1] = -0.5f;
-            payload.SourceTriangle.PositionC[2] = 0.5f;
-            payload.SourceTriangle.PositionC[3] = 1.0f;
-            payload.SourceTriangle.NormalA[0] = 0.0f;
-            payload.SourceTriangle.NormalA[1] = 0.0f;
-            payload.SourceTriangle.NormalA[2] = -1.0f;
-            payload.SourceTriangle.NormalA[3] = 0.0f;
-            payload.SourceTriangle.NormalB[0] = 0.0f;
-            payload.SourceTriangle.NormalB[1] = 0.0f;
-            payload.SourceTriangle.NormalB[2] = -1.0f;
-            payload.SourceTriangle.NormalB[3] = 0.0f;
-            payload.SourceTriangle.NormalC[0] = 0.0f;
-            payload.SourceTriangle.NormalC[1] = 0.0f;
-            payload.SourceTriangle.NormalC[2] = -1.0f;
-            payload.SourceTriangle.NormalC[3] = 0.0f;
-            payload.FaceNormal[0] = 0.0f;
-            payload.FaceNormal[1] = 0.0f;
-            payload.FaceNormal[2] = -1.0f;
-            payload.FaceNormal[3] = 0.0f;
-            payload.LightDirection[0] = normalizedLightDirection.X;
-            payload.LightDirection[1] = normalizedLightDirection.Y;
-            payload.LightDirection[2] = normalizedLightDirection.Z;
-            payload.LightDirection[3] = 0.0f;
-            payload.LightConstants[0] = LightingDiffuseScale;
-            payload.LightConstants[1] = LightingAmbientBias;
-            payload.LightConstants[2] = LightingPaletteScale;
-            payload.LightConstants[3] = 0.0f;
-            payload.GsScale[0] = viewport.Z * 0.5f;
-            payload.GsScale[1] = viewport.W * -0.5f;
-            payload.GsScale[2] = -4194304.0f;
-            payload.GsScale[3] = 0.0f;
-            payload.GsOffset[0] = 2048.0f + viewport.X + (viewport.Z * 0.5f);
-            payload.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
-            payload.GsOffset[2] = 4194304.0f;
-            payload.GsOffset[3] = 0.0f;
-        }
-
         ::float3 NormalizeOrFallback(const ::float3& value, const ::float3& fallback) {
             const float lengthSquared = ::float3::Dot(value, value);
             if (lengthSquared <= 0.000001f) {
@@ -551,6 +378,26 @@ namespace helengine::ps2 {
             }
 
             return formatted;
+        }
+
+        void AppendDiagnosticToHostBootLog(const std::string& message) {
+            const char* candidatePaths[] = {
+                "host:ps2_bootlog.txt",
+                "host0:ps2_bootlog.txt"
+            };
+
+            for (const char* candidatePath : candidatePaths) {
+                FILE* file = std::fopen(candidatePath, "a");
+                if (file == nullptr) {
+                    continue;
+                }
+
+                std::fwrite(message.c_str(), 1u, message.size(), file);
+                std::fwrite("\n", 1u, 1u, file);
+                std::fflush(file);
+                std::fclose(file);
+                return;
+            }
         }
 
         std::uint8_t ScaleColorChannel(std::uint8_t channel, float normalizedShade) {
@@ -639,6 +486,13 @@ namespace helengine::ps2 {
                 flatColor.a);
             packet2_advance_next(gifPacket.get(), 6u * 16u);
             std::memcpy(payload.GifPacketTemplate, gifPacket.get()->base, TriangleGifPacketTemplateByteCount);
+            static bool hasLoggedUntexturedGifTemplate = false;
+            if (!hasLoggedUntexturedGifTemplate) {
+                hasLoggedUntexturedGifTemplate = true;
+                AppendDiagnosticToHostBootLog(
+                    std::string("[helengine-ps2] untextured vu gif template:")
+                    + FormatGifTemplateQwords(payload.GifPacketTemplate, TriangleGifPacketTemplateQwordCount));
+            }
             if (EnableVuGifTemplateLayoutDiagnostics) {
                 throw std::runtime_error(
                     "PS2 lit triangle GIF template layout:"
@@ -806,8 +660,6 @@ namespace helengine::ps2 {
         std::vector<std::vector<std::uint8_t>> texturedTrianglePackets;
         texturedTrianglePackets.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);
         Ps2VuOpaqueUntexturedSetupBuilder setupBuilder;
-        const std::vector<Ps2VuOpaqueUntexturedTriangleSetup>* untexturedTriangleSetups = nullptr;
-        std::vector<Ps2VuGifTemplateCacheEntry> gifTemplateCache;
         const std::clock_t triangleSetupStartTicks = std::clock();
         if (EnableVuFixedTriangleDiagnostics) {
             Ps2VuLitTrianglePayload payload {};
@@ -852,8 +704,16 @@ namespace helengine::ps2 {
             SubmittedTriangleVertexB0 = setupBuilder.GetSubmittedTriangleVertexB0();
             SubmittedTriangleVertexB1 = setupBuilder.GetSubmittedTriangleVertexB1();
             SubmittedTriangleVertexB2 = setupBuilder.GetSubmittedTriangleVertexB2();
-            untexturedTriangleSetups = &setupBuilder.GetTriangleSetups();
-            gifTemplateCache.reserve(untexturedTriangleSetups->size());
+            const std::vector<Ps2VuOpaqueUntexturedTriangleSetup>& triangleSetups = setupBuilder.GetTriangleSetups();
+            trianglePayloads.reserve(triangleSetups.size());
+            for (const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup : triangleSetups) {
+                Ps2VuLitTrianglePayload payload {};
+                PopulateTrianglePayloadFromSetup(batch, triangleSetup, gsGlobal, payload);
+                trianglePayloads.push_back(payload);
+                if (EnableVuSingleDispatchDiagnostic) {
+                    break;
+                }
+            }
         } else {
             std::vector<Ps2VuTexturedClipVertex> clippedTexturedVertices;
             clippedTexturedVertices.reserve(4u);
@@ -1055,38 +915,24 @@ namespace helengine::ps2 {
         const std::clock_t triangleSetupEndTicks = std::clock();
         LastTriangleSetupMilliseconds = ResolveMillisecondsFromClockTicks(triangleSetupStartTicks, triangleSetupEndTicks);
 
-        if (!textured && EnableVuFixedTriangleDiagnostics && trianglePayloads.empty()) {
-            return;
-        } else if (!textured && !EnableVuFixedTriangleDiagnostics && (untexturedTriangleSetups == nullptr || untexturedTriangleSetups->empty())) {
-            return;
-        } else if (textured && texturedTrianglePackets.empty()) {
+        if (!textured && trianglePayloads.empty()) {
             return;
         }
 
-        if (!textured && EnableVuFixedTriangleDiagnostics && GifPacketBytes.empty()) {
+        if (textured && texturedTrianglePackets.empty()) {
+            return;
+        }
+
+        if (!textured && GifPacketBytes.empty()) {
             GifPacketBytes.resize(TriangleGifPacketTemplateByteCount);
             std::memcpy(GifPacketBytes.data(), trianglePayloads.front().GifPacketTemplate, TriangleGifPacketTemplateByteCount);
         } else if (textured && GifPacketBytes.empty()) {
             GifPacketBytes = texturedTrianglePackets.front();
         }
 
-        std::uint32_t emittedTriangleCount = 0u;
-        if (textured) {
-            emittedTriangleCount = static_cast<std::uint32_t>(texturedTrianglePackets.size());
-        } else if (EnableVuFixedTriangleDiagnostics) {
-            emittedTriangleCount = static_cast<std::uint32_t>(trianglePayloads.size());
-        } else {
-            const std::size_t untexturedTriangleCount = untexturedTriangleSetups != nullptr ? untexturedTriangleSetups->size() : 0u;
-            if (EnableVuSingleDispatchDiagnostic && untexturedTriangleCount > 0u) {
-                emittedTriangleCount = EnableVuTwoTriangleBatchDiagnostic
-                    ? VuDiagnosticBatchTriangleCount
-                    : 1u;
-            } else if (EnableVuTwoTriangleBatchDiagnostic && untexturedTriangleCount > 0u) {
-                emittedTriangleCount = static_cast<std::uint32_t>((untexturedTriangleCount + 1u) & ~1u);
-            } else {
-                emittedTriangleCount = static_cast<std::uint32_t>(untexturedTriangleCount);
-            }
-        }
+        const std::uint32_t emittedTriangleCount = textured
+            ? static_cast<std::uint32_t>(texturedTrianglePackets.size())
+            : static_cast<std::uint32_t>(trianglePayloads.size());
         std::uint32_t maxPacketQwordCount = std::max<std::uint32_t>(
             1024u,
             textured
@@ -1127,7 +973,7 @@ namespace helengine::ps2 {
                     return;
                 }
             }
-        } else if (EnableVuFixedTriangleDiagnostics) {
+        } else {
             for (const Ps2VuLitTrianglePayload& trianglePayload : trianglePayloads) {
                 packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
                 std::memcpy(packet.get()->next, &trianglePayload, sizeof(Ps2VuLitTrianglePayload));
@@ -1145,65 +991,6 @@ namespace helengine::ps2 {
                 LastCompletedPhase = 5;
                 if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
                     return;
-                }
-            }
-        } else {
-            if (EnableVuTwoTriangleBatchDiagnostic) {
-                for (std::size_t triangleIndex = 0u; triangleIndex < untexturedTriangleSetups->size(); triangleIndex += VuDiagnosticBatchTriangleCount) {
-                    packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
-                    const Ps2VuOpaqueUntexturedTriangleSetup& firstTriangleSetup = (*untexturedTriangleSetups)[triangleIndex];
-                    const Ps2VuOpaqueUntexturedTriangleSetup& secondTriangleSetup = (triangleIndex + 1u) < untexturedTriangleSetups->size()
-                        ? (*untexturedTriangleSetups)[triangleIndex + 1u]
-                        : firstTriangleSetup;
-                    Ps2VuLitTrianglePayload* firstTrianglePayload = reinterpret_cast<Ps2VuLitTrianglePayload*>(packet.get()->next);
-                    PopulateTrianglePayloadFromSetup(batch, firstTriangleSetup, gsGlobal, gifTemplateCache, *firstTrianglePayload);
-                    packet2_advance_next(packet.get(), sizeof(Ps2VuLitTrianglePayload));
-                    Ps2VuLitTrianglePayload* secondTrianglePayload = reinterpret_cast<Ps2VuLitTrianglePayload*>(packet.get()->next);
-                    PopulateTrianglePayloadFromSetup(batch, secondTriangleSetup, gsGlobal, gifTemplateCache, *secondTrianglePayload);
-                    packet2_advance_next(packet.get(), sizeof(Ps2VuLitTrianglePayload));
-                    packet2_utils_vu_close_unpack(packet.get());
-                    LastCompletedPhase = 4;
-                    if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
-                        return;
-                    }
-
-                    packet2_chain_open_cnt(packet.get(), 0, 0, 0);
-                    packet2_vif_flush(packet.get(), 0);
-                    packet2_vif_mscal(packet.get(), UntexturedMicroProgramAddress, 0);
-                    packet2_chain_close_tag(packet.get());
-                    LastCompletedPhase = 5;
-                    if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
-                        return;
-                    }
-
-                    if (EnableVuSingleDispatchDiagnostic) {
-                        break;
-                    }
-                }
-            } else {
-                for (const Ps2VuOpaqueUntexturedTriangleSetup& triangleSetup : *untexturedTriangleSetups) {
-                    packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
-                    Ps2VuLitTrianglePayload* trianglePayload = reinterpret_cast<Ps2VuLitTrianglePayload*>(packet.get()->next);
-                    PopulateTrianglePayloadFromSetup(batch, triangleSetup, gsGlobal, gifTemplateCache, *trianglePayload);
-                    packet2_advance_next(packet.get(), sizeof(Ps2VuLitTrianglePayload));
-                    packet2_utils_vu_close_unpack(packet.get());
-                    LastCompletedPhase = 4;
-                    if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
-                        return;
-                    }
-
-                    packet2_chain_open_cnt(packet.get(), 0, 0, 0);
-                    packet2_vif_flush(packet.get(), 0);
-                    packet2_vif_mscal(packet.get(), UntexturedMicroProgramAddress, 0);
-                    packet2_chain_close_tag(packet.get());
-                    LastCompletedPhase = 5;
-                    if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
-                        return;
-                    }
-
-                    if (EnableVuSingleDispatchDiagnostic) {
-                        break;
-                    }
                 }
             }
         }

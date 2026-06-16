@@ -56,7 +56,9 @@ public static class Program {
                         "Startup",
                         "cooked/scenes/main.hasset",
                         [],
-                        [])
+                        [
+                            new KeyValuePair<string, string>("cooked-relative-path", "cooked/scenes/main.hasset")
+                        ])
                 ],
                 Array.Empty<PlatformBuildAsset>(),
                 [
@@ -109,7 +111,7 @@ public static class Program {
                 throw new InvalidOperationException("Smoke test PS2 disc executable is missing.");
             }
 
-            if (!File.Exists(Path.Combine(outputRoot, "disc", "cooked", "scenes", "main.hasset"))) {
+            if (!File.Exists(Path.Combine(request.WorkingRoot, "ps2-staging", "cooked", "scenes", "main.hasset"))) {
                 throw new InvalidOperationException("Smoke test scene output is missing.");
             }
 

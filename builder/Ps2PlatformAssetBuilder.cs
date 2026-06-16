@@ -12,6 +12,9 @@ using helengine.files;
 namespace helengine.ps2.builder;
 
 public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
+    /// <summary>
+    /// Environment-variable name used to override the PS2 repository root during build execution.
+    /// </summary>
     const string RepositoryRootEnvironmentVariableName = "HELENGINE_PS2_REPOSITORY_ROOT";
 
     readonly IPs2NativeBuildExecutor NativeBuildExecutor;
@@ -20,7 +23,6 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     readonly Ps2PlatformCookWorkItemExecutor PlatformCookWorkItemExecutor;
     readonly Ps2DiscLayoutWriter DiscLayoutWriter;
     readonly Ps2RuntimeAssetPathManifestWriter RuntimeAssetPathManifestWriter;
-    readonly Ps2CookedAssetPathRewriter CookedAssetPathRewriter;
 
     public Ps2PlatformAssetBuilder() {
         NativeBuildExecutor = new Ps2NativeBuildExecutor();
@@ -29,7 +31,6 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         PlatformCookWorkItemExecutor = new Ps2PlatformCookWorkItemExecutor();
         DiscLayoutWriter = new Ps2DiscLayoutWriter();
         RuntimeAssetPathManifestWriter = new Ps2RuntimeAssetPathManifestWriter();
-        CookedAssetPathRewriter = new Ps2CookedAssetPathRewriter();
         Descriptor = new PlatformBuilderDescriptor(
             "helengine.ps2.builder",
             "1.0.0",
@@ -48,7 +49,6 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         PlatformCookWorkItemExecutor = new Ps2PlatformCookWorkItemExecutor();
         DiscLayoutWriter = new Ps2DiscLayoutWriter();
         RuntimeAssetPathManifestWriter = new Ps2RuntimeAssetPathManifestWriter();
-        CookedAssetPathRewriter = new Ps2CookedAssetPathRewriter();
         Descriptor = new PlatformBuilderDescriptor(
             "helengine.ps2.builder",
             "1.0.0",
@@ -109,11 +109,6 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
                 WritePhaseMarker(phaseMarkerPath, "workspace created");
                 IReadOnlyDictionary<string, string> logicalToPhysicalPaths = DiscLayoutWriter.BuildLogicalToPhysicalPathMap(workspace);
                 WritePhaseMarker(phaseMarkerPath, "logical path map built");
-                CookedAssetPathRewriter.Rewrite(
-                    workspace.StagingRootPath,
-                    logicalToPhysicalPaths,
-                    request.Manifest.PlatformCookWorkItems ?? Array.Empty<PlatformCookWorkItem>());
-                WritePhaseMarker(phaseMarkerPath, "cooked asset paths rewritten");
                 RuntimeAssetPathManifestWriter.Write(workspace.GeneratedCoreRootPath, request.Manifest, logicalToPhysicalPaths);
                 WritePhaseMarker(phaseMarkerPath, "runtime asset path manifest written");
                 NativeBuildExecutor.Build(workspace, cancellationToken);
@@ -386,7 +381,27 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             return Path.GetFullPath(configuredRepositoryRootPath);
         }
 
-        string currentPath = AppContext.BaseDirectory;
+        string currentWorkingDirectoryPath = Directory.GetCurrentDirectory();
+        string resolvedCurrentWorkingDirectoryPath = ResolveRepositoryRootPathFromStartPath(currentWorkingDirectoryPath);
+        if (!string.IsNullOrWhiteSpace(resolvedCurrentWorkingDirectoryPath)) {
+            return resolvedCurrentWorkingDirectoryPath;
+        }
+
+        string resolvedAssemblyDirectoryPath = ResolveRepositoryRootPathFromStartPath(AppContext.BaseDirectory);
+        if (!string.IsNullOrWhiteSpace(resolvedAssemblyDirectoryPath)) {
+            return resolvedAssemblyDirectoryPath;
+        }
+
+        throw new InvalidOperationException("Could not resolve the helengine-ps2 repository root from the configured root, current working directory, or builder assembly location.");
+    }
+
+    /// <summary>
+    /// Walks upward from one starting directory until the checked-in PS2 repository root markers are found.
+    /// </summary>
+    /// <param name="startPath">Candidate directory path used as the initial repository-root search location.</param>
+    /// <returns>Resolved repository root path when found; otherwise an empty string.</returns>
+    static string ResolveRepositoryRootPathFromStartPath(string startPath) {
+        string currentPath = startPath;
         while (!string.IsNullOrWhiteSpace(currentPath)) {
             if (IsRepositoryRootPath(currentPath)) {
                 return currentPath;
@@ -400,7 +415,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             currentPath = parentDirectory.FullName;
         }
 
-        throw new InvalidOperationException("Could not resolve the helengine-ps2 repository root from the builder assembly location.");
+        return string.Empty;
     }
 
     static bool IsRepositoryRootPath(string path) {

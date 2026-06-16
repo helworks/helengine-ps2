@@ -73,8 +73,9 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_vu_opaque_batch_builder_emits_batches_for_opaque_proxies_with_packed_models() {
-        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuOpaqueBatchBuilder.hpp");
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuOpaqueBatchBuilder.cpp");
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string header = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuOpaqueBatchBuilder.hpp"));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuOpaqueBatchBuilder.cpp"));
 
         Assert.Contains("std::size_t GetLastRejectedMissingMaterialCount() const;", header, StringComparison.Ordinal);
         Assert.Contains("std::size_t GetLastRejectedMissingModelCount() const;", header, StringComparison.Ordinal);
@@ -96,7 +97,8 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("batch.Proxy = proxy;", source, StringComparison.Ordinal);
         Assert.Contains("batch.Model = packedModel;", source, StringComparison.Ordinal);
         Assert.Contains("batch.Material = runtimeMaterial;", source, StringComparison.Ordinal);
-        Assert.Contains("batch.Textured = !runtimeMaterial->GetTextureRelativePath().empty();", source, StringComparison.Ordinal);
+        Assert.Contains("batch.Textured = runtimeMaterial->HasTextureRelativePath();", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("batch.Textured = !runtimeMaterial->GetTextureRelativePath().empty();", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -105,8 +107,9 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Ps2_vu_vif_packet_builder_assembles_local_screen_and_triangle_stream_packet_data() {
-        string header = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuVifPacketBuilder.hpp");
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\vu\Ps2VuVifPacketBuilder.cpp");
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string header = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.hpp"));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
 
         Assert.Contains("std::uint32_t GetLastCompletedPhase() const;", header, StringComparison.Ordinal);
         Assert.Contains("~Ps2VuVifPacketBuilder();", header, StringComparison.Ordinal);
@@ -114,21 +117,23 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("std::size_t GetPacketByteCount() const;", header, StringComparison.Ordinal);
         Assert.Contains("packet2_t* Packet = nullptr;", header, StringComparison.Ordinal);
         Assert.Contains("std::uint32_t LastCompletedPhase = 0;", header, StringComparison.Ordinal);
-        Assert.Contains("const ::float4& viewport, GSGLOBAL* gsGlobal", header, StringComparison.Ordinal);
+        Assert.Contains("const ::float4& viewport, float nearPlaneDistance, const ::float3& lightDirection, GSGLOBAL* gsGlobal, int textureWidth, int textureHeight", header, StringComparison.Ordinal);
         Assert.Contains("#include <packet2.h>", source, StringComparison.Ordinal);
         Assert.Contains("#include <packet2_utils.h>", source, StringComparison.Ordinal);
         Assert.Contains("constexpr std::uint32_t EnableVuPacketPhaseDiagnostics = 0;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr std::uint32_t VuPacketDiagnosticCutoffPhase = 11;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr std::uint32_t XtopGifPacketAddress = 0;", source, StringComparison.Ordinal);
-        Assert.Contains("::float4x4::Multiply(worldCopy, viewProjectionCopy, worldViewProjection);", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableVuFixedTriangleDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("constexpr bool EnableVuTwoTriangleBatchDiagnostic", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("constexpr std::uint32_t VuDiagnosticBatchTriangleCount = 2u;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::size_t TriangleGifPacketTemplateQwordCount = 11u;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::size_t LitTrianglePayloadQwordCount = sizeof(Ps2VuLitTrianglePayload) / 16u;", source, StringComparison.Ordinal);
         Assert.Contains("LastCompletedPhase = 1;", source, StringComparison.Ordinal);
         Assert.Contains("LastCompletedPhase = 2;", source, StringComparison.Ordinal);
         Assert.Contains("LastCompletedPhase = 3;", source, StringComparison.Ordinal);
         Assert.Contains("LastCompletedPhase = 4;", source, StringComparison.Ordinal);
         Assert.Contains("LastCompletedPhase = 5;", source, StringComparison.Ordinal);
         Assert.Contains("LastCompletedPhase = 6;", source, StringComparison.Ordinal);
-        Assert.Contains("LastCompletedPhase = 7;", source, StringComparison.Ordinal);
-        Assert.Contains("LastCompletedPhase = 8;", source, StringComparison.Ordinal);
         Assert.Contains("LastCompletedPhase = 9;", source, StringComparison.Ordinal);
         Assert.Contains("LastCompletedPhase = 10;", source, StringComparison.Ordinal);
         Assert.Contains("LastCompletedPhase = 11;", source, StringComparison.Ordinal);
@@ -138,19 +143,17 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("packet2_utils_vu_close_unpack(", source, StringComparison.Ordinal);
         Assert.Contains("batch.Model->GetTriangleVertexCount()", source, StringComparison.Ordinal);
         Assert.Contains("batch.Model->GetPositionBlockBytes()", source, StringComparison.Ordinal);
-        Assert.Contains("struct alignas(16) GifReglistVertexQword", source, StringComparison.Ordinal);
-        Assert.Contains("std::vector<std::uint8_t> gifPacket", source, StringComparison.Ordinal);
-        Assert.Contains("BuildVertexPositionRegister(clipPosition, viewport, gsGlobal)", source, StringComparison.Ordinal);
-        Assert.Contains("GS_SETREG_RGBAQ(", source, StringComparison.Ordinal);
-        Assert.Contains("(static_cast<u64>(GIF_REG_RGBAQ) << 0) | (static_cast<u64>(GIF_REG_XYZ2) << 4)", source, StringComparison.Ordinal);
-        Assert.Contains("std::memcpy(gifPacket.data(), primPacket.get()->base, 16u);", source, StringComparison.Ordinal);
-        Assert.Contains("GifReglistVertexQword vertexQword = {", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("GetTexCoordBlockBytes()", source, StringComparison.Ordinal);
-        Assert.Contains("packet2_utils_vu_add_start_program(", source, StringComparison.Ordinal);
-        Assert.Contains("packet2_utils_vu_add_end_tag(", source, StringComparison.Ordinal);
+        Assert.Contains("struct alignas(16) Ps2VuLitTrianglePayload", source, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(payload.FaceNormal, triangleSetup.FaceNormal, sizeof(triangleSetup.FaceNormal));", source, StringComparison.Ordinal);
+        Assert.Contains("TryBuildVertexPositionRegister(", source, StringComparison.Ordinal);
+        Assert.Contains("GifPacketBytes.resize(TriangleGifPacketTemplateByteCount);", source, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(GifPacketBytes.data(), trianglePayloads.front().GifPacketTemplate, TriangleGifPacketTemplateByteCount);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BuildUntexturedTriangleGifPacketBytes(", source, StringComparison.Ordinal);
+        Assert.Contains("GetTexCoordBlockBytes()", source, StringComparison.Ordinal);
         Assert.Contains("packet2_get_qw_count(", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("PacketBytes.resize(", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("std::memcpy(PacketBytes.data()", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_vif_mscal(packet.get(), UntexturedMicroProgramAddress, 0);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n            PacketBytes.resize(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("\n            std::memcpy(PacketBytes.data()", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -163,10 +166,14 @@ public sealed class Ps2NativeBuildInputsTests {
         string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
 
         Assert.Contains("::float4x4 BuildWorldMatrix(const Ps2RenderProxy& proxy) const;", header, StringComparison.Ordinal);
-        Assert.Contains("::float4x4 viewProjection;", source, StringComparison.Ordinal);
-        Assert.Contains("::float4x4::Multiply(viewCopy, projectionCopy, viewProjection);", source, StringComparison.Ordinal);
+        Assert.Contains("const int2 windowSize = get_MainWindowSize();", source, StringComparison.Ordinal);
+        Assert.Contains("::float4 viewport = ResolvePixelViewport(camera, windowSize);", source, StringComparison.Ordinal);
         Assert.Contains("::float4x4 world = BuildWorldMatrix(*batch.Proxy);", source, StringComparison.Ordinal);
-        Assert.Contains("VuVifPacketBuilder.AddOpaqueBatch(batch, world, viewProjection, viewport, GsGlobal);", source, StringComparison.Ordinal);
+        Assert.Contains("VuVifPacketBuilder.AddOpaqueBatch(", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "VuVifPacketBuilder.AddOpaqueBatch(\n                batch,\n                world,\n                view,\n                projection,\n                viewport,\n                nearPlaneDistance,\n                lightDirection,\n                GsGlobal,\n                0,\n                0);",
+            source,
+            StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -201,8 +208,7 @@ public sealed class Ps2NativeBuildInputsTests {
     }
 
     /// <summary>
-    /// Ensures the first live VU runtime test routes opaque draws through the VU path by default instead of staying
-    /// pinned to the legacy CPU fallback.
+    /// Ensures the checked-in PS2 renderer defaults opaque draws to the VU path.
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_defaults_opaque_runtime_path_to_vu() {
@@ -276,9 +282,9 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("BootLog(\"cdvd ready\");", source, StringComparison.Ordinal);
         Assert.Contains("std::FILE* directFile = std::fopen(path, \"rb\");", source, StringComparison.Ordinal);
         Assert.Contains("BootLog(std::string(label) + \": fopen=\" + (directFile != nullptr ? \"true\" : \"false\"));", source, StringComparison.Ordinal);
-        Assert.Contains("BootLogDiscProbe(\"disc probe cube model\", CubeModelDiagnosticPath);", source, StringComparison.Ordinal);
-        Assert.Contains("BootLogDiscProbe(\"disc probe cube material early\", CubeMaterialEarlyDiagnosticPath);", source, StringComparison.Ordinal);
-        Assert.Contains("BootLogDiscProbe(\"disc probe cube material late\", CubeMaterialLateDiagnosticPath);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BootLogDiscProbe(\"disc probe cube model\", CubeModelDiagnosticPath);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BootLogDiscProbe(\"disc probe cube material early\", CubeMaterialEarlyDiagnosticPath);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BootLogDiscProbe(\"disc probe cube material late\", CubeMaterialLateDiagnosticPath);", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -291,7 +297,7 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("constexpr int Ps2DefaultFramebufferWidth = 640;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr int Ps2DefaultFramebufferHeight = 448;", source, StringComparison.Ordinal);
         Assert.Contains("GsGlobal->Interlace = GS_INTERLACED;", source, StringComparison.Ordinal);
-        Assert.Contains("GsGlobal->Field = GS_FRAME;", source, StringComparison.Ordinal);
+        Assert.Contains("GsGlobal->Field = GS_FIELD;", source, StringComparison.Ordinal);
         Assert.Contains("GsGlobal->DoubleBuffering = GS_SETTING_ON;", source, StringComparison.Ordinal);
         Assert.Contains("GsGlobal->Aspect = GS_ASPECT_4_3;", source, StringComparison.Ordinal);
         Assert.Contains("GsGlobal->Width = Ps2DefaultFramebufferWidth;", source, StringComparison.Ordinal);
@@ -372,8 +378,7 @@ public sealed class Ps2NativeBuildInputsTests {
         string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\rendering\Ps2RenderManager3D.cpp");
 
         Assert.Contains("ResolvePixelViewport(camera, windowSize)", source, StringComparison.Ordinal);
-        Assert.Contains("int2* windowSize = get_MainWindowSize();", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("::float4 viewport = camera->get_Viewport();", source, StringComparison.Ordinal);
+        Assert.Contains("const int2 windowSize = get_MainWindowSize();", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -402,16 +407,13 @@ public sealed class Ps2NativeBuildInputsTests {
     public void Boot_host_allows_cube_runtime_diagnostics_to_be_disabled_for_normal_scene_execution() {
         string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
 
-        Assert.Contains("constexpr bool EnableCubeRuntimeDiagnostics = true;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableCubeRuntimeDiagnostics = false;", source, StringComparison.Ordinal);
         Assert.Contains("if (EnableCubeRuntimeDiagnostics && !CubeDiagnosticsShown)", source, StringComparison.Ordinal);
-        Assert.Contains("+ \" updateables=\"", source, StringComparison.Ordinal);
-        Assert.Contains("\"cube draw returned: drawables3d=\"", source, StringComparison.Ordinal);
-        Assert.Contains("\"cube draw returned: vuPhase=\"", source, StringComparison.Ordinal);
-        Assert.Contains("\"cube frame presented; halting\"", source, StringComparison.Ordinal);
-        Assert.Contains("GetLastVuBatchDispatchCount()", source, StringComparison.Ordinal);
-        Assert.Contains("GetLastVuPacketByteCount()", source, StringComparison.Ordinal);
-        Assert.Contains("GetLastVuPacketPhase()", source, StringComparison.Ordinal);
-        Assert.Contains("get_Updateables()", source, StringComparison.Ordinal);
+        Assert.Contains("\"cube runtime counts: proxies=\"", source, StringComparison.Ordinal);
+        Assert.Contains("\"cube runtime rejects: missingMaterial=\"", source, StringComparison.Ordinal);
+        Assert.Contains("\"cube runtime checkpoint: after draw phase=\"", source, StringComparison.Ordinal);
+        Assert.Contains("\"cube draw returned: viewport=\"", source, StringComparison.Ordinal);
+        Assert.Contains("\"cube draw returned: triB0=\"", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -426,15 +428,25 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("constexpr bool EnableFrameTimingDiagnosticHalt = false;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr int FrameTimingSampleFrameCount = 60;", source, StringComparison.Ordinal);
         Assert.Contains("double ResolveSecondsFromClockTicks(std::clock_t startTicks, std::clock_t endTicks)", source, StringComparison.Ordinal);
-        Assert.Contains("void RecordFrameTimingSample(double updateSeconds, double drawSeconds, double presentSeconds)", source, StringComparison.Ordinal);
+        Assert.Contains("void RecordFrameTimingSample(", source, StringComparison.Ordinal);
+        Assert.Contains("double updateSeconds,", source, StringComparison.Ordinal);
+        Assert.Contains("double draw3dSeconds,", source, StringComparison.Ordinal);
+        Assert.Contains("double gifWaitSeconds,", source, StringComparison.Ordinal);
+        Assert.Contains("double draw2dSeconds,", source, StringComparison.Ordinal);
+        Assert.Contains("double drawSeconds,", source, StringComparison.Ordinal);
+        Assert.Contains("double presentSeconds)", source, StringComparison.Ordinal);
         Assert.Contains("\"frame timing avg updateMs=\"", source, StringComparison.Ordinal);
         Assert.Contains("FrameTimingSampleCompleted = true;", source, StringComparison.Ordinal);
         Assert.Contains("const std::clock_t frameUpdateStartTicks = std::clock();", source, StringComparison.Ordinal);
         Assert.Contains("frameUpdateEndTicks = std::clock();", source, StringComparison.Ordinal);
+        Assert.Contains("frameDraw3dEndTicks = std::clock();", source, StringComparison.Ordinal);
+        Assert.Contains("frameGifWaitEndTicks = std::clock();", source, StringComparison.Ordinal);
         Assert.Contains("frameDrawEndTicks = std::clock();", source, StringComparison.Ordinal);
         Assert.Contains("framePresentEndTicks = std::clock();", source, StringComparison.Ordinal);
         Assert.Contains("RecordFrameTimingSample(", source, StringComparison.Ordinal);
-        Assert.Contains("if (EnableFrameTimingDiagnostics && EnableFrameTimingDiagnosticHalt && FrameTimingSampleCompleted) {", source, StringComparison.Ordinal);
+        Assert.Contains("if (EnableFrameTimingDiagnostics &&", source, StringComparison.Ordinal);
+        Assert.Contains("EnableFrameTimingDiagnosticHalt &&", source, StringComparison.Ordinal);
+        Assert.Contains("FrameTimingSampleCompleted &&", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -522,6 +534,7 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("&& !useLightingOnlyDiagnostics", source, StringComparison.Ordinal);
         Assert.Contains("if (!useDiagnosticFlatColor && !ShouldDrawAlphaTestTriangle(", source, StringComparison.Ordinal);
         Assert.Contains("if (!useDiagnosticFlatColor && !useLightingOnlyDiagnostics && HdrEnabled && ShouldEmitHdrGlow(*material, clippedColorA, clippedColorB, clippedColorC)) {", source, StringComparison.Ordinal);
+        Assert.Contains("gsKit_prim_triangle_goraud_texture_3d(", source, StringComparison.Ordinal);
         Assert.Contains("gsKit_prim_triangle_gouraud_3d(", source, StringComparison.Ordinal);
     }
 
@@ -586,7 +599,7 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("ResolveRenderableProxyByIndex(const helengine::ps2::Ps2FramePlan& plan, std::size_t proxyIndex)", source, StringComparison.Ordinal);
         Assert.Contains("const Ps2RenderProxy* firstProxy = ResolveRenderableProxyByIndex(plan, SingleProxyDiagnosticIndex);", source, StringComparison.Ordinal);
         Assert.Contains("if (EnableSingleProxyDiagnostics) {", source, StringComparison.Ordinal);
-        Assert.Contains("DrawOpaqueProxy(*firstProxy, view, projection, viewport, camera->get_NearPlaneDistance());", source, StringComparison.Ordinal);
-        Assert.Contains("DrawOpaqueProxy(*firstProxy, view, projection, viewport, nearPlaneDistance);", source, StringComparison.Ordinal);
+        Assert.Contains("DrawOpaqueProxyLegacy(*firstProxy, view, projection, viewport, camera->get_NearPlaneDistance());", source, StringComparison.Ordinal);
+        Assert.Contains("DrawOpaqueProxyLegacy(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());", source, StringComparison.Ordinal);
     }
 }

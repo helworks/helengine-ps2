@@ -6,6 +6,7 @@ typedef struct gsGlobal GSGLOBAL;
 
 class Core;
 class CoreInitializationOptions;
+class IRuntimeDiagnosticsProvider;
 class Asset;
 class PlatformInfo;
 class RenderManager2D;
@@ -24,12 +25,12 @@ namespace helengine::ps2 {
         bool InitializeRuntime();
         bool InitializeGraphics();
         bool LoadPackagedStartupScene();
-        ::Asset* LoadPackagedPhysicalAsset(const std::string& physicalPath);
         void PresentBootFrame();
         std::string ResolveApplicationDirectoryPath() const;
 
         ::Core* EngineCore;
         ::CoreInitializationOptions* EngineOptions;
+        ::IRuntimeDiagnosticsProvider* EngineRuntimeDiagnosticsProvider;
         ::PlatformInfo* EnginePlatformInfo;
         Ps2InputBackend* EngineInputBackend;
         ::RenderManager2D* EngineRenderManager2D;

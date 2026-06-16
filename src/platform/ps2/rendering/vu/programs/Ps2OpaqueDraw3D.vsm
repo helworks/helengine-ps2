@@ -1,6 +1,5 @@
 ; Opaque untextured VU1 microprogram.
 ; Scope for this step:
-; - consume two contiguous untextured triangle payloads per diagnostic invocation
 ; - read three source positions
 ; - transform them with the precomputed WVP matrix
 ; - convert them to GS XYZ2 values
@@ -9,7 +8,7 @@
 ; Non-goals:
 ; - no VU lighting
 ; - no VU culling
-; - no runtime batch header
+; - no packet layout changes
 
 		.vu
 		.align 4
@@ -18,8 +17,6 @@
 Ps2OpaqueDraw3D_CodeStart:
 __ps2_opaque_draw_3d:
          NOP                                                        xtop VI02
-         NOP                                                        iaddiu VI05, VI00, 0x00000002
-__ps2_opaque_draw_3d_triangle_pair_loop:
          NOP                                                        iaddiu VI03, VI02, 0x00000010
          NOP                                                        lq VF04, 52(VI02)
          NOP                                                        lq VF05, 53(VI02)
@@ -68,10 +65,6 @@ __ps2_opaque_draw_3d_triangle_pair_loop:
          NOP                                                        sq.xyz VF03, 24(VI02)
          NOP                                                        sq.xyz VF02, 26(VI02)
          NOP                                                        xgkick VI03
-         NOP                                                        iaddiu VI02, VI02, 0x0000003a
-         NOP                                                        iaddiu VI05, VI05, -1
-         NOP                                                        ibne VI05, VI00, __ps2_opaque_draw_3d_triangle_pair_loop
-         NOP                                                        NOP
          NOP[E]                                                     NOP
          NOP                                                        NOP
 		.align 4

@@ -358,6 +358,13 @@ public static class Ps2PlatformDefinitionFactory {
                             PlatformSettingKind.Boolean,
                             "true",
                             true,
+                            []),
+                        new PlatformSettingDefinition(
+                            "type-remaps",
+                            "Type Remaps",
+                            PlatformSettingKind.Text,
+                            "System.Numerics.Vector2=helengine.float2|System.Numerics.Vector3=helengine.float3|System.Numerics.Vector4=helengine.float4|System.Numerics.Quaternion=helengine.float4",
+                            true,
                             [])
                     ])
             ],
@@ -410,7 +417,8 @@ public static class Ps2PlatformDefinitionFactory {
                 PlatformAssetCookOwnershipKind.BuilderOwned,
                 "ps2-font-atlas-texture",
                 CreateDefaultSerializedFontAtlasTextureCookSettings(),
-                CreateTextureFormatCapabilities())
+                CreateTextureFormatCapabilities(),
+                ".ps2tex")
         ];
     }
 
@@ -420,7 +428,7 @@ public static class Ps2PlatformDefinitionFactory {
     /// <returns>Serialized default PS2 texture settings.</returns>
     static string CreateDefaultSerializedTextureCookSettings() {
         return Ps2TextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
-            MaxResolution = 0,
+            MaxResolution = 512,
             ColorFormat = TextureAssetColorFormat.Rgba32,
             AlphaPrecision = TextureAssetAlphaPrecision.A8
         });
@@ -432,9 +440,10 @@ public static class Ps2PlatformDefinitionFactory {
     /// <returns>Serialized default PS2 font-atlas texture settings.</returns>
     static string CreateDefaultSerializedFontAtlasTextureCookSettings() {
         return Ps2TextureCookSettingsSerializer.Serialize(new TextureAssetProcessorSettings {
-            MaxResolution = 0,
-            ColorFormat = TextureAssetColorFormat.Rgba32,
-            AlphaPrecision = TextureAssetAlphaPrecision.A8
+            MaxResolution = 512,
+            ColorFormat = TextureAssetColorFormat.Indexed8,
+            AlphaPrecision = TextureAssetAlphaPrecision.A8,
+            IndexingMethodId = TextureAssetIndexingMethod.QuantizedIndexed.ToString()
         });
     }
 
@@ -445,13 +454,17 @@ public static class Ps2PlatformDefinitionFactory {
     static PlatformTextureFormatCapabilityDefinition CreateTextureFormatCapabilities() {
         return new PlatformTextureFormatCapabilityDefinition(
             [
-                TextureAssetColorFormat.Rgba32
+                TextureAssetColorFormat.Rgba32.ToString(),
+                TextureAssetColorFormat.Indexed4.ToString(),
+                TextureAssetColorFormat.Indexed8.ToString()
             ],
             [
                 TextureAssetAlphaPrecision.A8
             ],
             [
-                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Rgba32, TextureAssetAlphaPrecision.A8)
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Rgba32.ToString(), TextureAssetAlphaPrecision.A8),
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed4.ToString(), TextureAssetAlphaPrecision.A8),
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed8.ToString(), TextureAssetAlphaPrecision.A8)
             ]);
     }
 }

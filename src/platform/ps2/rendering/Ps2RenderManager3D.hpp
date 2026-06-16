@@ -37,11 +37,13 @@ namespace helengine::ps2 {
 
         ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset) override;
         ::RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath) override;
-        ::RuntimeMaterial* BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset) override;
         ::RuntimeModel* BuildModelFromCooked(std::string cookedAssetPath) override;
         ::RuntimeModel* BuildModelFromRaw(::ModelAsset* data) override;
         ::RenderTarget* CreateRenderTarget(int32_t width, int32_t height) override;
         void Draw() override;
+        void FlushReleasedAssets() override;
+        void ReleaseMaterial(::RuntimeMaterial* material) override;
+        void ReleaseModel(::RuntimeModel* model) override;
         void SetHdrEnabled(bool enabled);
         void SetGsGlobal(GSGLOBAL* gsGlobal);
         std::size_t GetLastProxyCount() const;
@@ -145,6 +147,8 @@ namespace helengine::ps2 {
         bool HdrEnabled;
         GSGLOBAL* GsGlobal;
         std::vector<Ps2RenderProxy> Proxies;
+        std::vector<::RuntimeMaterial*> PendingReleasedMaterials;
+        std::vector<::RuntimeModel*> PendingReleasedModels;
         std::size_t LastProxyCount;
         std::size_t LastOpaqueWorldCount;
         std::size_t LastOpaqueDynamicCount;

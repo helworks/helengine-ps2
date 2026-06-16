@@ -23,6 +23,7 @@ namespace helengine::ps2 {
           Roughness(0.5f),
           SpecularStrength(0.5f),
           EmissiveStrength(0.0f),
+          HasTextureRelativePathValue(false),
           TextureRelativePath(),
           UseVertexColor(false) {
     }
@@ -37,6 +38,10 @@ namespace helengine::ps2 {
 
     ::Ps2RenderClass Ps2RuntimeMaterial::GetRenderClass() const {
         return RenderClass;
+    }
+
+    bool Ps2RuntimeMaterial::HasTextureRelativePath() const {
+        return HasTextureRelativePathValue;
     }
 
     const std::string& Ps2RuntimeMaterial::GetTextureRelativePath() const {
@@ -98,19 +103,7 @@ namespace helengine::ps2 {
             return;
         }
 
-        const std::string materialId = materialAsset->get_Id();
-        const std::string& textureRelativePath = materialAsset->TextureRelativePath;
-        const std::string loadStartLog =
-            std::string("Ps2RuntimeMaterial::LoadFromCooked start idLen=")
-            + std::to_string(materialId.length())
-            + " textureLen="
-            + std::to_string(textureRelativePath.length());
-        std::printf("[helengine-ps2] %s\n", loadStartLog.c_str());
-        std::fflush(stdout);
-
         this->set_Id(materialAsset->get_Id());
-        std::printf("[helengine-ps2] Ps2RuntimeMaterial::LoadFromCooked copied id\n");
-        std::fflush(stdout);
         BaseColorR = materialAsset->BaseColorR;
         BaseColorG = materialAsset->BaseColorG;
         BaseColorB = materialAsset->BaseColorB;
@@ -118,11 +111,8 @@ namespace helengine::ps2 {
         LightingMode = materialAsset->Lit ? ::Ps2MaterialLightingMode::SimpleLit : ::Ps2MaterialLightingMode::Unlit;
         AlphaMode = ::Ps2MaterialAlphaMode::Opaque;
         RenderClass = ::Ps2RenderClass::Opaque;
-        std::printf("[helengine-ps2] Ps2RuntimeMaterial::LoadFromCooked copying texture path\n");
-        std::fflush(stdout);
-        TextureRelativePath = materialAsset->TextureRelativePath;
-        std::printf("[helengine-ps2] Ps2RuntimeMaterial::LoadFromCooked copied texture path\n");
-        std::fflush(stdout);
+        HasTextureRelativePathValue = !materialAsset->TextureRelativePath.empty();
+        TextureRelativePath = HasTextureRelativePathValue ? materialAsset->TextureRelativePath : std::string();
         DoubleSided = materialAsset->DoubleSided;
         UseVertexColor = materialAsset->UseVertexColor;
         CastShadows = false;
@@ -130,8 +120,6 @@ namespace helengine::ps2 {
         Roughness = 0.5f;
         SpecularStrength = 0.5f;
         EmissiveStrength = 0.0f;
-        std::printf("[helengine-ps2] Ps2RuntimeMaterial::LoadFromCooked completed\n");
-        std::fflush(stdout);
     }
 
     void Ps2RuntimeMaterial::LoadFromCooked(::Ps2MaterialAsset* materialAsset) {
@@ -139,19 +127,7 @@ namespace helengine::ps2 {
             throw std::invalid_argument("PS2 cooked material data is required.");
         }
 
-        const std::string materialId = materialAsset->get_Id();
-        const std::string& textureRelativePath = materialAsset->TextureRelativePath;
-        const std::string loadStartLog =
-            std::string("Ps2RuntimeMaterial::LoadFromCooked start idLen=")
-            + std::to_string(materialId.length())
-            + " textureLen="
-            + std::to_string(textureRelativePath.length());
-        std::printf("[helengine-ps2] %s\n", loadStartLog.c_str());
-        std::fflush(stdout);
-
         this->set_Id(materialAsset->get_Id());
-        std::printf("[helengine-ps2] Ps2RuntimeMaterial::LoadFromCooked copied id\n");
-        std::fflush(stdout);
         LightingMode = materialAsset->LightingMode;
         AlphaMode = materialAsset->AlphaMode;
         RenderClass = materialAsset->RenderClass;
@@ -159,7 +135,8 @@ namespace helengine::ps2 {
         BaseColorG = materialAsset->BaseColorG;
         BaseColorB = materialAsset->BaseColorB;
         BaseColorA = materialAsset->BaseColorA;
-        TextureRelativePath = materialAsset->TextureRelativePath;
+        HasTextureRelativePathValue = !materialAsset->TextureRelativePath.empty();
+        TextureRelativePath = HasTextureRelativePathValue ? materialAsset->TextureRelativePath : std::string();
         DoubleSided = materialAsset->DoubleSided;
         CastShadows = materialAsset->CastShadows;
         UseVertexColor = materialAsset->UseVertexColor;
@@ -167,7 +144,5 @@ namespace helengine::ps2 {
         Roughness = materialAsset->Roughness;
         SpecularStrength = materialAsset->SpecularStrength;
         EmissiveStrength = materialAsset->EmissiveStrength;
-        std::printf("[helengine-ps2] Ps2RuntimeMaterial::LoadFromCooked completed\n");
-        std::fflush(stdout);
     }
 }

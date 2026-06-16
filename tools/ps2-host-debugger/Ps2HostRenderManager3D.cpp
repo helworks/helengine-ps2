@@ -12,15 +12,19 @@
 #include "ModelAsset.hpp"
 #include "ObjectManager.hpp"
 #include "PlatformMaterialAsset.hpp"
+#include "Ps2AssetSerializer.hpp"
 #include "float4.hpp"
 #include "float4x4.hpp"
 #include "int2.hpp"
 #include "platform/ps2/rendering/Ps2FramePlan.hpp"
+#include "Ps2ModelAsset.hpp"
 #include "Ps2MaterialAsset.hpp"
 #include "RenderTarget.hpp"
 #include "RuntimeMaterial.hpp"
 #include "RuntimeModel.hpp"
-#include "ShaderAsset.hpp"
+#include "system/io/file-stream.hpp"
+#include "system/io/file.hpp"
+#include "runtime/finally.hpp"
 #include "runtime/native_cast.hpp"
 
 namespace helengine::ps2::host {
@@ -338,8 +342,70 @@ namespace helengine::ps2::host {
         return runtimeMaterial;
     }
 
-    RuntimeMaterial* Ps2HostRenderManager3D::BuildMaterialFromRaw(MaterialAsset* materialAsset, ShaderAsset* shaderAsset) {
-        throw std::runtime_error("PS2 host debug does not support one raw material path.");
+    RuntimeMaterial* Ps2HostRenderManager3D::BuildMaterialFromCooked(std::string cookedAssetPath) {
+        if (cookedAssetPath.empty()) {
+            throw std::invalid_argument("One PS2 cooked material path is required.");
+        }
+
+        ::FileStream* stream = ::File::OpenRead(cookedAssetPath);
+        [[maybe_unused]] auto streamGuard = he_cpp_make_scope_exit([stream]() {
+            if (stream != nullptr) {
+                stream->Dispose();
+            }
+        });
+        ::Asset* asset = ::Ps2AssetSerializer::Deserialize(stream);
+        ::Ps2MaterialAsset* cookedMaterialAsset = he_cpp_try_cast<::Ps2MaterialAsset>(asset);
+        if (cookedMaterialAsset == nullptr) {
+            throw std::invalid_argument("One PS2 cooked material payload must deserialize as Ps2MaterialAsset.");
+        }
+
+        return BuildMaterialFromCooked(cookedMaterialAsset);
+    }
+
+    RuntimeMaterial* Ps2HostRenderManager3D::BuildMaterialFromCooked(Ps2MaterialAsset* materialAsset) {
+        if (materialAsset == nullptr) {
+            throw std::invalid_argument("One PS2 cooked material asset is required.");
+        }
+
+        auto* runtimeMaterial = new ::helengine::ps2::Ps2RuntimeMaterial();
+        runtimeMaterial->LoadFromCooked(materialAsset);
+        return runtimeMaterial;
+    }
+
+    RuntimeMaterial* Ps2HostRenderManager3D::BuildMaterialFromRawAsset(ContentManager*, std::string, std::string materialAssetPath) {
+        return BuildMaterialFromCooked(materialAssetPath);
+    }
+
+    RuntimeModel* Ps2HostRenderManager3D::BuildModelFromCooked(std::string cookedAssetPath) {
+        if (cookedAssetPath.empty()) {
+            throw std::invalid_argument("One PS2 cooked model path is required.");
+        }
+
+        ::FileStream* stream = ::File::OpenRead(cookedAssetPath);
+        [[maybe_unused]] auto streamGuard = he_cpp_make_scope_exit([stream]() {
+            if (stream != nullptr) {
+                stream->Dispose();
+            }
+        });
+        ::Asset* asset = ::Ps2AssetSerializer::Deserialize(stream);
+        ::Ps2ModelAsset* cookedModelAsset = he_cpp_try_cast<::Ps2ModelAsset>(asset);
+        if (cookedModelAsset == nullptr) {
+            throw std::invalid_argument("One PS2 cooked model payload must deserialize as Ps2ModelAsset.");
+        }
+
+        auto* runtimeModel = new ::helengine::ps2::Ps2RuntimeModel();
+        runtimeModel->LoadFromCooked(cookedModelAsset);
+        return runtimeModel;
+    }
+
+    RuntimeModel* Ps2HostRenderManager3D::BuildModelFromCooked(Ps2ModelAsset* modelAsset) {
+        if (modelAsset == nullptr) {
+            throw std::invalid_argument("One PS2 cooked model asset is required.");
+        }
+
+        auto* runtimeModel = new ::helengine::ps2::Ps2RuntimeModel();
+        runtimeModel->LoadFromCooked(modelAsset);
+        return runtimeModel;
     }
 
     RuntimeModel* Ps2HostRenderManager3D::BuildModelFromRaw(ModelAsset* data) {

@@ -40,12 +40,13 @@ namespace helengine::ps2 {
             return;
         }
 
+        ::Entity* parent = drawable->get_Parent();
+        if (parent == nullptr || parent->get_IsDisposed()) {
+            return;
+        }
+
         Model = he_cpp_try_cast<Ps2RuntimeModel>(drawable->get_Model());
         Material = he_cpp_try_cast<Ps2RuntimeMaterial>(drawable->get_Material());
-
-        ::Entity* parent = drawable->get_Parent();
-        if (parent != nullptr) {
-            Static = parent->get_Static();
-        }
+        Static = parent->get_Static();
     }
 }

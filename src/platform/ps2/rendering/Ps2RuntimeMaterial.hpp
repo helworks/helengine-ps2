@@ -16,6 +16,7 @@ namespace helengine::ps2 {
         ::Ps2MaterialAlphaMode GetAlphaMode() const;
         ::Ps2MaterialLightingMode GetLightingMode() const;
         ::Ps2RenderClass GetRenderClass() const;
+        bool HasTextureRelativePath() const;
         const std::string& GetTextureRelativePath() const;
         std::uint8_t GetBaseColorR() const;
         std::uint8_t GetBaseColorG() const;
@@ -45,6 +46,7 @@ namespace helengine::ps2 {
         float Roughness;
         float SpecularStrength;
         float EmissiveStrength;
+        bool HasTextureRelativePathValue;
         std::string TextureRelativePath;
         bool UseVertexColor;
     };

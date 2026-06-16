@@ -46,6 +46,7 @@ namespace helengine.ps2.packagedsceneprobe {
             ProbeRenderManager2D renderManager2D = new ProbeRenderManager2D();
             ProbeInputBackend inputBackend = new ProbeInputBackend();
             PlatformInfo platformInfo = new PlatformInfo("ps2-packaged-scene-probe", "1.0.0");
+            RuntimeSceneLoadService sceneLoadService = null;
 
             try {
                 renderManager3D.AddWindow(IntPtr.Zero, 640, 448);
@@ -57,11 +58,12 @@ namespace helengine.ps2.packagedsceneprobe {
                     return 0;
                 }
 
-                IReadOnlyList<Entity> rootEntities = core.SceneLoadService.Load(sceneAsset);
+                sceneLoadService = new RuntimeSceneLoadService(core.SceneAssetReferenceResolver, core.SceneRuntimeComponentRegistry);
+                IReadOnlyList<Entity> rootEntities = sceneLoadService.Load(sceneAsset);
                 Console.WriteLine("[ps2-scene-probe] scene load complete root-entities=" + rootEntities.Count);
                 return 0;
             } catch (Exception exception) {
-                PrintFailureTrace(core, exception);
+                PrintFailureTrace(core, sceneLoadService, exception);
                 return 1;
             } finally {
                 core.Dispose();
@@ -228,7 +230,7 @@ namespace helengine.ps2.packagedsceneprobe {
         /// </summary>
         /// <param name="core">Initialized core that attempted to load the scene.</param>
         /// <param name="exception">Exception raised by the runtime scene loader.</param>
-        public void PrintFailureTrace(Core core, Exception exception) {
+        public void PrintFailureTrace(Core core, RuntimeSceneLoadService sceneLoadService, Exception exception) {
             if (core == null) {
                 throw new ArgumentNullException(nameof(core));
             }
@@ -236,16 +238,15 @@ namespace helengine.ps2.packagedsceneprobe {
                 throw new ArgumentNullException(nameof(exception));
             }
 
-            RuntimeSceneLoadService sceneLoadService = core.SceneLoadService;
             Console.WriteLine("[ps2-scene-probe] failure=" + exception.GetType().FullName);
             Console.WriteLine("[ps2-scene-probe] message=" + exception.Message);
-            Console.WriteLine("[ps2-scene-probe] trace-stage=" + sceneLoadService.LastTraceStage);
-            Console.WriteLine("[ps2-scene-probe] trace-root-index=" + sceneLoadService.LastTraceRootEntityIndex);
-            Console.WriteLine("[ps2-scene-probe] trace-depth=" + sceneLoadService.LastTraceEntityDepth);
-            Console.WriteLine("[ps2-scene-probe] trace-component=" + sceneLoadService.LastTraceComponentTypeId);
-            Console.WriteLine("[ps2-scene-probe] text-stage=" + sceneLoadService.LastTextLoadStage);
-            Console.WriteLine("[ps2-scene-probe] text-font-relative-path=" + sceneLoadService.LastTextFontRelativePath);
-            Console.WriteLine("[ps2-scene-probe] font-stage=" + sceneLoadService.LastFontDeserializeStage);
+            Console.WriteLine("[ps2-scene-probe] trace-stage=" + (sceneLoadService != null ? sceneLoadService.LastTraceStage : "scene-load-service-not-created"));
+            Console.WriteLine("[ps2-scene-probe] trace-root-index=" + (sceneLoadService != null ? sceneLoadService.LastTraceRootEntityIndex : -1));
+            Console.WriteLine("[ps2-scene-probe] trace-depth=" + (sceneLoadService != null ? sceneLoadService.LastTraceEntityDepth : -1));
+            Console.WriteLine("[ps2-scene-probe] trace-component=" + (sceneLoadService != null ? sceneLoadService.LastTraceComponentTypeId : string.Empty));
+            Console.WriteLine("[ps2-scene-probe] text-stage=" + (sceneLoadService != null ? sceneLoadService.LastTextLoadStage : string.Empty));
+            Console.WriteLine("[ps2-scene-probe] text-font-relative-path=" + (sceneLoadService != null ? sceneLoadService.LastTextFontRelativePath : string.Empty));
+            Console.WriteLine("[ps2-scene-probe] font-stage=" + (sceneLoadService != null ? sceneLoadService.LastFontDeserializeStage : string.Empty));
             Console.WriteLine(exception.ToString());
         }
     }

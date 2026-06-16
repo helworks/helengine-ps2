@@ -14,9 +14,17 @@ namespace helengine::ps2::host {
     /// </summary>
     class Ps2HostRenderManager2D final : public ::RenderManager2D {
     public:
+        Ps2HostRenderManager2D();
+
+        RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath) override;
         RuntimeTexture* BuildTextureFromRaw(TextureAsset* data) override;
         void DrawRoundedRect(IRoundedRectDrawable2D* shape) override;
         void DrawSprite(ISpriteDrawable2D* sprite) override;
         void DrawText(ITextDrawable2D* text) override;
+
+    private:
+        bool LoggedSpriteTrace;
+        bool LoggedTextTrace;
+        bool LoggedRoundedRectTrace;
     };
 }

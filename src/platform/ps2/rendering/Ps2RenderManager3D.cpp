@@ -56,6 +56,7 @@ namespace helengine::ps2 {
         constexpr bool EnableFlatColorDiagnostics = false;
         constexpr bool EnableLightingOnlyDiagnostics = false;
         constexpr bool EnableSingleProxyDiagnostics = false;
+        constexpr bool EnableLegacyCpuOpaquePathDiagnostics = false;
         constexpr std::size_t SingleProxyDiagnosticIndex = 1;
         constexpr float HdrGlowScale = 1.08f;
         constexpr float HdrGlowScaleVariance = 0.08f;
@@ -163,6 +164,10 @@ namespace helengine::ps2 {
 
         std::unordered_map<std::string, GSTEXTURE*> TextureRecords;
         std::vector<Ps2HdrGlowTriangle> DeferredHdrGlowTriangles;
+
+        bool IsLiveEntity(::Entity* entity) {
+            return entity != nullptr && !entity->get_IsDisposed();
+        }
 
         const helengine::ps2::Ps2RenderProxy* ResolveRenderableProxyByIndex(const helengine::ps2::Ps2FramePlan& plan, std::size_t proxyIndex) {
             const std::vector<const helengine::ps2::Ps2RenderProxy*>* lists[] = {
@@ -314,21 +319,58 @@ namespace helengine::ps2 {
             }
         }
 
+        int ResolveGsPixelStorageMode(::Ps2TexturePixelStorageMode mode) {
+            if (mode == ::Ps2TexturePixelStorageMode::PsmCt32) {
+                return GS_PSM_CT32;
+            } else if (mode == ::Ps2TexturePixelStorageMode::PsmT8) {
+                return GS_PSM_T8;
+            } else if (mode == ::Ps2TexturePixelStorageMode::PsmT4) {
+                return GS_PSM_T4;
+            }
+
+            throw std::runtime_error("Unsupported PS2 texture pixel storage mode.");
+        }
+
+        int ResolveClutWidth(::Ps2TextureAsset* data) {
+            if (data == nullptr || data->PaletteData == nullptr || data->PaletteData->Length <= 0) {
+                return 0;
+            }
+
+            int paletteEntryCount = data->PaletteData->Length / 4;
+            if (paletteEntryCount <= 16) {
+                return 8;
+            }
+
+            return 16;
+        }
+
+        int ResolveClutHeight(::Ps2TextureAsset* data) {
+            if (data == nullptr || data->PaletteData == nullptr || data->PaletteData->Length <= 0) {
+                return 0;
+            }
+
+            int paletteEntryCount = data->PaletteData->Length / 4;
+            if (paletteEntryCount <= 16) {
+                return 2;
+            }
+
+            return 16;
+        }
+
         GSTEXTURE* BuildTextureFromAsset(GSGLOBAL* gsGlobal, ::Ps2TextureAsset* data) {
             if (gsGlobal == nullptr || data == nullptr || data->PixelData == nullptr || data->PixelData->Length <= 0 || data->Width <= 0 || data->Height <= 0) {
-                return nullptr;
-            }
-            if (data->Format != ::Ps2TextureFormat::Rgba32) {
                 return nullptr;
             }
 
             GSTEXTURE* texture = new GSTEXTURE();
             texture->Width = data->Width;
             texture->Height = data->Height;
-            texture->PSM = GS_PSM_CT32;
+            texture->PSM = ResolveGsPixelStorageMode(data->PixelStorageMode);
+            texture->ClutPSM = ResolveGsPixelStorageMode(data->ClutPixelStorageMode);
             texture->Clut = nullptr;
             texture->VramClut = 0;
             texture->Filter = GS_FILTER_NEAREST;
+            texture->ClutStorageMode = GS_CLUT_STORAGE_CSM1;
             texture->Mem = static_cast<u32*>(memalign(128, static_cast<std::size_t>(data->PixelData->Length)));
             if (texture->Mem == nullptr) {
                 delete texture;
@@ -336,14 +378,37 @@ namespace helengine::ps2 {
             }
 
             std::memcpy(texture->Mem, data->PixelData->Data, static_cast<std::size_t>(data->PixelData->Length));
+            if (data->PaletteData != nullptr && data->PaletteData->Length > 0) {
+                texture->Clut = static_cast<u32*>(memalign(128, static_cast<std::size_t>(data->PaletteData->Length)));
+                if (texture->Clut == nullptr) {
+                    free(texture->Mem);
+                    delete texture;
+                    return nullptr;
+                }
+
+                std::memcpy(texture->Clut, data->PaletteData->Data, static_cast<std::size_t>(data->PaletteData->Length));
+            }
             texture->Vram = gsKit_vram_alloc(
                 gsGlobal,
                 gsKit_texture_size(texture->Width, texture->Height, texture->PSM),
                 GSKIT_ALLOC_USERBUFFER);
             if (texture->Vram == GSKIT_ALLOC_ERROR) {
+                free(texture->Clut);
                 free(texture->Mem);
                 delete texture;
                 return nullptr;
+            }
+            if (texture->Clut != nullptr) {
+                texture->VramClut = gsKit_vram_alloc(
+                    gsGlobal,
+                    gsKit_texture_size(ResolveClutWidth(data), ResolveClutHeight(data), GS_PSM_CT32),
+                    GSKIT_ALLOC_USERBUFFER);
+                if (texture->VramClut == GSKIT_ALLOC_ERROR) {
+                    free(texture->Clut);
+                    free(texture->Mem);
+                    delete texture;
+                    return nullptr;
+                }
             }
 
             return texture;
@@ -365,7 +430,20 @@ namespace helengine::ps2 {
             }
 
             const std::string fullPath = ::Path::GetFullPath(::Path::Combine(core->get_ContentManager()->get_RootDirectory(), textureRelativePath));
-            ::FileStream* stream = ::File::OpenRead(fullPath);
+            ::FileStream* stream = nullptr;
+            try {
+                stream = ::File::OpenRead(fullPath);
+            } catch (const std::exception& exception) {
+                throw std::runtime_error(
+                    std::string("ResolveTexture failed relativePath='")
+                    + textureRelativePath
+                    + "' root='"
+                    + core->get_ContentManager()->get_RootDirectory()
+                    + "' fullPath='"
+                    + fullPath
+                    + "' inner="
+                    + exception.what());
+            }
             [[maybe_unused]] auto streamGuard = he_cpp_make_scope_exit([stream]() {
                 if (stream != nullptr) {
                     stream->Dispose();
@@ -448,10 +526,12 @@ namespace helengine::ps2 {
           VuProgramRegistry(),
           VuVifPacketBuilder(),
           VuGifStateEncoder(),
-          UseLegacyCpuOpaquePath(false),
+          UseLegacyCpuOpaquePath(EnableLegacyCpuOpaquePathDiagnostics),
           HdrEnabled(false),
           GsGlobal(nullptr),
           Proxies(),
+          PendingReleasedMaterials(),
+          PendingReleasedModels(),
           LastProxyCount(0),
           LastOpaqueWorldCount(0),
           LastOpaqueDynamicCount(0),
@@ -495,28 +575,8 @@ namespace helengine::ps2 {
             throw std::invalid_argument("PS2 cooked platform material asset is required.");
         }
 
-        std::uintptr_t thisAddress = reinterpret_cast<std::uintptr_t>(this);
-        std::uintptr_t vtableAddress = this == nullptr ? 0u : reinterpret_cast<std::uintptr_t>(*reinterpret_cast<void**>(this));
-        std::uintptr_t materialAddress = reinterpret_cast<std::uintptr_t>(materialAsset);
-        std::string materialLog =
-            "BuildMaterialFromCooked this=0x"
-            + std::to_string(static_cast<unsigned long>(thisAddress))
-            + " vtable=0x"
-            + std::to_string(static_cast<unsigned long>(vtableAddress))
-            + " material=0x"
-            + std::to_string(static_cast<unsigned long>(materialAddress))
-            + " id="
-            + materialAsset->get_Id();
-        std::printf("[helengine-ps2] %s\n", materialLog.c_str());
-        std::fflush(stdout);
-        scr_printf("[helengine-ps2] %s\n", materialLog.c_str());
-
-        scr_printf("[helengine-ps2] BuildMaterialFromCooked runtime material alloc begin\n");
         Ps2RuntimeMaterial* runtimeMaterial = new Ps2RuntimeMaterial();
-        scr_printf("[helengine-ps2] BuildMaterialFromCooked runtime material alloc complete\n");
-        scr_printf("[helengine-ps2] BuildMaterialFromCooked load begin\n");
         runtimeMaterial->LoadFromCooked(materialAsset);
-        scr_printf("[helengine-ps2] BuildMaterialFromCooked load complete\n");
         return runtimeMaterial;
     }
 
@@ -535,7 +595,16 @@ namespace helengine::ps2 {
             throw std::invalid_argument("PS2 cooked material path is required.");
         }
 
-        ::FileStream* stream = ::File::OpenRead(cookedAssetPath);
+        ::FileStream* stream = nullptr;
+        try {
+            stream = ::File::OpenRead(cookedAssetPath);
+        } catch (const std::exception& exception) {
+            throw std::runtime_error(
+                std::string("BuildMaterialFromCooked failed path='")
+                + cookedAssetPath
+                + "' inner="
+                + exception.what());
+        }
         [[maybe_unused]] auto streamGuard = he_cpp_make_scope_exit([stream]() {
             if (stream != nullptr) {
                 stream->Dispose();
@@ -550,48 +619,21 @@ namespace helengine::ps2 {
         return BuildMaterialFromCooked(cookedMaterialAsset);
     }
 
-    ::RuntimeMaterial* Ps2RenderManager3D::BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset) {
-        if (materialAsset == nullptr) {
-            throw std::invalid_argument("PS2 raw material asset is required.");
-        }
-
-        (void)shaderAsset;
-
-        ::Ps2MaterialAsset* cookedMaterialAsset = new ::Ps2MaterialAsset();
-        cookedMaterialAsset->set_Id(materialAsset->get_Id());
-        cookedMaterialAsset->RendererFamilyId = "ps2-standard-forward";
-        cookedMaterialAsset->LightingMode = ::Ps2MaterialLightingMode::SimpleLit;
-        cookedMaterialAsset->BaseColorR = 0xFF;
-        cookedMaterialAsset->BaseColorG = 0xFF;
-        cookedMaterialAsset->BaseColorB = 0xFF;
-        cookedMaterialAsset->BaseColorA = 0xFF;
-        cookedMaterialAsset->DoubleSided = false;
-        cookedMaterialAsset->CastShadows = materialAsset->CastsShadows;
-        cookedMaterialAsset->UseVertexColor = true;
-        cookedMaterialAsset->ExpensiveModeAllowed = false;
-        cookedMaterialAsset->Roughness = 0.5f;
-        cookedMaterialAsset->SpecularStrength = 0.5f;
-        cookedMaterialAsset->EmissiveStrength = 0.0f;
-        cookedMaterialAsset->TextureRelativePath = materialAsset->DiffuseTextureAssetId;
-
-        ::MaterialRenderState* renderState = materialAsset->RenderState;
-        if (renderState != nullptr && renderState->get_BlendMode() == MaterialBlendMode::AlphaBlend) {
-            cookedMaterialAsset->AlphaMode = ::Ps2MaterialAlphaMode::AlphaBlend;
-            cookedMaterialAsset->RenderClass = ::Ps2RenderClass::Transparent;
-        } else {
-            cookedMaterialAsset->AlphaMode = ::Ps2MaterialAlphaMode::Opaque;
-            cookedMaterialAsset->RenderClass = ::Ps2RenderClass::Opaque;
-        }
-
-        return BuildMaterialFromCooked(cookedMaterialAsset);
-    }
-
     ::RuntimeModel* Ps2RenderManager3D::BuildModelFromCooked(std::string cookedAssetPath) {
         if (cookedAssetPath.empty()) {
             throw std::invalid_argument("PS2 cooked model path is required.");
         }
 
-        ::FileStream* modelStream = ::File::OpenRead(cookedAssetPath);
+        ::FileStream* modelStream = nullptr;
+        try {
+            modelStream = ::File::OpenRead(cookedAssetPath);
+        } catch (const std::exception& exception) {
+            throw std::runtime_error(
+                std::string("BuildModelFromCooked failed path='")
+                + cookedAssetPath
+                + "' inner="
+                + exception.what());
+        }
         [[maybe_unused]] auto modelStreamGuard = he_cpp_make_scope_exit([modelStream]() {
             if (modelStream != nullptr) {
                 modelStream->Dispose();
@@ -613,15 +655,61 @@ namespace helengine::ps2 {
             throw std::invalid_argument("PS2 raw model data is required.");
         }
 
-        scr_printf("[helengine-ps2] BuildModelFromRaw begin\n");
         Ps2RuntimeModel* runtimeModel = new Ps2RuntimeModel();
         if (EnableVuSingleTrianglePayloadDiagnostics) {
             runtimeModel->LoadFromRawWithoutPackedMesh(data);
         } else {
             runtimeModel->LoadFromRaw(data);
         }
-        scr_printf("[helengine-ps2] BuildModelFromRaw complete\n");
         return runtimeModel;
+    }
+
+    void Ps2RenderManager3D::FlushReleasedAssets() {
+        for (::RuntimeMaterial* material : PendingReleasedMaterials) {
+            if (material == nullptr) {
+                continue;
+            }
+
+            material->Dispose();
+            delete material;
+        }
+
+        PendingReleasedMaterials.clear();
+
+        for (::RuntimeModel* model : PendingReleasedModels) {
+            if (model == nullptr) {
+                continue;
+            }
+
+            model->Dispose();
+            delete model;
+        }
+
+        PendingReleasedModels.clear();
+    }
+
+    void Ps2RenderManager3D::ReleaseMaterial(::RuntimeMaterial* material) {
+        if (material == nullptr) {
+            throw std::invalid_argument("PS2 runtime material release requires one material.");
+        }
+
+        if (std::find(PendingReleasedMaterials.begin(), PendingReleasedMaterials.end(), material) != PendingReleasedMaterials.end()) {
+            return;
+        }
+
+        PendingReleasedMaterials.push_back(material);
+    }
+
+    void Ps2RenderManager3D::ReleaseModel(::RuntimeModel* model) {
+        if (model == nullptr) {
+            throw std::invalid_argument("PS2 runtime model release requires one model.");
+        }
+
+        if (std::find(PendingReleasedModels.begin(), PendingReleasedModels.end(), model) != PendingReleasedModels.end()) {
+            return;
+        }
+
+        PendingReleasedModels.push_back(model);
     }
 
     void Ps2RenderManager3D::Draw() {
@@ -665,7 +753,15 @@ namespace helengine::ps2 {
             return;
         }
 
-        ::CameraComponent* camera = GetActiveCamera();
+        ::CameraComponent* camera = nullptr;
+        try {
+            camera = GetActiveCamera();
+        } catch (const std::exception& exception) {
+            scr_printf("[helengine-ps2] draw3d stage=GetActiveCamera exception=%s\n", exception.what());
+            std::printf("[helengine-ps2] draw3d stage=GetActiveCamera exception=%s\n", exception.what());
+            std::fflush(stdout);
+            throw;
+        }
         if (camera == nullptr || camera->get_Parent() == nullptr) {
             return;
         }
@@ -681,16 +777,25 @@ namespace helengine::ps2 {
             return;
         }
 
-        ::float3 cameraPosition = camera->get_Parent()->get_Position();
-        ::float4 cameraOrientation = camera->get_Parent()->get_Orientation();
+        ::float3 cameraPosition;
+        ::float4 cameraOrientation;
+        try {
+            cameraPosition = camera->get_Parent()->get_Position();
+            cameraOrientation = camera->get_Parent()->get_Orientation();
+        } catch (const std::exception& exception) {
+            scr_printf("[helengine-ps2] draw3d stage=ResolveCameraTransform exception=%s\n", exception.what());
+            std::printf("[helengine-ps2] draw3d stage=ResolveCameraTransform exception=%s\n", exception.what());
+            std::fflush(stdout);
+            throw;
+        }
         ::float3 cameraForward = ::float4::RotateVector(DefaultForward, cameraOrientation);
         ::float3 cameraUp = ::float4::RotateVector(DefaultUp, cameraOrientation);
         ::float3 cameraTarget = cameraPosition + cameraForward;
         ::float4x4 view;
-        ::float4x4::CreateLookAt(cameraPosition, cameraTarget, cameraUp, view);
+        ::float4x4::CreateLookAt__ref0_ref1_ref2_out3(cameraPosition, cameraTarget, cameraUp, view);
 
         ::float4x4 projection;
-        ::float4x4::CreatePerspectiveFieldOfView(
+        ::float4x4::CreatePerspectiveFieldOfView__out4(
             CameraFieldOfViewRadians,
             viewport.Z / viewport.W,
             camera->get_NearPlaneDistance(),
@@ -700,7 +805,14 @@ namespace helengine::ps2 {
         DeferredHdrGlowTriangles.clear();
         ApplyDepthState(GsGlobal->ZBuffering == GS_SETTING_ON);
         const std::clock_t proxySyncStartTicks = std::clock();
-        RebuildProxies();
+        try {
+            RebuildProxies();
+        } catch (const std::exception& exception) {
+            scr_printf("[helengine-ps2] draw3d stage=RebuildProxies exception=%s\n", exception.what());
+            std::printf("[helengine-ps2] draw3d stage=RebuildProxies exception=%s\n", exception.what());
+            std::fflush(stdout);
+            throw;
+        }
         const std::clock_t proxySyncEndTicks = std::clock();
         LastProxySyncMilliseconds = ResolveMillisecondsFromClockTicks(proxySyncStartTicks, proxySyncEndTicks);
         LastProxyCount = Proxies.size();
@@ -907,17 +1019,9 @@ namespace helengine::ps2 {
 
                 if (gifPacket != nullptr) {
                     LastVuPacketPhase = 101;
-                    LogVuDirectGifDiagnostics(
-                        "direct gif before wait phase="
-                        + std::to_string(LastVuPacketPhase)
-                        + " bytes="
-                        + std::to_string(gifPacketByteCount));
                     dma_channel_wait(DMA_CHANNEL_GIF, 0);
-                    LogVuDirectGifDiagnostics("direct gif after first wait phase=101");
                     dma_channel_send_packet2(gifPacket, DMA_CHANNEL_GIF, true);
-                    LogVuDirectGifDiagnostics("direct gif after send phase=101");
                     dma_channel_wait(DMA_CHANNEL_GIF, 0);
-                    LogVuDirectGifDiagnostics("direct gif after second wait phase=101");
                     LastVuPacketPhase = 102;
                     packet2_free(gifPacket);
                 }
@@ -942,7 +1046,7 @@ namespace helengine::ps2 {
         }
 
         ::Entity* parent = drawable->get_Parent();
-        if (parent == nullptr) {
+        if (!IsLiveEntity(parent)) {
             return ::float4x4::get_Identity();
         }
 
@@ -954,11 +1058,11 @@ namespace helengine::ps2 {
         ::float4x4 rotationMatrix;
         ::float4x4 translationMatrix;
         ::float4x4 worldMatrix;
-        ::float4x4::CreateScale(parentScale.X, parentScale.Y, parentScale.Z, scaleMatrix);
-        ::float4x4::CreateFromQuaternion(parentOrientation, rotationMatrix);
-        ::float4x4::CreateTranslation(parentPosition, translationMatrix);
-        ::float4x4::Multiply(scaleMatrix, rotationMatrix, scaleRotationMatrix);
-        ::float4x4::Multiply(scaleRotationMatrix, translationMatrix, worldMatrix);
+        ::float4x4::CreateScale__out3(parentScale.X, parentScale.Y, parentScale.Z, scaleMatrix);
+        ::float4x4::CreateFromQuaternion__ref0_out1(parentOrientation, rotationMatrix);
+        ::float4x4::CreateTranslation__ref0_out1(parentPosition, translationMatrix);
+        ::float4x4::Multiply__ref0_ref1_out2(scaleMatrix, rotationMatrix, scaleRotationMatrix);
+        ::float4x4::Multiply__ref0_ref1_out2(scaleRotationMatrix, translationMatrix, worldMatrix);
         return worldMatrix;
     }
 
@@ -1132,6 +1236,9 @@ namespace helengine::ps2 {
 
         ::float3 parentPosition = ::float3::get_Zero();
         ::Entity* parent = drawable->get_Parent();
+        if (parent != nullptr && parent->get_IsDisposed()) {
+            return;
+        }
 
         const bool useDiagnosticFlatColor = EnableFlatColorDiagnostics;
         const bool useLightingOnlyDiagnostics = EnableLightingOnlyDiagnostics;
@@ -1148,7 +1255,7 @@ namespace helengine::ps2 {
         TryResolveDirectionalLightDirection(lightDirection);
 
         GSTEXTURE* texture = nullptr;
-        if (!useDiagnosticFlatColor && !useLightingOnlyDiagnostics && !material->GetTextureRelativePath().empty()) {
+        if (!useDiagnosticFlatColor && !useLightingOnlyDiagnostics && material->HasTextureRelativePath()) {
             texture = ResolveTexture(GsGlobal, material->GetTextureRelativePath());
         }
 
@@ -1351,11 +1458,11 @@ namespace helengine::ps2 {
         scr_printf("[helengine-ps2] %s\n", createTargetLog.c_str());
 
         ::RenderTarget* renderTarget = new ::RenderTarget();
-        renderTarget->set_Width(width);
-        renderTarget->set_Height(height);
+        renderTarget->RuntimeTexture::set_Width(width);
+        renderTarget->RuntimeTexture::set_Height(height);
         renderTarget->set_CanSampleAsTexture(false);
         renderTarget->set_HasDepthBuffer(false);
-        renderTarget->set_Id(std::string("ps2-placeholder-render-target-") + std::to_string(width) + "x" + std::to_string(height));
+        renderTarget->RuntimeData::set_Id(std::string("ps2-placeholder-render-target-") + std::to_string(width) + "x" + std::to_string(height));
         return renderTarget;
     }
 
@@ -1525,9 +1632,16 @@ namespace helengine::ps2 {
         List<::ICamera*>* cameras = core->get_ObjectManager()->get_Cameras();
         for (int32_t index = 0; index < cameras->Count(); index++) {
             ::CameraComponent* camera = he_cpp_try_cast<::CameraComponent>((*cameras)[index]);
-            if (camera != nullptr) {
-                return camera;
+            if (camera == nullptr || camera->get_IsDisposed()) {
+                continue;
             }
+
+            ::Entity* parent = camera->get_ParentUnsafe();
+            if (!IsLiveEntity(parent)) {
+                continue;
+            }
+
+            return camera;
         }
 
         return nullptr;
@@ -1610,11 +1724,16 @@ namespace helengine::ps2 {
 
     double Ps2RenderManager3D::ComputeProxyDepth(const Ps2RenderProxy& proxy, const ::float3& cameraPosition, const ::float3& cameraForward) const {
         ::IDrawable3D* drawable = proxy.GetDrawable();
-        if (drawable == nullptr || drawable->get_Parent() == nullptr) {
+        if (drawable == nullptr) {
             return 0.0;
         }
 
-        const ::float3 proxyPosition = drawable->get_Parent()->get_Position();
+        ::Entity* parent = drawable->get_Parent();
+        if (!IsLiveEntity(parent)) {
+            return 0.0;
+        }
+
+        const ::float3 proxyPosition = parent->get_Position();
         const ::float3 delta = proxyPosition - cameraPosition;
         return static_cast<double>(delta.X) * static_cast<double>(cameraForward.X)
             + static_cast<double>(delta.Y) * static_cast<double>(cameraForward.Y)
@@ -1634,39 +1753,40 @@ namespace helengine::ps2 {
         for (int32_t index = 0; index < drawables->Count(); index++) {
             ::IDrawable3D* drawable = (*drawables)[index];
             Ps2RenderProxy proxy;
-            proxy.Synchronize(drawable);
+            try {
+                proxy.Synchronize(drawable);
+            } catch (const std::exception& exception) {
+                std::printf("[helengine-ps2] draw3d stage=SynchronizeProxy index=%ld exception=%s\n", static_cast<long>(index), exception.what());
+                std::fflush(stdout);
+                throw;
+            }
             if (proxy.GetModel() == nullptr || proxy.GetMaterial() == nullptr) {
                 continue;
             }
-
             Proxies.push_back(proxy);
         }
     }
 
     bool Ps2RenderManager3D::TryResolveDirectionalLightDirection(::float3& lightDirection) const {
         ::Core* core = ::Core::get_Instance();
-        if (core == nullptr || core->get_ObjectManager() == nullptr || core->get_ObjectManager()->get_Entities() == nullptr) {
+        if (core == nullptr || core->get_ObjectManager() == nullptr || core->get_ObjectManager()->get_DirectionalLights() == nullptr) {
             return false;
         }
 
-        List<::Entity*>* entities = core->get_ObjectManager()->get_Entities();
-        for (int32_t entityIndex = 0; entityIndex < entities->Count(); entityIndex++) {
-            ::Entity* entity = (*entities)[entityIndex];
-            if (entity == nullptr || entity->get_Components() == nullptr) {
+        List<::DirectionalLightComponent*>* directionalLights = core->get_ObjectManager()->get_DirectionalLights();
+        for (int32_t lightIndex = 0; lightIndex < directionalLights->Count(); lightIndex++) {
+            ::DirectionalLightComponent* directionalLight = (*directionalLights)[lightIndex];
+            if (directionalLight == nullptr || directionalLight->get_IsDisposed()) {
                 continue;
             }
 
-            List<::Component*>* components = entity->get_Components();
-            for (int32_t componentIndex = 0; componentIndex < components->Count(); componentIndex++) {
-                ::Component* component = (*components)[componentIndex];
-                ::DirectionalLightComponent* directionalLight = dynamic_cast<::DirectionalLightComponent*>(component);
-                if (directionalLight == nullptr || directionalLight->get_Parent() == nullptr) {
-                    continue;
-                }
-
-                lightDirection = ::float4::RotateVector(::float3(0.0f, 0.0f, -1.0f), directionalLight->get_Parent()->get_Orientation());
-                return true;
+            ::Entity* parent = directionalLight->get_ParentUnsafe();
+            if (!IsLiveEntity(parent)) {
+                continue;
             }
+
+            lightDirection = ::float4::RotateVector(::float3(0.0f, 0.0f, -1.0f), parent->get_Orientation());
+            return true;
         }
 
         return false;
@@ -1674,7 +1794,12 @@ namespace helengine::ps2 {
 
     std::uint64_t Ps2RenderManager3D::ResolveVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection) {
         if (material.GetLightingMode() == ::Ps2MaterialLightingMode::Unlit) {
-            return GS_SETREG_RGBAQ(0xC0, 0xC0, 0xC0, 0x80, 0x00);
+            return GS_SETREG_RGBAQ(
+                material.GetBaseColorR(),
+                material.GetBaseColorG(),
+                material.GetBaseColorB(),
+                material.GetBaseColorA(),
+                0x00);
         }
 
         const double normalLengthSquared = static_cast<double>(normal.X) * static_cast<double>(normal.X)

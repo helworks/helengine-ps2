@@ -6,6 +6,16 @@ namespace helengine {
         /// <summary>
         /// Stores one 32-bit RGBA texture payload.
         /// </summary>
-        Rgba32 = 0
+        Rgba32 = 0,
+
+        /// <summary>
+        /// Stores one 8-bit indexed texture payload plus one palette payload.
+        /// </summary>
+        Indexed8 = 1,
+
+        /// <summary>
+        /// Stores one 4-bit indexed texture payload plus one palette payload.
+        /// </summary>
+        Indexed4 = 2
     }
 }

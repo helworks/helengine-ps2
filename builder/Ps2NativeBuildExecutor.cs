@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 
 namespace helengine.ps2.builder;
 
@@ -10,7 +11,6 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
     /// Docker image tag used for the PS2 toolchain container.
     /// </summary>
     const string DockerImageTag = "helengine-ps2";
-    static readonly string DebugLogPath = Path.Combine(AppContext.BaseDirectory, "ps2-native-build-executor.log");
 
     /// <summary>
     /// Builds one PS2 ELF for the prepared workspace.
@@ -23,7 +23,7 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
         }
 
         ValidateRenderManager3DContractPairing(workspace.RepositoryRootPath, workspace.GeneratedCoreRootPath);
-        NormalizeGeneratedCoreSources(workspace.GeneratedCoreRootPath);
+        ValidateGeneratedCoreSources(workspace.GeneratedCoreRootPath);
 
         RunProcess(
             "docker",
@@ -57,10 +57,10 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
     }
 
     /// <summary>
-    /// Applies the minimal generated-core source normalization required for the current engine API before the PS2 Docker toolchain compiles the translated runtime.
+    /// Validates the generated-core files whose runtime contracts must already match the PS2 native build expectations.
     /// </summary>
     /// <param name="generatedCoreRootPath">Absolute generated-core root produced by the editor build graph.</param>
-    static void NormalizeGeneratedCoreSources(string generatedCoreRootPath) {
+    static void ValidateGeneratedCoreSources(string generatedCoreRootPath) {
         if (string.IsNullOrWhiteSpace(generatedCoreRootPath)) {
             throw new ArgumentException("Generated core root path must be provided.", nameof(generatedCoreRootPath));
         }
@@ -69,27 +69,10 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             return;
         }
 
-        File.WriteAllText(DebugLogPath, $"generatedCoreRootPath={generatedCoreRootPath}{Environment.NewLine}");
-
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "RuntimeContentManagerConfiguration.cpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "RuntimeSceneAssetReferenceResolver.cpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "RenderManager3D.hpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "RenderManager3D.cpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "ScrollComponent.cpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "FontAsset.cpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "AmbientLightComponent.cpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "DirectionalLightComponent.cpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "LightComponent.cpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "PointLightComponent.cpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "SpotLightComponent.cpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "FPSComponent.hpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "FPSComponent.cpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, Path.Combine("system", "io", "file-stream.hpp"));
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, Path.Combine("system", "io", "file-stream.cpp"));
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "Core.cpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "RuntimeAssetIdGenerator.cpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, "SceneManager.cpp");
-        NormalizeGeneratedCoreFile(generatedCoreRootPath, Path.Combine("runtime", "runtime_graphics_renderer_manifest.cpp"));
+        ValidateGeneratedCoreFile(generatedCoreRootPath, "RuntimeContentManagerConfiguration.cpp");
+        ValidateGeneratedCoreFile(generatedCoreRootPath, "RuntimeSceneAssetReferenceResolver.cpp");
+        ValidateGeneratedCoreFile(generatedCoreRootPath, "RenderManager3D.hpp");
+        ValidateGeneratedCoreFile(generatedCoreRootPath, "RenderManager3D.cpp");
     }
 
     /// <summary>
@@ -137,13 +120,13 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
         bool nativeOverridesRawMaterialContract = nativeRenderManagerHeader.Contains(
             "::RuntimeMaterial* BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset) override;",
             StringComparison.Ordinal);
-        if (generatedUsesGenericCookedMaterialContract && (!nativeOverridesGenericCookedMaterialContract || !nativeOverridesRawMaterialContract)) {
+        if (generatedUsesGenericCookedMaterialContract && !nativeOverridesGenericCookedMaterialContract) {
             throw new InvalidOperationException(
                 "Generated core expects the generic cooked-platform-material RenderManager3D contract, but the PS2 renderer sources do not implement it. " +
                 "This would pair a newer generated runtime with an older PS2 renderer layout and can dispatch material loading into the wrong virtual slot at startup.");
         }
 
-        if (generatedUsesPs2CookedMaterialContract && (!nativeOverridesPs2CookedMaterialContract || !nativeOverridesRawMaterialContract)) {
+        if (generatedUsesPs2CookedMaterialContract && !nativeOverridesPs2CookedMaterialContract) {
             throw new InvalidOperationException(
                 "Generated core still emits the PS2-specific cooked-material RenderManager3D contract, but the PS2 renderer sources do not implement that current runtime layout. " +
                 "This would pair a generated runtime with the wrong native override and can dispatch material loading into the wrong virtual slot at startup.");
@@ -163,30 +146,26 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
     }
 
     /// <summary>
-    /// Applies one PS2-specific compatibility normalization to a single generated-core source file.
+    /// Validates one generated-core source file against the remaining PS2 runtime contract expectations.
     /// </summary>
     /// <param name="generatedCoreRootPath">Absolute generated-core root produced by the editor build graph.</param>
-    /// <param name="fileName">Generated source file name to normalize.</param>
-    static void NormalizeGeneratedCoreFile(string generatedCoreRootPath, string fileName) {
+    /// <param name="fileName">Generated source file name to validate.</param>
+    static void ValidateGeneratedCoreFile(string generatedCoreRootPath, string fileName) {
         string sourcePath = Path.Combine(generatedCoreRootPath, fileName);
         if (!File.Exists(sourcePath)) {
             return;
         }
 
         string contents = File.ReadAllText(sourcePath);
-        string updatedContents = NormalizeGeneratedCoreSource(fileName, contents);
-        if (!string.Equals(contents, updatedContents, StringComparison.Ordinal)) {
-            File.WriteAllText(sourcePath, updatedContents);
-        }
+        ValidateGeneratedCoreSource(fileName, contents);
     }
 
     /// <summary>
-    /// Applies the remaining PS2 compatibility normalizations to one generated-core source buffer.
+    /// Validates one generated-core source buffer against the remaining PS2 runtime contract expectations.
     /// </summary>
     /// <param name="fileName">Generated source file name.</param>
     /// <param name="contents">Generated source contents.</param>
-    /// <returns>Normalized generated source contents.</returns>
-    static string NormalizeGeneratedCoreSource(string fileName, string contents) {
+    static void ValidateGeneratedCoreSource(string fileName, string contents) {
         if (string.IsNullOrWhiteSpace(fileName)) {
             throw new ArgumentException("Generated source file name must be provided.", nameof(fileName));
         }
@@ -194,408 +173,100 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             throw new ArgumentNullException(nameof(contents));
         }
 
-        string normalizedContents = contents.Replace("\r\n", "\n", StringComparison.Ordinal);
-        normalizedContents = normalizedContents.Replace("LightType::hpp", "LightType.hpp", StringComparison.Ordinal);
-        if (string.Equals(fileName, "ScrollComponent.cpp", StringComparison.OrdinalIgnoreCase)) {
-            return normalizedContents.Replace("SizeValue(new int2())", "SizeValue(int2())", StringComparison.Ordinal);
-        }
-
-        if (string.Equals(fileName, "FontAsset.cpp", StringComparison.OrdinalIgnoreCase)) {
-            normalizedContents = normalizedContents.Replace(
-                "entry.get_Value()",
-                "entry.second",
-                StringComparison.Ordinal);
-            normalizedContents = normalizedContents.Replace(
-                "entry.get_Key()",
-                "entry.first",
-                StringComparison.Ordinal);
-            return normalizedContents;
-        }
-
-        if (string.Equals(fileName, "FPSComponent.hpp", StringComparison.OrdinalIgnoreCase)) {
-            return NormalizeFpsComponentHeaderSource(normalizedContents);
-        }
-
-        if (string.Equals(fileName, "FPSComponent.cpp", StringComparison.OrdinalIgnoreCase)) {
-            return NormalizeFpsComponentSource(normalizedContents);
-        }
-
-        if (string.Equals(fileName, Path.Combine("system", "io", "file-stream.cpp"), StringComparison.OrdinalIgnoreCase)) {
-            return NormalizeFileStreamSource(normalizedContents);
-        }
-
         if (string.Equals(fileName, "RuntimeContentManagerConfiguration.cpp", StringComparison.OrdinalIgnoreCase)) {
-            return NormalizeRuntimeContentManagerConfigurationSource(normalizedContents);
+            ValidateRuntimeContentManagerConfigurationSource(contents);
+            return;
         }
 
         if (string.Equals(fileName, "RuntimeSceneAssetReferenceResolver.cpp", StringComparison.OrdinalIgnoreCase)) {
-            return NormalizeRuntimeSceneAssetReferenceResolverSource(normalizedContents);
+            ValidateRuntimeSceneAssetReferenceResolverSource(contents);
+            return;
         }
 
         if (string.Equals(fileName, "RenderManager3D.hpp", StringComparison.OrdinalIgnoreCase)) {
-            return NormalizeRenderManager3DHeaderSource(normalizedContents);
+            ValidateRenderManager3DHeaderSource(contents);
+            return;
         }
 
         if (string.Equals(fileName, "RenderManager3D.cpp", StringComparison.OrdinalIgnoreCase)) {
-            return NormalizeRenderManager3DSource(normalizedContents);
+            ValidateRenderManager3DSource(contents);
         }
-
-        if (string.Equals(fileName, "Core.cpp", StringComparison.OrdinalIgnoreCase)) {
-            normalizedContents = normalizedContents.Replace(
-                "Console::WriteLine(std::string(\"[SceneTrace] \") + message + std::string(\" sceneManager=null\"));",
-                "Console::WriteLine(String::GetCString(std::string(\"[SceneTrace] \") + message + std::string(\" sceneManager=null\")));",
-                StringComparison.Ordinal);
-            normalizedContents = normalizedContents.Replace(
-                "Console::WriteLine(std::string(\"[SceneTrace] \") + message + std::string(\" loadedSceneCount=\") + std::to_string(loadedScenes->get_Count()) + std::string(\" primarySceneId=\") + primarySceneId);",
-                "Console::WriteLine(String::GetCString(std::string(\"[SceneTrace] \") + message + std::string(\" loadedSceneCount=\") + std::to_string(loadedScenes->get_Count()) + std::string(\" primarySceneId=\") + primarySceneId));",
-                StringComparison.Ordinal);
-            return normalizedContents;
-        }
-
-        if (string.Equals(fileName, "RuntimeAssetIdGenerator.cpp", StringComparison.OrdinalIgnoreCase)) {
-            return NormalizeRuntimeAssetIdGeneratorSource(normalizedContents);
-        }
-
-        if (string.Equals(fileName, "SceneManager.cpp", StringComparison.OrdinalIgnoreCase)) {
-            normalizedContents = normalizedContents.Replace(
-                "Console::WriteLine(std::string(\"[SceneTrace] \") + message + std::string(\" loadedSceneCount=\") + std::to_string(LoadedSceneRecords->get_Count()) + std::string(\" primarySceneId=\") + primarySceneId);",
-                "Console::WriteLine(String::GetCString(std::string(\"[SceneTrace] \") + message + std::string(\" loadedSceneCount=\") + std::to_string(LoadedSceneRecords->get_Count()) + std::string(\" primarySceneId=\") + primarySceneId));",
-                StringComparison.Ordinal);
-            normalizedContents = normalizedContents.Replace(
-                "DeleteGeneratedArray(",
-                "DeleteGeneratedArray_SceneManager(",
-                StringComparison.Ordinal);
-            return normalizedContents;
-        }
-
-        if (string.Equals(fileName, Path.Combine("runtime", "runtime_graphics_renderer_manifest.cpp"), StringComparison.OrdinalIgnoreCase)) {
-            return NormalizeRuntimeGraphicsRendererManifestSource(normalizedContents);
-        }
-
-        return normalizedContents;
     }
 
     /// <summary>
-    /// Normalizes the generated runtime asset id generator so PS2 exports use std::string-native canonical-key normalization.
-    /// </summary>
-    /// <param name="contents">Generated runtime asset id generator source.</param>
-    /// <returns>Normalized runtime asset id generator source.</returns>
-    static string NormalizeRuntimeAssetIdGeneratorSource(string contents) {
-        return ReplaceRequired(
-            contents,
-            "std::string RuntimeAssetIdGenerator::NormalizeCanonicalKey(std::string canonicalKey)\n{\n    if (String::IsNullOrEmpty(canonicalKey))\n    {\nthrow new ArgumentNullException(\"canonicalKey\");\n    }\nArray<char> *characters = canonicalKey.ToCharArray();\nfor (int32_t index = 0; index < characters->get_Length(); index++) {\nconst char currentCharacter = (*characters)[index];\n    if (currentCharacter == '\\\\')\n    {\n(*characters)[index] = '/';\n    }\nelse {\n(*characters)[index] = Char::ToLowerInvariant(currentCharacter);\n}\n}\nreturn std::string(characters->Data, static_cast<size_t>(characters->Length));}\n",
-            "std::string RuntimeAssetIdGenerator::NormalizeCanonicalKey(std::string canonicalKey)\n{\n    if (String::IsNullOrEmpty(canonicalKey))\n    {\nthrow new ArgumentNullException(\"canonicalKey\");\n    }\nstd::string normalized = canonicalKey;\nfor (size_t index = 0; index < normalized.size(); index++) {\nchar currentCharacter = normalized[index];\n    if (currentCharacter == '\\\\')\n    {\nnormalized[index] = '/';\n    }\nelse     if (currentCharacter >= 'A' && currentCharacter <= 'Z')\n    {\nnormalized[index] = static_cast<char>(currentCharacter + ('a' - 'A'));\n    }\n}\nreturn normalized;}\n",
-            "PS2 generated RuntimeAssetIdGenerator.cpp should normalize canonical keys without unsupported char-array helpers.");
-    }
-
-    /// <summary>
-    /// Normalizes the generated file-stream source so PS2 exports read `cdrom0:` payloads through a direct memory-backed path instead of desktop stdio semantics.
-    /// </summary>
-    /// <param name="contents">Generated file-stream source.</param>
-    /// <returns>Normalized file-stream source.</returns>
-    static string NormalizeFileStreamSource(string contents) {
-        string normalizedContents = contents;
-        if (!normalizedContents.Contains("#include <algorithm>", StringComparison.Ordinal)) {
-            normalizedContents = normalizedContents.Replace(
-                "#include <cstdio>  // For std::FILE*\n",
-                "#include <cstdio>  // For std::FILE*\n#include <algorithm>\n",
-                StringComparison.Ordinal);
-        }
-
-        const string helperBlock = """
-#if HE_CPP_PLATFORM_PS2
-namespace {
-    bool FileStreamSupportStartsWithPs2CdromPrefix(const std::string& path) {
-        return path.rfind("cdrom0:", 0) == 0;
-    }
-
-    std::string FileStreamSupportResolvePs2DiscReadPath(const std::string& path) {
-        if (!FileStreamSupportStartsWithPs2CdromPrefix(path)) {
-            return path;
-        }
-
-        std::string normalizedPath = path;
-        std::replace(normalizedPath.begin(), normalizedPath.end(), '\\', '/');
-        return normalizedPath;
-    }
-
-    std::vector<std::string> BuildPs2DiscReadCandidates(const std::string& resolvedPath) {
-        std::vector<std::string> candidates;
-        candidates.push_back(resolvedPath);
-        if (resolvedPath.rfind("cdrom0:/", 0) == 0) {
-            candidates.push_back("cdrom0:" + resolvedPath.substr(8));
-        }
-
-        return candidates;
-    }
-
-    std::vector<uint8_t> ReadPs2DiscFile(const std::string& path) {
-        const std::vector<std::string> candidates = BuildPs2DiscReadCandidates(path);
-        for (size_t candidateIndex = 0; candidateIndex < candidates.size(); candidateIndex++) {
-            const std::string& candidatePath = candidates[candidateIndex];
-            std::FILE* file = std::fopen(candidatePath.c_str(), "rb");
-            if (file == nullptr) {
-                continue;
-            }
-
-            std::fseek(file, 0, SEEK_END);
-            long fileLength = std::ftell(file);
-            std::fseek(file, 0, SEEK_SET);
-            if (fileLength < 0) {
-                std::fclose(file);
-                throw std::runtime_error(std::string("Failed to determine file length: ") + candidatePath);
-            }
-
-            std::vector<uint8_t> bytes(static_cast<size_t>(fileLength));
-            size_t bytesRead = 0;
-            if (!bytes.empty()) {
-                bytesRead = std::fread(bytes.data(), 1, bytes.size(), file);
-            }
-            std::fclose(file);
-            if (bytesRead != bytes.size()) {
-                throw std::runtime_error(std::string("Failed to read file: ") + candidatePath);
-            }
-
-            return bytes;
-        }
-
-        throw std::runtime_error(std::string("Failed to open file: ") + path);
-    }
-}
-#endif
-
-""";
-        if (!normalizedContents.Contains("FileStreamSupportResolvePs2DiscReadPath", StringComparison.Ordinal)) {
-            normalizedContents = normalizedContents.Replace(
-                "// Helper function to get file mode as C-style string\n",
-                helperBlock + "// Helper function to get file mode as C-style string\n",
-                StringComparison.Ordinal);
-        }
-
-        const string currentConstructor = """
-FileStream::FileStream(const char* path, FileMode mode)
-    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(false), writable(true) {
-    file = std::fopen(path, GetFileMode(mode));
-    if (!file) {
-        throw std::runtime_error(std::string("Failed to open file: ") + path);
-    }
-
-    UpdateLength();
-}
-""";
-        const string normalizedConstructor = """
-FileStream::FileStream(const char* path, FileMode mode)
-    : file(nullptr), memoryBuffer(), position(0), length(0), ownsMemoryBuffer(false), writable(true) {
-#if HE_CPP_PLATFORM_PS2
-    std::string resolvedPs2ReadPath = FileStreamSupportResolvePs2DiscReadPath(path != nullptr ? path : "");
-    bool usesPs2DirectRead = mode == FileMode::Open && FileStreamSupportStartsWithPs2CdromPrefix(resolvedPs2ReadPath);
-    if (usesPs2DirectRead) {
-        memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);
-        ownsMemoryBuffer = true;
-        writable = false;
-        length = memoryBuffer.size();
-        return;
-    }
-#endif
-    file = std::fopen(path, GetFileMode(mode));
-    if (!file) {
-        throw std::runtime_error(std::string("Failed to open file: ") + path);
-    }
-
-    UpdateLength();
-}
-""";
-        if (normalizedContents.Contains(currentConstructor, StringComparison.Ordinal)) {
-            return normalizedContents.Replace(currentConstructor, normalizedConstructor, StringComparison.Ordinal);
-        }
-
-        normalizedContents = normalizedContents.Replace(
-            "        memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);\n        usesMemoryBuffer = true;\n        length = memoryBuffer.size();\n        return;\n",
-            "        memoryBuffer = ReadPs2DiscFile(resolvedPs2ReadPath);\n        ownsMemoryBuffer = true;\n        writable = false;\n        length = memoryBuffer.size();\n        return;\n",
-            StringComparison.Ordinal);
-        return normalizedContents;
-    }
-
-    /// <summary>
-    /// Normalizes the generated FPS component header so PS2 exports declare the private helper used by the generated source.
-    /// </summary>
-    /// <param name="contents">Generated FPS component header source.</param>
-    /// <returns>Normalized FPS component header source.</returns>
-    static string NormalizeFpsComponentHeaderSource(string contents) {
-        const string declaration = "    std::string FormatOverlaySecondaryLine(std::string baseRenderText);\n";
-        if (contents.Contains(declaration, StringComparison.Ordinal)) {
-            return contents;
-        }
-
-        return ReplaceRequired(
-            contents,
-            "    std::string FormatRenderFpsText(double renderFps, double drawMilliseconds);\n",
-            "    std::string FormatRenderFpsText(double renderFps, double drawMilliseconds);\n\n" + declaration,
-            "PS2 generated FPSComponent.hpp should declare FormatOverlaySecondaryLine.");
-    }
-
-    /// <summary>
-    /// Normalizes the generated FPS component source so PS2 exports call the private overlay helper through the instance.
-    /// </summary>
-    /// <param name="contents">Generated FPS component source.</param>
-    /// <returns>Normalized FPS component source.</returns>
-    static string NormalizeFpsComponentSource(string contents) {
-        return contents.Replace(
-            "this->RenderTextComponent->set_Text(FormatOverlaySecondaryLine(this->RenderFpsText));",
-            "this->RenderTextComponent->set_Text(this->FormatOverlaySecondaryLine(this->RenderFpsText));",
-            StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// Normalizes generated runtime content-manager registration so PS2 exports use the cooked-platform material contract.
+    /// Validates that generated runtime content-manager registration already uses the cooked-platform material contract required by PS2 exports.
     /// </summary>
     /// <param name="contents">Generated runtime content-manager source.</param>
-    /// <returns>Normalized runtime content-manager source.</returns>
-    static string NormalizeRuntimeContentManagerConfigurationSource(string contents) {
+    static void ValidateRuntimeContentManagerConfigurationSource(string contents) {
         if (contents.Contains("RegisterProcessorIfMissing<PlatformMaterialAsset*>", StringComparison.Ordinal)) {
-            return contents;
+            return;
         }
 
-        string normalizedContents = contents;
-        if (!normalizedContents.Contains("#include \"PlatformMaterialAsset.hpp\"", StringComparison.Ordinal)) {
-            normalizedContents = normalizedContents.Replace(
-                "#include \"MaterialAsset.hpp\"\n",
-                "#include \"MaterialAsset.hpp\"\n#include \"PlatformMaterialAsset.hpp\"\n",
-                StringComparison.Ordinal);
+        if (contents.Contains("RegisterProcessorIfMissing<MaterialAsset*>", StringComparison.Ordinal)) {
+            throw new InvalidOperationException("PS2 generated runtime content manager should already register cooked platform materials through PlatformMaterialAsset.");
         }
 
-        return ReplaceRequired(
-            normalizedContents,
-            "RegisterProcessorIfMissing<MaterialAsset*>(contentManager, RuntimeContentProcessorIds::MaterialAsset, new ::AssetContentProcessor_1<::MaterialAsset*>(), new Array<std::string>({ MaterialAssetExtension }));",
-            "RegisterProcessorIfMissing<PlatformMaterialAsset*>(contentManager, RuntimeContentProcessorIds::MaterialAsset, new ::AssetContentProcessor_1<::PlatformMaterialAsset*>(), new Array<std::string>({ MaterialAssetExtension }));",
-            "PS2 generated runtime content manager should register cooked platform materials through PlatformMaterialAsset.");
+        throw new InvalidOperationException("PS2 generated runtime content manager should expose the cooked platform material registration contract.");
     }
 
     /// <summary>
-    /// Normalizes generated scene material resolution so PS2 exports consume cooked platform-owned material assets.
+    /// Validates that generated scene material resolution already consumes cooked platform-owned material assets.
     /// </summary>
     /// <param name="contents">Generated runtime scene asset resolver source.</param>
-    /// <returns>Normalized runtime scene asset resolver source.</returns>
-    static string NormalizeRuntimeSceneAssetReferenceResolverSource(string contents) {
+    static void ValidateRuntimeSceneAssetReferenceResolverSource(string contents) {
         if (contents.Contains("BuildMaterialFromCooked(generatedFullPath)", StringComparison.Ordinal)
             && contents.Contains("BuildMaterialFromCooked(fullPath)", StringComparison.Ordinal)) {
-            return contents;
+            return;
         }
 
         if (contents.Contains("BuildMaterialFromCooked(materialAsset)", StringComparison.Ordinal)
             && contents.Contains("PlatformMaterialAsset *materialAsset", StringComparison.Ordinal)) {
-            return contents;
-        }
-
-        string normalizedContents = contents;
-        if (!normalizedContents.Contains("#include \"PlatformMaterialAsset.hpp\"", StringComparison.Ordinal)) {
-            normalizedContents = normalizedContents.Replace(
-                "#include \"MaterialAsset.hpp\"\n",
-                "#include \"MaterialAsset.hpp\"\n#include \"PlatformMaterialAsset.hpp\"\n",
-                StringComparison.Ordinal);
+            return;
         }
 
         const string modernRawMaterialBlock = "::MaterialAsset *materialAsset = this->AssetContentManager->Load<MaterialAsset*>(fullPath, RuntimeContentProcessorIds::MaterialAsset);\n::ShaderAsset *shaderAsset = this->AssetContentManager->Load<ShaderAsset*>(this->ResolveShaderPackagePath(materialAsset->ShaderAssetId), RuntimeContentProcessorIds::ShaderAsset);\n::RuntimeMaterial *runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromRaw(materialAsset, shaderAsset);\nthis->TrackOwnedMaterial(runtimeMaterial);\nthis->ApplyMaterialDiffuseTexture(runtimeMaterial, materialAsset, fullPath);\nreturn runtimeMaterial;}";
-        if (normalizedContents.Contains(modernRawMaterialBlock, StringComparison.Ordinal)) {
-            return normalizedContents.Replace(
-                modernRawMaterialBlock,
-                "::PlatformMaterialAsset *materialAsset = this->AssetContentManager->Load<PlatformMaterialAsset*>(fullPath, RuntimeContentProcessorIds::MaterialAsset);\n::RuntimeMaterial *runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromCooked(materialAsset);\nthis->TrackOwnedMaterial(runtimeMaterial);\nreturn runtimeMaterial;}",
-                StringComparison.Ordinal);
+        if (contents.Contains(modernRawMaterialBlock, StringComparison.Ordinal)) {
+            throw new InvalidOperationException("PS2 generated runtime scene asset resolver should already resolve cooked platform-owned materials.");
         }
 
         const string legacyRawMaterialBlock = "::MaterialAsset *materialAsset = this->AssetContentManager->Load<MaterialAsset*>(fullPath, RuntimeContentProcessorIds::MaterialAsset);\nauto __releaseMaterialAssetGuard = he_cpp_make_scope_exit([&]() {\nReleaseTransientMaterialAsset(materialAsset);\n});\n::ShaderAsset *shaderAsset = this->AssetContentManager->Load<ShaderAsset*>(this->ResolveShaderPackagePath(materialAsset->ShaderAssetId), RuntimeContentProcessorIds::ShaderAsset);\nauto __releaseShaderAssetGuard = he_cpp_make_scope_exit([&]() {\nReleaseTransientShaderAsset(shaderAsset);\n});\n::RuntimeMaterial *runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromRaw(materialAsset, shaderAsset);\nthis->TrackOwnedMaterial(runtimeMaterial);\nthis->ApplyMaterialDiffuseTexture(runtimeMaterial, materialAsset, fullPath);\nreturn runtimeMaterial;}";
-        if (normalizedContents.Contains(legacyRawMaterialBlock, StringComparison.Ordinal)) {
-            return normalizedContents.Replace(
-                legacyRawMaterialBlock,
-                "::PlatformMaterialAsset *materialAsset = this->AssetContentManager->Load<PlatformMaterialAsset*>(fullPath, RuntimeContentProcessorIds::MaterialAsset);\n::RuntimeMaterial *runtimeMaterial = Core::get_Instance()->get_RenderManager3D()->BuildMaterialFromCooked(materialAsset);\nthis->TrackOwnedMaterial(runtimeMaterial);\nreturn runtimeMaterial;}",
-                StringComparison.Ordinal);
+        if (contents.Contains(legacyRawMaterialBlock, StringComparison.Ordinal)) {
+            throw new InvalidOperationException("PS2 generated runtime scene asset resolver should already resolve cooked platform-owned materials.");
         }
 
-        throw new InvalidOperationException("PS2 generated runtime scene asset resolver should resolve materials through the cooked platform material contract.");
+        throw new InvalidOperationException("PS2 generated runtime scene asset resolver should already resolve materials through the cooked platform material contract.");
     }
 
     /// <summary>
-    /// Normalizes the generated render-manager header so PS2 exports expose the cooked-platform material seam.
+    /// Validates that the generated render-manager header already exposes the cooked-platform material seam.
     /// </summary>
     /// <param name="contents">Generated render-manager header source.</param>
-    /// <returns>Normalized render-manager header source.</returns>
-    static string NormalizeRenderManager3DHeaderSource(string contents) {
+    static void ValidateRenderManager3DHeaderSource(string contents) {
         if (contents.Contains("virtual ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset);", StringComparison.Ordinal)) {
-            return contents;
+            return;
         }
 
-        string normalizedContents = contents;
-        if (!normalizedContents.Contains("class PlatformMaterialAsset;", StringComparison.Ordinal)) {
-            normalizedContents = normalizedContents.Replace(
-                "class MaterialAsset;\n",
-                "class MaterialAsset;\nclass PlatformMaterialAsset;\n",
-                StringComparison.Ordinal);
+        if (contents.Contains("virtual ::RuntimeMaterial* BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset);", StringComparison.Ordinal)) {
+            throw new InvalidOperationException("PS2 generated RenderManager3D.hpp should already expose the cooked platform material contract.");
         }
 
-        return ReplaceRequired(
-            normalizedContents,
-            "    virtual ::RuntimeMaterial* BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset);\n",
-            "    virtual ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset);\n\n    virtual ::RuntimeMaterial* BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset);\n",
-            "PS2 generated RenderManager3D.hpp should expose the cooked platform material contract.");
+        throw new InvalidOperationException("PS2 generated RenderManager3D.hpp should expose the cooked platform material contract.");
     }
 
     /// <summary>
-    /// Normalizes the generated render-manager source so PS2 exports provide the cooked-platform default implementation.
+    /// Validates that the generated render-manager source already provides the cooked-platform default implementation.
     /// </summary>
     /// <param name="contents">Generated render-manager source.</param>
-    /// <returns>Normalized render-manager source.</returns>
-    static string NormalizeRenderManager3DSource(string contents) {
+    static void ValidateRenderManager3DSource(string contents) {
         if (contents.Contains("BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset)", StringComparison.Ordinal)) {
-            return contents;
+            return;
         }
 
-        string cookedImplementation = """
-::RuntimeMaterial* RenderManager3D::BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset)
-{
-throw new NotSupportedException("This renderer does not support platform-owned cooked material creation.");
-}
-
-""";
-        return ReplaceRequired(
-            contents,
-            "::RuntimeMaterial* RenderManager3D::BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset)\n",
-            cookedImplementation + "::RuntimeMaterial* RenderManager3D::BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset)\n",
-            "PS2 generated RenderManager3D.cpp should expose the cooked platform material default implementation.");
-    }
-
-    /// <summary>
-    /// Normalizes the generated runtime graphics manifest so PS2 exports stay on the simplest supported renderer path.
-    /// </summary>
-    /// <param name="contents">Generated runtime graphics manifest source.</param>
-    /// <returns>Normalized generated source contents.</returns>
-    static string NormalizeRuntimeGraphicsRendererManifestSource(string contents) {
-        string normalizedContents = ReplaceRequired(
-            contents,
-            "    true,\n",
-            "    false,\n",
-            "PS2 generated runtime graphics manifest should disable HDR.");
-        normalizedContents = ReplaceRequired(
-            normalizedContents,
-            "    HERuntimePostProcessTier::High,\n",
-            "    HERuntimePostProcessTier::Disabled,\n",
-            "PS2 generated runtime graphics manifest should disable post-processing.");
-        return normalizedContents;
-    }
-
-    /// <summary>
-    /// Replaces one required generated-source fragment and throws when the expected source shape is absent.
-    /// </summary>
-    /// <param name="contents">Generated source contents to rewrite.</param>
-    /// <param name="oldValue">Exact generated fragment that must exist.</param>
-    /// <param name="newValue">Replacement fragment written when the expected fragment exists.</param>
-    /// <param name="failureMessage">Detailed failure message describing the missing generated-source contract.</param>
-    /// <returns>Rewritten generated source contents.</returns>
-    static string ReplaceRequired(string contents, string oldValue, string newValue, string failureMessage) {
-        if (!contents.Contains(oldValue, StringComparison.Ordinal)) {
-            throw new InvalidOperationException(failureMessage);
+        if (contents.Contains("::RuntimeMaterial* RenderManager3D::BuildMaterialFromRaw(::MaterialAsset* materialAsset, ::ShaderAsset* shaderAsset)", StringComparison.Ordinal)) {
+            throw new InvalidOperationException("PS2 generated RenderManager3D.cpp should already expose the cooked platform material default implementation.");
         }
 
-        return contents.Replace(oldValue, newValue, StringComparison.Ordinal);
+        throw new InvalidOperationException("PS2 generated RenderManager3D.cpp should expose the cooked platform material default implementation.");
     }
 
     /// <summary>
@@ -674,17 +345,51 @@ throw new NotSupportedException("This renderer does not support platform-owned c
         }
 
         using Process process = Process.Start(startInfo) ?? throw new InvalidOperationException($"Failed to start '{fileName}'.");
-        Task<string> standardOutputTask = process.StandardOutput.ReadToEndAsync();
-        Task<string> standardErrorTask = process.StandardError.ReadToEndAsync();
-        while (!process.HasExited) {
-            cancellationToken.ThrowIfCancellationRequested();
-            process.WaitForExit(100);
+        StringBuilder standardOutputBuilder = new();
+        StringBuilder standardErrorBuilder = new();
+        TaskCompletionSource<bool> standardOutputCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        TaskCompletionSource<bool> standardErrorCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        process.OutputDataReceived += (_, eventArgs) => {
+            if (eventArgs.Data == null) {
+                standardOutputCompletionSource.TrySetResult(true);
+                return;
+            }
+
+            standardOutputBuilder.AppendLine(eventArgs.Data);
+        };
+        process.ErrorDataReceived += (_, eventArgs) => {
+            if (eventArgs.Data == null) {
+                standardErrorCompletionSource.TrySetResult(true);
+                return;
+            }
+
+            standardErrorBuilder.AppendLine(eventArgs.Data);
+        };
+
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        try {
+            while (!process.HasExited) {
+                cancellationToken.ThrowIfCancellationRequested();
+                process.WaitForExit(100);
+            }
+        } catch {
+            try {
+                if (!process.HasExited) {
+                    process.Kill(entireProcessTree: true);
+                }
+            } catch {
+            }
+
+            throw;
         }
 
         process.WaitForExit();
-        Task.WaitAll(standardOutputTask, standardErrorTask);
-        string standardOutput = standardOutputTask.Result;
-        string standardError = standardErrorTask.Result;
+        Task.WaitAll(standardOutputCompletionSource.Task, standardErrorCompletionSource.Task);
+        string standardOutput = standardOutputBuilder.ToString();
+        string standardError = standardErrorBuilder.ToString();
         if (process.ExitCode != 0) {
             throw new InvalidOperationException(
                 $"Process '{fileName}' exited with code {process.ExitCode}.{Environment.NewLine}{standardOutput}{Environment.NewLine}{standardError}");

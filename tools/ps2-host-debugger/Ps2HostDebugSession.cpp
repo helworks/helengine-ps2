@@ -14,6 +14,7 @@
 #include "FontAsset.hpp"
 #include "ModelAsset.hpp"
 #include "PlatformInfo.hpp"
+#include "PlatformMaterialAsset.hpp"
 #include "Ps2MaterialAsset.hpp"
 #include "RuntimeSceneCatalog.hpp"
 #include "RuntimeSceneCatalogEntry.hpp"

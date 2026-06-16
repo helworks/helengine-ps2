@@ -20,7 +20,8 @@ public static class Ps2TextureCookSettingsSerializer {
         return JsonSerializer.Serialize(new Dictionary<string, object> {
             ["maxResolution"] = settings.MaxResolution,
             ["colorFormat"] = settings.ColorFormat.ToString(),
-            ["alphaPrecision"] = settings.AlphaPrecision.ToString()
+            ["alphaPrecision"] = settings.AlphaPrecision.ToString(),
+            ["indexingMethod"] = settings.IndexingMethodId ?? string.Empty
         });
     }
 
@@ -45,6 +46,9 @@ public static class Ps2TextureCookSettingsSerializer {
         string alphaPrecisionName = root.TryGetProperty("alphaPrecision", out JsonElement alphaPrecisionElement)
             ? alphaPrecisionElement.GetString() ?? TextureAssetAlphaPrecision.A8.ToString()
             : TextureAssetAlphaPrecision.A8.ToString();
+        string indexingMethodId = root.TryGetProperty("indexingMethod", out JsonElement indexingMethodElement)
+            ? indexingMethodElement.GetString() ?? string.Empty
+            : string.Empty;
 
         if (!Enum.TryParse(colorFormatName, true, out TextureAssetColorFormat colorFormat)) {
             throw new InvalidOperationException($"Unsupported PS2 texture color format '{colorFormatName}'.");
@@ -57,7 +61,8 @@ public static class Ps2TextureCookSettingsSerializer {
         return new TextureAssetProcessorSettings {
             MaxResolution = maxResolution,
             ColorFormat = colorFormat,
-            AlphaPrecision = alphaPrecision
+            AlphaPrecision = alphaPrecision,
+            IndexingMethodId = indexingMethodId
         };
     }
 }

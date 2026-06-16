@@ -57,7 +57,7 @@ namespace helengine::ps2 {
             batch.Proxy = proxy;
             batch.Model = packedModel;
             batch.Material = runtimeMaterial;
-            batch.Textured = !runtimeMaterial->GetTextureRelativePath().empty();
+            batch.Textured = runtimeMaterial->HasTextureRelativePath();
             batches.push_back(batch);
         }
     }

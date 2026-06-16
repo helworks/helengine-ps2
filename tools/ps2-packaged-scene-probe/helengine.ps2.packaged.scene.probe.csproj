@@ -11,5 +11,6 @@
   <ItemGroup>
     <ProjectReference Include="C:\dev\helworks\helengine\engine\helengine.core\helengine.core.csproj" />
     <ProjectReference Include="C:\dev\helworks\helengine\engine\helengine.input\helengine.input.csproj" />
+    <ProjectReference Include="C:\dev\helworks\helengine\engine\helengine.shader\helengine.shader.csproj" />
   </ItemGroup>
 </Project>

@@ -20,7 +20,7 @@ namespace helengine::ps2 {
                 throw std::invalid_argument("PS2 cooked model data is required.");
             }
 
-            runtimeModel->set_Id(modelAsset->get_Id());
+            runtimeModel->RuntimeData::set_Id(modelAsset->get_Id());
         }
 
         void PopulateRuntimeModelCommonData(Ps2RuntimeModel* runtimeModel, ::ModelAsset* modelAsset) {
@@ -30,7 +30,7 @@ namespace helengine::ps2 {
                 throw std::invalid_argument("PS2 raw model data is required.");
             }
 
-            runtimeModel->set_Id(modelAsset->get_Id());
+            runtimeModel->RuntimeData::set_Id(modelAsset->get_Id());
         }
     }
 

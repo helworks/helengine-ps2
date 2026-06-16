@@ -32,6 +32,46 @@ namespace helengine::ps2 {
                 (position.X * matrix.M13) + (position.Y * matrix.M23) + (position.Z * matrix.M33) + (position.W * matrix.M43));
         }
 
+        bool ProjectWorldPosition(
+            const ::float4& worldPosition,
+            const ::float4x4& worldViewProjectionMatrix,
+            const ::float4& viewport,
+            float& screenX,
+            float& screenY,
+            float& screenZ) {
+            const float clipX =
+                (worldPosition.X * worldViewProjectionMatrix.M11)
+                + (worldPosition.Y * worldViewProjectionMatrix.M21)
+                + (worldPosition.Z * worldViewProjectionMatrix.M31)
+                + (worldPosition.W * worldViewProjectionMatrix.M41);
+            const float clipY =
+                (worldPosition.X * worldViewProjectionMatrix.M12)
+                + (worldPosition.Y * worldViewProjectionMatrix.M22)
+                + (worldPosition.Z * worldViewProjectionMatrix.M32)
+                + (worldPosition.W * worldViewProjectionMatrix.M42);
+            const float clipZ =
+                (worldPosition.X * worldViewProjectionMatrix.M13)
+                + (worldPosition.Y * worldViewProjectionMatrix.M23)
+                + (worldPosition.Z * worldViewProjectionMatrix.M33)
+                + (worldPosition.W * worldViewProjectionMatrix.M43);
+            const float clipW =
+                (worldPosition.X * worldViewProjectionMatrix.M14)
+                + (worldPosition.Y * worldViewProjectionMatrix.M24)
+                + (worldPosition.Z * worldViewProjectionMatrix.M34)
+                + (worldPosition.W * worldViewProjectionMatrix.M44);
+            if (std::fabs(clipW) <= MinimumClipW) {
+                return false;
+            }
+
+            const float normalizedX = clipX / clipW;
+            const float normalizedY = clipY / clipW;
+            const float normalizedZ = clipZ / clipW;
+            screenX = viewport.X + ((normalizedX + 1.0f) * 0.5f * viewport.Z);
+            screenY = viewport.Y + ((1.0f - normalizedY) * 0.5f * viewport.W);
+            screenZ = normalizedZ;
+            return std::isfinite(screenX) && std::isfinite(screenY) && std::isfinite(screenZ);
+        }
+
         ::float3 NormalizeOrFallback(const ::float3& value, const ::float3& fallback) {
             const float lengthSquared = ::float3::Dot(value, value);
             if (lengthSquared <= 0.000001f) {
@@ -190,8 +230,8 @@ namespace helengine::ps2 {
             ::float4x4 projectionCopy = projection;
             ::float4x4 worldViewMatrix;
             ::float4x4 worldViewProjectionMatrix;
-            ::float4x4::Multiply(worldCopy, viewCopy, worldViewMatrix);
-            ::float4x4::Multiply(worldViewMatrix, projectionCopy, worldViewProjectionMatrix);
+            ::float4x4::Multiply__ref0_ref1_out2(worldCopy, viewCopy, worldViewMatrix);
+            ::float4x4::Multiply__ref0_ref1_out2(worldViewMatrix, projectionCopy, worldViewProjectionMatrix);
 
             float worldMatrixWords[16];
             float viewMatrixWords[16];
@@ -321,14 +361,55 @@ namespace helengine::ps2 {
                 std::memcpy(triangleSetup.GsOffset, gsOffsetWords, sizeof(gsOffsetWords));
                 TriangleSetups.push_back(triangleSetup);
                 SubmittedTriangleCount++;
+                float screenAX = 0.0f;
+                float screenAY = 0.0f;
+                float screenAZ = 0.0f;
+                float screenBX = 0.0f;
+                float screenBY = 0.0f;
+                float screenBZ = 0.0f;
+                float screenCX = 0.0f;
+                float screenCY = 0.0f;
+                float screenCZ = 0.0f;
+                const bool projectedTriangle =
+                    ProjectWorldPosition(worldPositionA4, worldViewProjectionMatrix, viewport, screenAX, screenAY, screenAZ)
+                    && ProjectWorldPosition(worldPositionB4, worldViewProjectionMatrix, viewport, screenBX, screenBY, screenBZ)
+                    && ProjectWorldPosition(worldPositionC4, worldViewProjectionMatrix, viewport, screenCX, screenCY, screenCZ);
+                if (projectedTriangle) {
+                    const float minX = std::min({ screenAX, screenBX, screenCX });
+                    const float minY = std::min({ screenAY, screenBY, screenCY });
+                    const float maxX = std::max({ screenAX, screenBX, screenCX });
+                    const float maxY = std::max({ screenAY, screenBY, screenCY });
+                    if (SubmittedTriangleCount == 1u) {
+                        SubmittedScreenBounds = ::float4(minX, minY, maxX, maxY);
+                        SubmittedTriangleBoundsA = ::float4(minX, minY, maxX, maxY);
+                        SubmittedTriangleVertexA0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
+                        SubmittedTriangleVertexA1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
+                        SubmittedTriangleVertexA2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
+                    } else {
+                        SubmittedScreenBounds.X = std::min(SubmittedScreenBounds.X, minX);
+                        SubmittedScreenBounds.Y = std::min(SubmittedScreenBounds.Y, minY);
+                        SubmittedScreenBounds.Z = std::max(SubmittedScreenBounds.Z, maxX);
+                        SubmittedScreenBounds.W = std::max(SubmittedScreenBounds.W, maxY);
+                        if (SubmittedTriangleCount == 2u) {
+                            SubmittedTriangleBoundsB = ::float4(minX, minY, maxX, maxY);
+                            SubmittedTriangleVertexB0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
+                            SubmittedTriangleVertexB1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
+                            SubmittedTriangleVertexB2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
+                        }
+                    }
+                }
                 if (SubmittedTriangleCount == 1u) {
-                    SubmittedTriangleVertexA0 = ::float4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
-                    SubmittedTriangleVertexA1 = ::float4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
-                    SubmittedTriangleVertexA2 = ::float4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
+                    if (!projectedTriangle) {
+                        SubmittedTriangleVertexA0 = ::float4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
+                        SubmittedTriangleVertexA1 = ::float4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
+                        SubmittedTriangleVertexA2 = ::float4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
+                    }
                 } else if (SubmittedTriangleCount == 2u) {
-                    SubmittedTriangleVertexB0 = ::float4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
-                    SubmittedTriangleVertexB1 = ::float4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
-                    SubmittedTriangleVertexB2 = ::float4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
+                    if (!projectedTriangle) {
+                        SubmittedTriangleVertexB0 = ::float4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
+                        SubmittedTriangleVertexB1 = ::float4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
+                        SubmittedTriangleVertexB2 = ::float4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
+                    }
                 }
                 const std::clock_t triangleEmitEndTicks = std::clock();
                 LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);

@@ -14,18 +14,21 @@ namespace helengine::ps2 {
                 continue;
             }
 
-            if (material->GetRenderClass() != ::Ps2RenderClass::Opaque) {
+            const ::Ps2RenderClass renderClass = material->GetRenderClass();
+            if (renderClass != ::Ps2RenderClass::Opaque &&
+                renderClass != ::Ps2RenderClass::AlphaTest &&
+                renderClass != ::Ps2RenderClass::Transparent) {
                 continue;
             }
 
             if (proxy.IsStatic()) {
-                if (material->GetRenderClass() == ::Ps2RenderClass::Transparent) {
+                if (renderClass == ::Ps2RenderClass::Transparent) {
                     plan.AlphaWorld.push_back(&proxy);
                 } else {
                     plan.OpaqueWorld.push_back(&proxy);
                 }
             } else {
-                if (material->GetRenderClass() == ::Ps2RenderClass::Transparent) {
+                if (renderClass == ::Ps2RenderClass::Transparent) {
                     plan.AlphaDynamic.push_back(&proxy);
                 } else {
                     plan.OpaqueDynamic.push_back(&proxy);

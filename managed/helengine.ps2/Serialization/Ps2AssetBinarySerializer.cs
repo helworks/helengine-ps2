@@ -18,7 +18,7 @@ namespace helengine {
         /// <summary>
         /// Current PS2 asset binary version.
         /// </summary>
-        public const byte CurrentVersion = 1;
+        public const byte CurrentVersion = 2;
 
         /// <summary>
         /// Lowest PS2 asset binary version supported by this serializer.
@@ -29,6 +29,11 @@ namespace helengine {
         /// First PS2 asset version that stores runtime asset ids.
         /// </summary>
         const byte RuntimeAssetIdentityVersion = 1;
+
+        /// <summary>
+        /// First PS2 asset version that stores texture pixel-storage metadata.
+        /// </summary>
+        const byte TextureStorageMetadataVersion = 2;
 
         /// <summary>
         /// Payload endianness used by PS2-owned cooked runtime asset payloads.
@@ -308,6 +313,8 @@ namespace helengine {
             writer.WriteUInt16(asset.Width);
             writer.WriteUInt16(asset.Height);
             writer.WriteByte((byte)asset.Format);
+            writer.WriteByte((byte)asset.PixelStorageMode);
+            writer.WriteByte((byte)asset.ClutPixelStorageMode);
             writer.WriteByte((byte)asset.AlphaMode);
             writer.WriteByteArray(asset.PixelData);
             writer.WriteByteArray(asset.PaletteData);
@@ -325,10 +332,34 @@ namespace helengine {
             asset.Width = reader.ReadUInt16();
             asset.Height = reader.ReadUInt16();
             asset.Format = (Ps2TextureFormat)reader.ReadByte();
+            if (version >= TextureStorageMetadataVersion) {
+                asset.PixelStorageMode = (Ps2TexturePixelStorageMode)reader.ReadByte();
+                asset.ClutPixelStorageMode = (Ps2TexturePixelStorageMode)reader.ReadByte();
+            } else {
+                asset.PixelStorageMode = ResolveLegacyTexturePixelStorageMode(asset.Format);
+                asset.ClutPixelStorageMode = Ps2TexturePixelStorageMode.PsmCt32;
+            }
             asset.AlphaMode = (Ps2TextureAlphaMode)reader.ReadByte();
             asset.PixelData = reader.ReadByteArray();
             asset.PaletteData = reader.ReadByteArray();
             return asset;
+        }
+
+        /// <summary>
+        /// Resolves the implicit pixel-storage mode used by legacy PS2 texture payloads that predate explicit storage metadata.
+        /// </summary>
+        /// <param name="format">Legacy PS2 texture format code.</param>
+        /// <returns>Implicit GS pixel storage mode for the legacy payload.</returns>
+        static Ps2TexturePixelStorageMode ResolveLegacyTexturePixelStorageMode(Ps2TextureFormat format) {
+            if (format == Ps2TextureFormat.Rgba32) {
+                return Ps2TexturePixelStorageMode.PsmCt32;
+            } else if (format == Ps2TextureFormat.Indexed8) {
+                return Ps2TexturePixelStorageMode.PsmT8;
+            } else if (format == Ps2TextureFormat.Indexed4) {
+                return Ps2TexturePixelStorageMode.PsmT4;
+            }
+
+            throw new InvalidOperationException($"Unsupported legacy PS2 texture format '{format}'.");
         }
 
         /// <summary>

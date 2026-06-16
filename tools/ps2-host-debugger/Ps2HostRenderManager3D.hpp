@@ -14,10 +14,10 @@ class MaterialAsset;
 class ModelAsset;
 class PlatformMaterialAsset;
 class Ps2MaterialAsset;
+class Ps2ModelAsset;
 class RenderTarget;
 class RuntimeMaterial;
 class RuntimeModel;
-class ShaderAsset;
 
 namespace helengine::ps2::host {
     /// <summary>
@@ -28,7 +28,9 @@ namespace helengine::ps2::host {
         Ps2HostRenderManager3D();
 
         RuntimeMaterial* BuildMaterialFromCooked(PlatformMaterialAsset* materialAsset) override;
-        RuntimeMaterial* BuildMaterialFromRaw(MaterialAsset* materialAsset, ShaderAsset* shaderAsset) override;
+        RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath) override;
+        RuntimeMaterial* BuildMaterialFromRawAsset(ContentManager* assetContentManager, std::string contentRootPath, std::string materialAssetPath) override;
+        RuntimeModel* BuildModelFromCooked(std::string cookedAssetPath) override;
         RuntimeModel* BuildModelFromRaw(ModelAsset* data) override;
         RenderTarget* CreateRenderTarget(int32_t width, int32_t height) override;
         void Draw() override;
@@ -51,6 +53,9 @@ namespace helengine::ps2::host {
         int32_t get_LastVuSubmittedTriangleCount() const;
 
     private:
+        RuntimeMaterial* BuildMaterialFromCooked(Ps2MaterialAsset* materialAsset);
+        RuntimeModel* BuildModelFromCooked(Ps2ModelAsset* modelAsset);
+
         helengine::ps2::Ps2FramePlanner FramePlanner;
         helengine::ps2::Ps2VuOpaqueBatchBuilder VuOpaqueBatchBuilder;
         helengine::ps2::Ps2VuOpaqueUntexturedSetupBuilder VuUntexturedSetupBuilder;
