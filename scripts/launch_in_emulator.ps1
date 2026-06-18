@@ -1,13 +1,17 @@
 param(
     [Parameter(Mandatory = $true)]
-    [string]$IsoPath
+    [string]$ArtifactPath
 )
 
 $ErrorActionPreference = 'Stop'
 
-$resolvedIsoPath = [System.IO.Path]::GetFullPath($IsoPath)
-if (-not (Test-Path -LiteralPath $resolvedIsoPath)) {
-    throw "ISO was not found: $resolvedIsoPath"
+$resolvedArtifactPath = [System.IO.Path]::GetFullPath($ArtifactPath)
+if (-not (Test-Path -LiteralPath $resolvedArtifactPath -PathType Leaf)) {
+    throw "Artifact was not found: $resolvedArtifactPath"
+}
+
+if ([System.IO.Path]::GetExtension($resolvedArtifactPath) -ine '.iso') {
+    throw "Expected a .iso artifact but got '$resolvedArtifactPath'."
 }
 
 $pcsx2Path = 'C:\Program Files\PCSX2\pcsx2-qt.exe'
@@ -35,13 +39,13 @@ if (Test-Path -LiteralPath $resolvedLauncherRoot) {
 
 New-Item -ItemType Directory -Force -Path $resolvedLauncherRoot | Out-Null
 
-$isoItem = Get-Item -LiteralPath $resolvedIsoPath
+$artifactItem = Get-Item -LiteralPath $resolvedArtifactPath
 
-Write-Output ("ISO=" + $resolvedIsoPath)
-Write-Output ("ISO_LAST_WRITE_TIME=" + $isoItem.LastWriteTime.ToString('O'))
+Write-Output ("ARTIFACT=" + $resolvedArtifactPath)
+Write-Output ("ARTIFACT_LAST_WRITE_TIME=" + $artifactItem.LastWriteTime.ToString('O'))
 Write-Output ("PCSX2=" + $pcsx2Path)
 Write-Output ("PROFILE_ROOT=" + $globalProfileRoot)
 Write-Output ("LOGFILE=" + $logFilePath)
 
-$process = Start-Process -FilePath $pcsx2Path -ArgumentList '-fastboot', '-logfile', $logFilePath, '--', $resolvedIsoPath -WorkingDirectory (Split-Path -Path $pcsx2Path -Parent) -PassThru
+$process = Start-Process -FilePath $pcsx2Path -ArgumentList '-fastboot', '-logfile', $logFilePath, '--', $resolvedArtifactPath -WorkingDirectory (Split-Path -Path $pcsx2Path -Parent) -PassThru
 Write-Output ("PROCESS_ID=" + $process.Id)
