@@ -36,6 +36,7 @@
 #include "Ps2MaterialLightingMode.hpp"
 #include "MaterialBlendMode.hpp"
 #include "RenderTarget.hpp"
+#include "runtime/runtime_ps2_asset_path_manifest.hpp"
 #include "float2.hpp"
 #include "float3.hpp"
 #include "platform/ps2/rendering/Ps2FramePlan.hpp"
@@ -51,6 +52,61 @@
 
 namespace helengine::ps2 {
     namespace {
+        std::string ResolvePs2CookedAssetOpenPath(const std::string& path) {
+            if (path.empty()) {
+                return path;
+            }
+
+            const char* physicalPath = he_get_runtime_ps2_asset_physical_path(path.c_str());
+            if (physicalPath != nullptr && physicalPath[0] != '\0') {
+                return physicalPath;
+            }
+
+            std::string normalizedPath = path;
+            std::replace(normalizedPath.begin(), normalizedPath.end(), '/', '\\');
+            if (normalizedPath.rfind("cdrom0:", 0) == 0) {
+                if (normalizedPath.size() < 2u || normalizedPath.compare(normalizedPath.size() - 2u, 2u, ";1") != 0) {
+                    normalizedPath += ";1";
+                }
+
+                return normalizedPath;
+            }
+
+            const bool isCookedDiscRelativePath = normalizedPath.rfind("COOKED\\", 0) == 0 || normalizedPath.rfind("\\COOKED\\", 0) == 0;
+            if (!isCookedDiscRelativePath) {
+                return path;
+            }
+
+            if (normalizedPath.rfind("\\", 0) == 0) {
+                normalizedPath.erase(0, 1);
+            }
+            if (normalizedPath.size() < 2u || normalizedPath.compare(normalizedPath.size() - 2u, 2u, ";1") != 0) {
+                normalizedPath += ";1";
+            }
+
+            return std::string("cdrom0:\\") + normalizedPath;
+        }
+
+        void AppendDiagnosticToHostBootLog(const std::string& message) {
+            const char* candidatePaths[] = {
+                "host:ps2_bootlog.txt",
+                "host0:ps2_bootlog.txt"
+            };
+
+            for (const char* candidatePath : candidatePaths) {
+                FILE* file = std::fopen(candidatePath, "a");
+                if (file == nullptr) {
+                    continue;
+                }
+
+                std::fwrite(message.c_str(), 1u, message.size(), file);
+                std::fwrite("\n", 1u, 1u, file);
+                std::fflush(file);
+                std::fclose(file);
+                return;
+            }
+        }
+
         constexpr double LightingScale = 191.0;
         constexpr double LightingBias = 64.0;
         constexpr bool EnableFlatColorDiagnostics = false;
@@ -75,6 +131,7 @@ namespace helengine::ps2 {
         constexpr bool EnableVuDirectGifDispatchDiagnostics = false;
         constexpr bool EnableVuDirectGifHelperTriangleDiagnostics = false;
         constexpr bool EnableVuSingleTrianglePayloadDiagnostics = false;
+        constexpr std::uint32_t TexturedVuSubmitDiagnosticLogLimit = 16u;
         constexpr float VuDirectGifDiagnosticTriangleAX = 211.843231f;
         constexpr float VuDirectGifDiagnosticTriangleAY = 332.156738f;
         constexpr float VuDirectGifDiagnosticTriangleBX = 211.843231f;
@@ -429,18 +486,16 @@ namespace helengine::ps2 {
                 return nullptr;
             }
 
-            const std::string fullPath = ::Path::GetFullPath(::Path::Combine(core->get_ContentManager()->get_RootDirectory(), textureRelativePath));
+            const std::string resolvedTexturePath = ResolvePs2CookedAssetOpenPath(textureRelativePath);
             ::FileStream* stream = nullptr;
             try {
-                stream = ::File::OpenRead(fullPath);
+                stream = ::File::OpenRead(resolvedTexturePath);
             } catch (const std::exception& exception) {
                 throw std::runtime_error(
                     std::string("ResolveTexture failed relativePath='")
                     + textureRelativePath
-                    + "' root='"
-                    + core->get_ContentManager()->get_RootDirectory()
-                    + "' fullPath='"
-                    + fullPath
+                    + "' resolvedPath='"
+                    + resolvedTexturePath
                     + "' inner="
                     + exception.what());
             }
@@ -558,6 +613,8 @@ namespace helengine::ps2 {
             LastVuPacketAssemblyMilliseconds(0.0),
             LastVuTrianglePrepMilliseconds(0.0),
             LastVuTriangleEmitMilliseconds(0.0),
+            LastVuTriangleLightingMilliseconds(0.0),
+            LastVuTrianglePayloadFillMilliseconds(0.0),
             LastResolvedViewport(),
           LastSubmittedScreenBounds(),
           LastSubmittedTriangleBoundsA(),
@@ -595,13 +652,16 @@ namespace helengine::ps2 {
             throw std::invalid_argument("PS2 cooked material path is required.");
         }
 
+        const std::string resolvedCookedAssetPath = ResolvePs2CookedAssetOpenPath(cookedAssetPath);
         ::FileStream* stream = nullptr;
         try {
-            stream = ::File::OpenRead(cookedAssetPath);
+            stream = ::File::OpenRead(resolvedCookedAssetPath);
         } catch (const std::exception& exception) {
             throw std::runtime_error(
                 std::string("BuildMaterialFromCooked failed path='")
                 + cookedAssetPath
+                + "' resolvedPath='"
+                + resolvedCookedAssetPath
                 + "' inner="
                 + exception.what());
         }
@@ -624,13 +684,16 @@ namespace helengine::ps2 {
             throw std::invalid_argument("PS2 cooked model path is required.");
         }
 
+        const std::string resolvedCookedAssetPath = ResolvePs2CookedAssetOpenPath(cookedAssetPath);
         ::FileStream* modelStream = nullptr;
         try {
-            modelStream = ::File::OpenRead(cookedAssetPath);
+            modelStream = ::File::OpenRead(resolvedCookedAssetPath);
         } catch (const std::exception& exception) {
             throw std::runtime_error(
                 std::string("BuildModelFromCooked failed path='")
                 + cookedAssetPath
+                + "' resolvedPath='"
+                + resolvedCookedAssetPath
                 + "' inner="
                 + exception.what());
         }
@@ -737,6 +800,8 @@ namespace helengine::ps2 {
         LastVuPacketAssemblyMilliseconds = 0.0;
         LastVuTrianglePrepMilliseconds = 0.0;
         LastVuTriangleEmitMilliseconds = 0.0;
+        LastVuTriangleLightingMilliseconds = 0.0;
+        LastVuTrianglePayloadFillMilliseconds = 0.0;
         LastResolvedViewport = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastSubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastSubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -896,9 +961,9 @@ namespace helengine::ps2 {
             LastVuTriangleSetupMilliseconds,
             LastVuTrianglePrepMilliseconds,
             LastVuTriangleEmitMilliseconds,
-            LastVuPacketEncodeMilliseconds,
-            LastVuSubmitMilliseconds,
-            LastVuWaitMilliseconds,
+            LastVuPacketAssemblyMilliseconds,
+            LastVuTriangleLightingMilliseconds,
+            LastVuTrianglePayloadFillMilliseconds,
             static_cast<int>(LastSubmittedTriangleCount),
             static_cast<int>(LastVuBatchDispatchCount));
     }
@@ -926,6 +991,17 @@ namespace helengine::ps2 {
             const std::clock_t vuInitialWaitEndTicks = std::clock();
             LastVuWaitMilliseconds += ResolveMillisecondsFromClockTicks(vuInitialWaitStartTicks, vuInitialWaitEndTicks);
             ::float4x4 world = BuildWorldMatrix(*batch.Proxy);
+            GSTEXTURE* batchTexture = nullptr;
+            int batchTextureWidth = 0;
+            int batchTextureHeight = 0;
+            if (batch.Material != nullptr && batch.Material->HasTextureRelativePath()) {
+                batchTexture = ResolveTexture(GsGlobal, batch.Material->GetTextureRelativePath());
+                if (batchTexture != nullptr) {
+                    batchTextureWidth = static_cast<int>(batchTexture->Width);
+                    batchTextureHeight = static_cast<int>(batchTexture->Height);
+                }
+            }
+
             VuGifStateEncoder.EncodeOpaqueState(batch, GsGlobal);
             VuVifPacketBuilder.Reset();
             const std::clock_t vuPacketEncodeStartTicks = std::clock();
@@ -938,8 +1014,9 @@ namespace helengine::ps2 {
                 nearPlaneDistance,
                 lightDirection,
                 GsGlobal,
-                0,
-                0);
+                batchTexture,
+                batchTextureWidth,
+                batchTextureHeight);
             packet2_t* packet = VuVifPacketBuilder.GetPacket();
             const std::clock_t vuPacketEncodeEndTicks = std::clock();
             LastVuPacketEncodeMilliseconds += ResolveMillisecondsFromClockTicks(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);
@@ -947,6 +1024,8 @@ namespace helengine::ps2 {
             LastVuPacketAssemblyMilliseconds += VuVifPacketBuilder.GetLastPacketAssemblyMilliseconds();
             LastVuTrianglePrepMilliseconds += VuVifPacketBuilder.GetLastTrianglePrepMilliseconds();
             LastVuTriangleEmitMilliseconds += VuVifPacketBuilder.GetLastTriangleEmitMilliseconds();
+            LastVuTriangleLightingMilliseconds += VuVifPacketBuilder.GetLastTriangleLightingMilliseconds();
+            LastVuTrianglePayloadFillMilliseconds += VuVifPacketBuilder.GetLastTrianglePayloadFillMilliseconds();
             if (packet == nullptr) {
                 continue;
             }
@@ -974,9 +1053,10 @@ namespace helengine::ps2 {
                     LastSubmittedScreenBounds.W = std::max(LastSubmittedScreenBounds.W, batchBounds.W);
                 }
             }
+            const bool useDirectGifDispatchDiagnostics = EnableVuDirectGifDispatchDiagnostics;
             if (EnableVuDispatchBypassDiagnostics) {
                 LastVuPacketPhase = 100;
-            } else if (EnableVuDirectGifDispatchDiagnostics) {
+            } else if (useDirectGifDispatchDiagnostics) {
                 packet2_t* gifPacket = nullptr;
                 std::size_t gifPacketByteCount = 0;
                 if (EnableVuDirectGifHelperTriangleDiagnostics) {
@@ -1033,6 +1113,20 @@ namespace helengine::ps2 {
                 const std::clock_t vuSubmitEndTicks = std::clock();
                 LastVuSubmitMilliseconds += ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);
                 LastVuPacketPhase = 203;
+                if (batch.Textured) {
+                    static std::uint32_t texturedSubmitDiagnosticCount = 0u;
+                    if (texturedSubmitDiagnosticCount < TexturedVuSubmitDiagnosticLogLimit) {
+                        texturedSubmitDiagnosticCount++;
+                        AppendDiagnosticToHostBootLog(
+                            std::string("[helengine-ps2] textured-vu submit")
+                            + " texture=" + (batch.Material != nullptr && batch.Material->HasTextureRelativePath() ? batch.Material->GetTextureRelativePath() : std::string("none"))
+                            + " submitted=" + std::to_string(VuVifPacketBuilder.GetSubmittedTriangleCount())
+                            + " vifBytes=" + std::to_string(VuVifPacketBuilder.GetPacketByteCount())
+                            + " phase=" + std::to_string(VuVifPacketBuilder.GetLastCompletedPhase())
+                            + " waitMs=" + std::to_string(LastVuWaitMilliseconds)
+                            + " submitMs=" + std::to_string(LastVuSubmitMilliseconds));
+                    }
+                }
             }
             (void)viewport;
             (void)nearPlaneDistance;

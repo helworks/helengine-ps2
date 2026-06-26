@@ -58,9 +58,25 @@ namespace helengine::ps2 {
         constexpr std::uint64_t TexturedTriangleRegisterList = static_cast<std::uint64_t>(GIF_REG_RGBAQ)
             | (static_cast<std::uint64_t>(GIF_REG_UV) << 4u)
             | (static_cast<std::uint64_t>(GIF_REG_XYZ2) << 8u);
+        constexpr std::uint32_t TexturedVuDiagnosticLogLimit = 16u;
         constexpr bool EnableTexturedWhiteColorDiagnostics = false;
         constexpr double CpuLightingScale = 191.0;
         constexpr double CpuLightingBias = 64.0;
+
+        int ResolveGsTextureDimensionExponent(int textureDimension) {
+            if (textureDimension <= 0) {
+                throw std::invalid_argument("PS2 GS texture dimension must be greater than zero.");
+            }
+
+            int exponent = 0;
+            int powerOfTwo = 1;
+            while (powerOfTwo < textureDimension) {
+                powerOfTwo <<= 1;
+                exponent++;
+            }
+
+            return exponent;
+        }
 
         struct alignas(16) Ps2VuGifQword final {
             std::uint64_t Low = 0;
@@ -106,6 +122,20 @@ namespace helengine::ps2 {
             std::uint8_t Alpha = 0x80;
         };
 
+        struct Ps2VuLightingConstants final {
+            std::uint8_t BaseColorR = 0xFF;
+            std::uint8_t BaseColorG = 0xFF;
+            std::uint8_t BaseColorB = 0xFF;
+            std::uint8_t BaseColorA = 0x80;
+            bool Unlit = false;
+            bool ShowcaseLit = false;
+            bool ExpensiveModeAllowed = false;
+            double DiffuseScale = 1.0;
+            double SpecularPower = 4.0;
+            double SpecularScale = 0.0;
+            double EmissiveBoost = 0.0;
+        };
+
         void PopulateTriangleGifPacketTemplate(
             const Ps2VuOpaqueBatch& batch,
             const Ps2VuFlatColor& flatColor,
@@ -114,7 +144,11 @@ namespace helengine::ps2 {
 
         packet2_t* CreatePacketOrThrow(std::uint16_t qwords, Packet2Mode mode);
 
+        void PopulateLightingConstants(const Ps2RuntimeMaterial& material, Ps2VuLightingConstants& lightingConstants);
+
         std::uint64_t ResolveTexturedVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection);
+
+        std::uint64_t ResolveTexturedVertexColor(const Ps2VuLightingConstants& lightingConstants, const ::float3& normalizedFaceNormal, const ::float3& normalizedLightDirection);
 
         static_assert((sizeof(Ps2VuUntexturedTriangleRecord) % 16u) == 0u);
         static_assert((sizeof(Ps2VuUntexturedSharedState) % 16u) == 0u);
@@ -355,6 +389,22 @@ namespace helengine::ps2 {
             return true;
         }
 
+        std::uint64_t BuildScreenSpacePositionRegister(
+            float screenX,
+            float screenY,
+            float screenZ,
+            GSGLOBAL* gsGlobal) {
+            if (gsGlobal == nullptr) {
+                throw std::invalid_argument("PS2 GS position register packing requires a GS global.");
+            }
+
+            const std::int32_t gsX = static_cast<std::int32_t>((2048.0f + screenX) * 16.0f);
+            const std::int32_t gsY = static_cast<std::int32_t>((2048.0f + screenY) * 16.0f);
+            const float gsDepth = 1.0f - screenZ;
+            const std::uint32_t gsZ = static_cast<std::uint32_t>(gsDepth * static_cast<float>(ResolveMaximumDepth(gsGlobal)));
+            return GS_SETREG_XYZ2(gsX, gsY, gsZ);
+        }
+
         ::float3 NormalizeOrFallback(const ::float3& value, const ::float3& fallback) {
             const float lengthSquared = ::float3::Dot(value, value);
             if (lengthSquared <= 0.000001f) {
@@ -494,12 +544,40 @@ namespace helengine::ps2 {
             return GS_SETREG_UV(static_cast<std::uint32_t>(u), static_cast<std::uint32_t>(v));
         }
 
+        std::uint8_t ApplyIntensityToChannel(std::uint8_t channel, std::uint8_t intensity) {
+            const std::uint32_t litChannel = (static_cast<std::uint32_t>(channel) * static_cast<std::uint32_t>(intensity)) + 127u;
+            return static_cast<std::uint8_t>(litChannel / 255u);
+        }
+
+        void PopulateLightingConstants(const Ps2RuntimeMaterial& material, Ps2VuLightingConstants& lightingConstants) {
+            lightingConstants.BaseColorR = material.GetBaseColorR();
+            lightingConstants.BaseColorG = material.GetBaseColorG();
+            lightingConstants.BaseColorB = material.GetBaseColorB();
+            lightingConstants.BaseColorA = material.GetBaseColorA();
+            lightingConstants.Unlit = material.GetLightingMode() == ::Ps2MaterialLightingMode::Unlit;
+            lightingConstants.ShowcaseLit = material.GetLightingMode() == ::Ps2MaterialLightingMode::ShowcaseLit;
+            lightingConstants.ExpensiveModeAllowed = material.GetExpensiveModeAllowed();
+            if (lightingConstants.Unlit) {
+                lightingConstants.DiffuseScale = 1.0;
+                lightingConstants.SpecularPower = 4.0;
+                lightingConstants.SpecularScale = 0.0;
+                lightingConstants.EmissiveBoost = 0.0;
+                return;
+            }
+
+            const double roughness = std::clamp(static_cast<double>(material.GetRoughness()), 0.0, 1.0);
+            const double specularStrength = std::clamp(static_cast<double>(material.GetSpecularStrength()), 0.0, 1.0);
+            const double emissiveStrength = std::clamp(static_cast<double>(material.GetEmissiveStrength()), 0.0, 1.0);
+            lightingConstants.DiffuseScale = 1.0 - (roughness * 0.35);
+            lightingConstants.SpecularPower = 4.0 + ((1.0 - roughness) * 8.0);
+            lightingConstants.SpecularScale = specularStrength * (lightingConstants.ShowcaseLit ? 96.0 : 48.0);
+            lightingConstants.EmissiveBoost = emissiveStrength * (lightingConstants.ShowcaseLit ? 72.0 : 24.0);
+        }
+
         std::uint64_t ResolveTexturedVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection) {
-            const std::uint8_t baseColorR = material.GetBaseColorR();
-            const std::uint8_t baseColorG = material.GetBaseColorG();
-            const std::uint8_t baseColorB = material.GetBaseColorB();
-            const std::uint8_t baseColorA = material.GetBaseColorA();
-            if (material.GetLightingMode() == ::Ps2MaterialLightingMode::Unlit) {
+            Ps2VuLightingConstants lightingConstants {};
+            PopulateLightingConstants(material, lightingConstants);
+            if (lightingConstants.Unlit) {
                 return GS_SETREG_RGBAQ(0xC0, 0xC0, 0xC0, 0x80, 0x00);
             }
 
@@ -512,78 +590,145 @@ namespace helengine::ps2 {
 
             const ::float3 normalizedFaceNormal = NormalizeOrFallback(normal, ::float3(0.0f, 0.0f, -1.0f));
             const ::float3 normalizedLightDirection = NormalizeOrFallback(lightDirection, ::float3(0.0f, 0.0f, -1.0f));
+            return ResolveTexturedVertexColor(lightingConstants, normalizedFaceNormal, normalizedLightDirection);
+        }
+
+        std::uint64_t ResolveTexturedVertexColor(const Ps2VuLightingConstants& lightingConstants, const ::float3& normalizedFaceNormal, const ::float3& normalizedLightDirection) {
+            if (lightingConstants.Unlit) {
+                return GS_SETREG_RGBAQ(0xC0, 0xC0, 0xC0, 0x80, 0x00);
+            }
+
             const double ndotl = std::max(
                 0.0,
                 (static_cast<double>(normalizedFaceNormal.X) * static_cast<double>(normalizedLightDirection.X))
                     + (static_cast<double>(normalizedFaceNormal.Y) * static_cast<double>(normalizedLightDirection.Y))
                     + (static_cast<double>(normalizedFaceNormal.Z) * static_cast<double>(normalizedLightDirection.Z)));
-            const double roughness = std::clamp(static_cast<double>(material.GetRoughness()), 0.0, 1.0);
-            const double specularStrength = std::clamp(static_cast<double>(material.GetSpecularStrength()), 0.0, 1.0);
-            const double emissiveStrength = std::clamp(static_cast<double>(material.GetEmissiveStrength()), 0.0, 1.0);
-            const double diffuseScale = 1.0 - (roughness * 0.35);
-            const double baseIntensity = CpuLightingBias + (ndotl * CpuLightingScale * diffuseScale);
-            const double specularPower = 4.0 + ((1.0 - roughness) * 8.0);
-            const double specularBoost = std::pow(ndotl, specularPower) * specularStrength * (material.GetLightingMode() == ::Ps2MaterialLightingMode::ShowcaseLit ? 96.0 : 48.0);
-            const double emissiveBoost = emissiveStrength * (material.GetLightingMode() == ::Ps2MaterialLightingMode::ShowcaseLit ? 72.0 : 24.0);
-            double intensityValue = baseIntensity + specularBoost + emissiveBoost;
-            if (material.GetLightingMode() == ::Ps2MaterialLightingMode::ShowcaseLit && material.GetExpensiveModeAllowed()) {
+            const double baseIntensity = CpuLightingBias + (ndotl * CpuLightingScale * lightingConstants.DiffuseScale);
+            const double specularBoost = std::pow(ndotl, lightingConstants.SpecularPower) * lightingConstants.SpecularScale;
+            double intensityValue = baseIntensity + specularBoost + lightingConstants.EmissiveBoost;
+            if (lightingConstants.ShowcaseLit && lightingConstants.ExpensiveModeAllowed) {
                 intensityValue += 24.0 + (ndotl * 28.0);
             }
 
             const std::uint8_t intensity = static_cast<std::uint8_t>(std::clamp(std::lround(intensityValue), 0l, 255l));
-            const auto applyIntensity = [intensity](std::uint8_t channel) {
-                const double litChannel = (static_cast<double>(channel) * static_cast<double>(intensity)) / 255.0;
-                return static_cast<std::uint8_t>(std::clamp(std::lround(litChannel), 0l, 255l));
-            };
-
             return GS_SETREG_RGBAQ(
-                applyIntensity(baseColorR),
-                applyIntensity(baseColorG),
-                applyIntensity(baseColorB),
-                baseColorA,
+                ApplyIntensityToChannel(lightingConstants.BaseColorR, intensity),
+                ApplyIntensityToChannel(lightingConstants.BaseColorG, intensity),
+                ApplyIntensityToChannel(lightingConstants.BaseColorB, intensity),
+                lightingConstants.BaseColorA,
                 0x00);
         }
 
         std::vector<std::uint8_t> BuildTexturedTriangleGifPacketBytes(
+            GSGLOBAL* gsGlobal,
+            const GSTEXTURE* texture,
             int textureWidth,
             int textureHeight,
             std::uint64_t triangleColor,
             const Ps2VuTexturedClipVertex& vertexA,
             const Ps2VuTexturedClipVertex& vertexB,
             const Ps2VuTexturedClipVertex& vertexC,
-            std::uint64_t positionARegister,
-            std::uint64_t positionBRegister,
-            std::uint64_t positionCRegister) {
-            std::unique_ptr<packet2_t, decltype(&packet2_free)> gifPacket(CreatePacketOrThrow(32u, P2_MODE_NORMAL), &packet2_free);
+            float screenAX,
+            float screenAY,
+            float screenAZ,
+            float screenBX,
+            float screenBY,
+            float screenBZ,
+            float screenCX,
+            float screenCY,
+            float screenCZ) {
+            if (gsGlobal == nullptr) {
+                throw std::invalid_argument("PS2 VU textured GIF packet encoding requires a GS global.");
+            }
+            if (texture == nullptr) {
+                throw std::invalid_argument("PS2 VU textured GIF packet encoding requires a texture.");
+            }
+
+            const int textureWidthPower = ResolveGsTextureDimensionExponent(texture->Width);
+            const int textureHeightPower = ResolveGsTextureDimensionExponent(texture->Height);
             prim_t prim = {};
             prim.type = PRIM_TRIANGLE;
-            prim.shading = PRIM_SHADE_FLAT;
+            prim.shading = PRIM_SHADE_GOURAUD;
             prim.mapping = 1;
             prim.fogging = 0;
             prim.blending = 0;
             prim.antialiasing = 0;
             prim.mapping_type = PRIM_MAP_UV;
             prim.colorfix = PRIM_UNFIXED;
-            color_t flatColor = {};
-            flatColor.r = static_cast<std::uint8_t>(triangleColor & 0xFFu);
-            flatColor.g = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
-            flatColor.b = static_cast<std::uint8_t>((triangleColor >> 16u) & 0xFFu);
-            flatColor.a = static_cast<std::uint8_t>((triangleColor >> 24u) & 0xFFu);
-            packet2_update(gifPacket.get(), draw_prim_start(gifPacket.get()->base, 0, &prim, &flatColor));
-            packet2_add_u64(gifPacket.get(), triangleColor);
-            packet2_add_u64(gifPacket.get(), BuildGsUvRegister(ResolveGsTextureCoordinate(vertexA.TexCoord, textureWidth, textureHeight)));
-            packet2_add_u64(gifPacket.get(), positionARegister);
-            packet2_add_u64(gifPacket.get(), triangleColor);
-            packet2_add_u64(gifPacket.get(), BuildGsUvRegister(ResolveGsTextureCoordinate(vertexB.TexCoord, textureWidth, textureHeight)));
-            packet2_add_u64(gifPacket.get(), positionBRegister);
-            packet2_add_u64(gifPacket.get(), triangleColor);
-            packet2_add_u64(gifPacket.get(), BuildGsUvRegister(ResolveGsTextureCoordinate(vertexC.TexCoord, textureWidth, textureHeight)));
-            packet2_add_u64(gifPacket.get(), positionCRegister);
-            packet2_pad128(gifPacket.get(), 0);
-            packet2_update(gifPacket.get(), draw_prim_end(gifPacket.get()->next, 3, TexturedTriangleRegisterList));
-            const std::size_t gifPacketByteCount = static_cast<std::size_t>(packet2_get_qw_count(gifPacket.get())) * 16u;
+            const std::uint64_t texturedTriangleGifTag = GIF_TAG_TRIANGLE_GORAUD_TEXTURED(1);
+            const std::uint64_t texturedTriangleGifRegisters = GIF_TAG_TRIANGLE_GORAUD_TEXTURED_REGS(gsGlobal->PrimContext);
+            const ::float2 screenTexCoordA = ResolveGsTextureCoordinate(vertexA.TexCoord, textureWidth, textureHeight);
+            const ::float2 screenTexCoordB = ResolveGsTextureCoordinate(vertexB.TexCoord, textureWidth, textureHeight);
+            const ::float2 screenTexCoordC = ResolveGsTextureCoordinate(vertexC.TexCoord, textureWidth, textureHeight);
+            const std::uint64_t uvRegisterA = BuildGsUvRegister(screenTexCoordA);
+            const std::uint64_t uvRegisterB = BuildGsUvRegister(screenTexCoordB);
+            const std::uint64_t uvRegisterC = BuildGsUvRegister(screenTexCoordC);
+            const std::uint64_t positionARegister = BuildScreenSpacePositionRegister(screenAX, screenAY, screenAZ, gsGlobal);
+            const std::uint64_t positionBRegister = BuildScreenSpacePositionRegister(screenBX, screenBY, screenBZ, gsGlobal);
+            const std::uint64_t positionCRegister = BuildScreenSpacePositionRegister(screenCX, screenCY, screenCZ, gsGlobal);
+            std::array<std::uint64_t, 22u> packetWords {};
+            std::size_t packetWordIndex = 0u;
+            packetWords[packetWordIndex++] = GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1);
+            packetWords[packetWordIndex++] = GIF_REG_AD;
+            packetWords[packetWordIndex++] = ResolveOpaqueUntexturedTestRegister(gsGlobal);
+            packetWords[packetWordIndex++] = GS_REG_TEST;
+            packetWords[packetWordIndex++] = GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1);
+            packetWords[packetWordIndex++] = GIF_REG_AD;
+            packetWords[packetWordIndex++] = GS_SET_TEX1(0, 0, texture->Filter, texture->Filter, 0, 0, 0);
+            packetWords[packetWordIndex++] = GS_REG_TEX1;
+            packetWords[packetWordIndex++] = texturedTriangleGifTag;
+            packetWords[packetWordIndex++] = texturedTriangleGifRegisters;
+            if (texture->VramClut == 0) {
+                packetWords[packetWordIndex++] = GS_SETREG_TEX0(
+                    texture->Vram / 256,
+                    texture->TBW,
+                    texture->PSM,
+                    textureWidthPower,
+                    textureHeightPower,
+                    gsGlobal->PrimAlphaEnable,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    GS_CLUT_STOREMODE_NOLOAD);
+            } else {
+                packetWords[packetWordIndex++] = GS_SETREG_TEX0(
+                    texture->Vram / 256,
+                    texture->TBW,
+                    texture->PSM,
+                    textureWidthPower,
+                    textureHeightPower,
+                    gsGlobal->PrimAlphaEnable,
+                    0,
+                    texture->VramClut / 256,
+                    texture->ClutPSM,
+                    texture->ClutStorageMode,
+                    0,
+                    GS_CLUT_STOREMODE_LOAD);
+            }
+            packetWords[packetWordIndex++] = GS_SETREG_PRIM(
+                GS_PRIM_PRIM_TRIANGLE,
+                prim.shading,
+                prim.mapping,
+                gsGlobal->PrimFogEnable,
+                gsGlobal->PrimAlphaEnable,
+                gsGlobal->PrimAAEnable,
+                1,
+                gsGlobal->PrimContext,
+                0);
+            packetWords[packetWordIndex++] = triangleColor;
+            packetWords[packetWordIndex++] = uvRegisterA;
+            packetWords[packetWordIndex++] = positionARegister;
+            packetWords[packetWordIndex++] = triangleColor;
+            packetWords[packetWordIndex++] = uvRegisterB;
+            packetWords[packetWordIndex++] = positionBRegister;
+            packetWords[packetWordIndex++] = triangleColor;
+            packetWords[packetWordIndex++] = uvRegisterC;
+            packetWords[packetWordIndex++] = positionCRegister;
+            const std::size_t gifPacketByteCount = packetWords.size() * sizeof(std::uint64_t);
             std::vector<std::uint8_t> gifPacketBytes(gifPacketByteCount);
-            std::memcpy(gifPacketBytes.data(), gifPacket.get()->base, gifPacketByteCount);
+            std::memcpy(gifPacketBytes.data(), packetWords.data(), gifPacketByteCount);
             return gifPacketBytes;
         }
     }
@@ -604,6 +749,8 @@ namespace helengine::ps2 {
         LastPacketAssemblyMilliseconds = 0.0;
         LastTrianglePrepMilliseconds = 0.0;
         LastTriangleEmitMilliseconds = 0.0;
+        LastTriangleLightingMilliseconds = 0.0;
+        LastTrianglePayloadFillMilliseconds = 0.0;
         SubmittedTriangleCount = 0;
         SubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         SubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -616,7 +763,7 @@ namespace helengine::ps2 {
         SubmittedTriangleVertexB2 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
     }
 
-    void Ps2VuVifPacketBuilder::AddOpaqueBatch(const Ps2VuOpaqueBatch& batch, const ::float4x4& world, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance, const ::float3& lightDirection, GSGLOBAL* gsGlobal, int textureWidth, int textureHeight) {
+    void Ps2VuVifPacketBuilder::AddOpaqueBatch(const Ps2VuOpaqueBatch& batch, const ::float4x4& world, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance, const ::float3& lightDirection, GSGLOBAL* gsGlobal, GSTEXTURE* texture, int textureWidth, int textureHeight) {
         if (batch.Model == nullptr || batch.Material == nullptr) {
             return;
         }
@@ -636,7 +783,15 @@ namespace helengine::ps2 {
         }
 
         const ::float3 normalizedLightDirection = NormalizeOrFallback(lightDirection, ::float3(0.0f, 0.0f, -1.0f));
-        const bool textured = batch.Textured && textureWidth > 0 && textureHeight > 0;
+        const bool textured = batch.Textured && texture != nullptr && textureWidth > 0 && textureHeight > 0;
+        std::uint32_t texturedSourceTriangleCount = 0u;
+        std::uint32_t texturedClipRejectCount = 0u;
+        std::uint32_t texturedProjectionRejectCount = 0u;
+        std::uint32_t texturedCullRejectCount = 0u;
+        std::uint32_t texturedEmittedTriangleCount = 0u;
+        if (textured) {
+            gsKit_set_texfilter(gsGlobal, texture->Filter);
+        }
         std::vector<Ps2VuUntexturedTrianglePayload> untexturedTrianglePayloads;
         untexturedTrianglePayloads.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);
         std::vector<Ps2VuGifTemplateCacheEntry> gifTemplateCache;
@@ -679,11 +834,12 @@ namespace helengine::ps2 {
             const float* packedPositionWords = reinterpret_cast<const float*>(batch.Model->GetPositionBlockBytes());
             const float* packedNormalWords = reinterpret_cast<const float*>(batch.Model->GetNormalBlockBytes());
             PopulateUntexturedSharedState(world, view, projection, viewport, sharedStateTemplate);
+            Ps2VuLightingConstants lightingConstants {};
+            PopulateLightingConstants(*batch.Material, lightingConstants);
+            std::clock_t accumulatedTriangleLightingTicks = 0;
+            std::clock_t accumulatedTrianglePayloadFillTicks = 0;
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
-                std::clock_t trianglePrepStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    trianglePrepStartTicks = std::clock();
-                }
+                const std::clock_t trianglePrepStartTicks = std::clock();
 
                 const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
                 const std::size_t positionWordIndexB = static_cast<std::size_t>(vertexIndex + 1u) * 4u;
@@ -709,22 +865,22 @@ namespace helengine::ps2 {
                 const ::float3 worldFaceNormal = NormalizeOrFallback(
                     TransformPosition(::float4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f), world),
                     ::float3(0.0f, 0.0f, -1.0f));
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    const std::clock_t trianglePrepEndTicks = std::clock();
-                    LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
-                }
+                const std::clock_t trianglePrepEndTicks = std::clock();
+                LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
 
-                std::clock_t triangleEmitStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    triangleEmitStartTicks = std::clock();
-                }
+                const std::clock_t triangleEmitStartTicks = std::clock();
 
-                const std::uint64_t triangleColor = ResolveTexturedVertexColor(*batch.Material, worldFaceNormal, normalizedLightDirection);
+                const std::clock_t triangleLightingStartTicks = std::clock();
+                const std::uint64_t triangleColor = ResolveTexturedVertexColor(lightingConstants, worldFaceNormal, normalizedLightDirection);
                 Ps2VuFlatColor flatColor {};
                 flatColor.Red = static_cast<std::uint8_t>(triangleColor & 0xFFu);
                 flatColor.Green = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
                 flatColor.Blue = static_cast<std::uint8_t>((triangleColor >> 16u) & 0xFFu);
                 flatColor.Alpha = static_cast<std::uint8_t>((triangleColor >> 24u) & 0xFFu);
+                const std::clock_t triangleLightingEndTicks = std::clock();
+                accumulatedTriangleLightingTicks += (triangleLightingEndTicks - triangleLightingStartTicks);
+
+                const std::clock_t trianglePayloadFillStartTicks = std::clock();
                 Ps2VuUntexturedTrianglePayload payload {};
                 CopyCachedTriangleGifPacketTemplate(batch, flatColor, gsGlobal, gifTemplateCache, payload.TriangleRecord);
                 std::memcpy(&payload.SharedState, &sharedStateTemplate, sizeof(sharedStateTemplate));
@@ -741,15 +897,17 @@ namespace helengine::ps2 {
                 payload.TriangleRecord.SourceTriangle.PositionC[2] = packedPositionWords[positionWordIndexC + 2u];
                 payload.TriangleRecord.SourceTriangle.PositionC[3] = 1.0f;
                 untexturedTrianglePayloads.push_back(payload);
+                const std::clock_t trianglePayloadFillEndTicks = std::clock();
+                accumulatedTrianglePayloadFillTicks += (trianglePayloadFillEndTicks - trianglePayloadFillStartTicks);
                 SubmittedTriangleCount++;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    const std::clock_t triangleEmitEndTicks = std::clock();
-                    LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
-                }
+                const std::clock_t triangleEmitEndTicks = std::clock();
+                LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
                 if (EnableVuSingleDispatchDiagnostic) {
                     break;
                 }
             }
+            LastTriangleLightingMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTriangleLightingTicks);
+            LastTrianglePayloadFillMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTrianglePayloadFillTicks);
         } else {
             std::vector<Ps2VuTexturedClipVertex> clippedTexturedVertices;
             clippedTexturedVertices.reserve(4u);
@@ -761,6 +919,7 @@ namespace helengine::ps2 {
             const float* packedNormalWords = reinterpret_cast<const float*>(batch.Model->GetNormalBlockBytes());
             const float* packedTexCoordWords = textured ? reinterpret_cast<const float*>(batch.Model->GetTexCoordBlockBytes()) : nullptr;
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
+                texturedSourceTriangleCount++;
                 std::clock_t trianglePrepStartTicks = 0;
                 if (EnableVuPerTriangleTimingDiagnostics) {
                     trianglePrepStartTicks = std::clock();
@@ -873,6 +1032,7 @@ namespace helengine::ps2 {
 
                 const std::size_t clippedVertexCount = clippedTexturedVertices.size();
                 if (clippedVertexCount < 3u) {
+                    texturedClipRejectCount++;
                     continue;
                 }
 
@@ -895,11 +1055,7 @@ namespace helengine::ps2 {
                     if (!TryBuildVertexPositionRegister(clippedPositionA, projection, viewport, gsGlobal, screenAX, screenAY, screenAZ, positionARegister)
                         || !TryBuildVertexPositionRegister(clippedPositionB, projection, viewport, gsGlobal, screenBX, screenBY, screenBZ, positionBRegister)
                         || !TryBuildVertexPositionRegister(clippedPositionC, projection, viewport, gsGlobal, screenCX, screenCY, screenCZ, positionCRegister)) {
-                        continue;
-                    }
-
-                    if (!batch.Material->GetDoubleSided()
-                        && !IsFrontFacingTriangle(screenAX, screenAY, screenBX, screenBY, screenCX, screenCY)) {
+                        texturedProjectionRejectCount++;
                         continue;
                     }
 
@@ -919,15 +1075,24 @@ namespace helengine::ps2 {
                         : ResolveTexturedVertexColor(*batch.Material, triangleWorldNormal, normalizedLightDirection);
                     texturedTrianglePackets.push_back(
                         BuildTexturedTriangleGifPacketBytes(
+                            gsGlobal,
+                            texture,
                             textureWidth,
                             textureHeight,
                             triangleColor,
                             clippedTexturedVertices[0],
                             clippedTexturedVertices[clippedIndex],
                             clippedTexturedVertices[clippedIndex + 1u],
-                            positionARegister,
-                            positionBRegister,
-                            positionCRegister));
+                            screenAX,
+                            screenAY,
+                            screenAZ,
+                            screenBX,
+                            screenBY,
+                            screenBZ,
+                            screenCX,
+                            screenCY,
+                            screenCZ));
+                    texturedEmittedTriangleCount++;
                     const float minX = std::min({ screenAX, screenBX, screenCX });
                     const float minY = std::min({ screenAY, screenBY, screenCY });
                     const float maxX = std::max({ screenAX, screenBX, screenCX });
@@ -966,6 +1131,19 @@ namespace helengine::ps2 {
         }
 
         if (textured && texturedTrianglePackets.empty()) {
+            static std::uint32_t texturedEmptyPacketDiagnosticCount = 0u;
+            if (texturedEmptyPacketDiagnosticCount < TexturedVuDiagnosticLogLimit) {
+                texturedEmptyPacketDiagnosticCount++;
+                AppendDiagnosticToHostBootLog(
+                    std::string("[helengine-ps2] textured-vu empty")
+                    + " texture=" + batch.Material->GetTextureRelativePath()
+                    + " src=" + std::to_string(texturedSourceTriangleCount)
+                    + " clipReject=" + std::to_string(texturedClipRejectCount)
+                    + " projReject=" + std::to_string(texturedProjectionRejectCount)
+                    + " cullReject=" + std::to_string(texturedCullRejectCount)
+                    + " emitted=" + std::to_string(texturedEmittedTriangleCount)
+                    + " submitted=" + std::to_string(SubmittedTriangleCount));
+            }
             return;
         }
 
@@ -1063,7 +1241,39 @@ namespace helengine::ps2 {
         const std::clock_t packetAssemblyEndTicks = std::clock();
         LastPacketAssemblyMilliseconds = ResolveMillisecondsFromClockTicks(packetAssemblyStartTicks, packetAssemblyEndTicks);
         std::uint32_t packetQwordCount = packet2_get_qw_count(Packet);
-        (void)packetQwordCount;
+        if (textured) {
+            static std::uint32_t texturedPacketDiagnosticCount = 0u;
+            if (texturedPacketDiagnosticCount < TexturedVuDiagnosticLogLimit) {
+                texturedPacketDiagnosticCount++;
+                AppendDiagnosticToHostBootLog(
+                    std::string("[helengine-ps2] textured-vu packet")
+                    + " texture=" + batch.Material->GetTextureRelativePath()
+                    + " src=" + std::to_string(texturedSourceTriangleCount)
+                    + " clipReject=" + std::to_string(texturedClipRejectCount)
+                    + " projReject=" + std::to_string(texturedProjectionRejectCount)
+                    + " cullReject=" + std::to_string(texturedCullRejectCount)
+                    + " emitted=" + std::to_string(texturedEmittedTriangleCount)
+                    + " submitted=" + std::to_string(SubmittedTriangleCount)
+                    + " gifBytes=" + std::to_string(GifPacketBytes.size())
+                    + " vifQwc=" + std::to_string(packetQwordCount)
+                    + " vifBytes=" + std::to_string(static_cast<std::size_t>(packetQwordCount) * 16u)
+                    + " phase=" + std::to_string(LastCompletedPhase)
+                    + " texW=" + std::to_string(textureWidth)
+                    + " texH=" + std::to_string(textureHeight)
+                    + " filter=" + std::to_string(texture->Filter)
+                    + " tbw=" + std::to_string(texture->TBW)
+                    + " psm=" + std::to_string(texture->PSM));
+            }
+
+            static std::uint32_t texturedPacketDumpCount = 0u;
+            if (texturedPacketDumpCount < 2u && !GifPacketBytes.empty()) {
+                texturedPacketDumpCount++;
+                AppendDiagnosticToHostBootLog(
+                    std::string("[helengine-ps2] textured-vu gif qwords")
+                    + " texture=" + batch.Material->GetTextureRelativePath()
+                    + FormatGifTemplateQwords(GifPacketBytes.data(), GifPacketBytes.size() / 16u));
+            }
+        }
         LastCompletedPhase = 11;
     }
 
@@ -1101,6 +1311,14 @@ namespace helengine::ps2 {
 
     double Ps2VuVifPacketBuilder::GetLastTriangleEmitMilliseconds() const {
         return LastTriangleEmitMilliseconds;
+    }
+
+    double Ps2VuVifPacketBuilder::GetLastTriangleLightingMilliseconds() const {
+        return LastTriangleLightingMilliseconds;
+    }
+
+    double Ps2VuVifPacketBuilder::GetLastTrianglePayloadFillMilliseconds() const {
+        return LastTrianglePayloadFillMilliseconds;
     }
 
     std::size_t Ps2VuVifPacketBuilder::GetSubmittedTriangleCount() const {
