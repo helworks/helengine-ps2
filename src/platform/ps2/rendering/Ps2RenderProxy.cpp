@@ -46,7 +46,11 @@ namespace helengine::ps2 {
         }
 
         Model = he_cpp_try_cast<Ps2RuntimeModel>(drawable->get_Model());
-        Material = he_cpp_try_cast<Ps2RuntimeMaterial>(drawable->get_Material());
+        Array<::RuntimeMaterial*>* materials = drawable->get_Materials();
+        ::RuntimeMaterial* runtimeMaterial = materials != nullptr && materials->Length > 0
+            ? (*materials)[0]
+            : nullptr;
+        Material = he_cpp_try_cast<Ps2RuntimeMaterial>(runtimeMaterial);
         Static = parent->get_Static();
     }
 }

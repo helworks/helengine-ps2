@@ -97,10 +97,12 @@
 extern "C" {
     extern u32 Ps2OpaqueDraw3D_CodeStart __attribute__((section(".vudata")));
     extern u32 Ps2OpaqueDraw3D_CodeEnd __attribute__((section(".vudata")));
+    extern u32 Ps2OpaqueTexturedDraw3D_CodeStart __attribute__((section(".vudata")));
+    extern u32 Ps2OpaqueTexturedDraw3D_CodeEnd __attribute__((section(".vudata")));
 }
 
 namespace {
-    constexpr const char* Ps2BootVersionStamp = "PS2CITYBOOT-4";
+    constexpr const char* Ps2BootVersionStamp = "PS2CITYBOOT-5";
     constexpr int Ps2DefaultFramebufferWidth = 640;
     constexpr int Ps2DefaultFramebufferHeight = 448;
     constexpr const char* CubeModelDiagnosticPath = "cdrom0:\\COOKED\\ENGINE\\MODELS\\CUBE.HAS;1";
@@ -116,11 +118,13 @@ namespace {
     constexpr bool EnableCubeRuntimeDiagnosticImmediateHalt = false;
     constexpr bool EnableCubeRuntimePhaseFrameProbe = false;
     constexpr double CubeRuntimeDiagnosticWatchSeconds = 5.0;
-    constexpr const char* CubeRuntimeDiagnosticSceneId = "cube_test";
+    constexpr const char* CubeRuntimeDiagnosticSceneId = "textured_cube_grid";
     constexpr bool EnableVerboseEntityDisposalDiagnostics = false;
     constexpr bool EnableVerboseUpdateStageDiagnostics = false;
     constexpr bool EnableFrameTimingDiagnostics = false;
     constexpr bool EnableFrameTimingDiagnosticHalt = false;
+    constexpr bool EnableFirstUpdateStateHalt = false;
+    constexpr const char* StartupSceneDiagnosticOverrideId = "textured_cube_grid";
     int32_t PendingDraw3dInspectionFrameCount = 0;
     std::string PendingDraw3dInspectionSceneId;
     constexpr bool EnableStartupSceneLoadTimingDiagnostic = true;
@@ -155,6 +159,7 @@ namespace {
     bool CubeFrameGifWaitBeginLogged = false;
     bool CubeFrameGifWaitEndLogged = false;
     bool LoggedFirst2dCommandTrace = false;
+    std::string Pending2dCommandTraceSceneId;
     bool Draw2dExecutionDiagnosticsCompleted = false;
     int32_t ActiveDraw2dDiagnosticCommandIndex = -1;
     double FrameTimingUpdateSeconds = 0.0;
@@ -181,6 +186,7 @@ namespace {
     std::string FrameTimingOverlayLine2;
     std::vector<std::string> BootLogHistory;
     bool BootLogHostFileStatusPrinted = false;
+    GSGLOBAL* ActiveGsGlobal = nullptr;
     double CookedTextureOpenMilliseconds = 0.0;
     double CookedTextureBufferedReadMilliseconds = 0.0;
     double CookedTextureDeserializeMilliseconds = 0.0;
@@ -272,7 +278,9 @@ namespace {
             const std::string sincePrevious = FormatMillisecondsFromClockTicks(LastSceneStageTicks, nowTicks);
             const std::string sinceStart = FormatMillisecondsFromClockTicks(SceneLoadStartTicks, nowTicks);
             BootLog(
-                std::string("scene stage=")
+                std::string("scene id=")
+                + sceneId
+                + " stage="
                 + stage
                 + " dt="
                 + sincePrevious
@@ -282,6 +290,12 @@ namespace {
                 + std::to_string(loadedSceneCount)
                 + " pending="
                 + std::to_string(pendingOperationCount));
+            if (String::Equals(stage, "LoadSceneImmediateEnd", StringComparison::Ordinal)
+                && (sceneId.find("colored_cube_grid") != std::string::npos
+                    || sceneId.find("textured_cube_grid") != std::string::npos)) {
+                Pending2dCommandTraceSceneId = sceneId;
+                LoggedFirst2dCommandTrace = false;
+            }
             LastSceneStage = stage;
             LastSceneStageTicks = nowTicks;
         }
@@ -357,6 +371,19 @@ namespace {
 
     bool IsPs2DiscRuntimePath(const std::string& path) {
         return path.rfind("cdrom0:", 0) == 0;
+    }
+
+    std::string ResolvePs2CookedAssetOpenPath(const std::string& path) {
+        if (path.empty() || IsPs2DiscRuntimePath(path)) {
+            return path;
+        }
+
+        const char* physicalPath = he_get_runtime_ps2_asset_physical_path(path.c_str());
+        if (physicalPath == nullptr || physicalPath[0] == '\0') {
+            return path;
+        }
+
+        return physicalPath;
     }
 
     ::Array<uint8_t>* ReadPs2DiscFileBytes(const std::string& path, double& openMilliseconds, double& readMilliseconds) {
@@ -481,7 +508,10 @@ namespace {
         const int32_t maxLoggedDrawables = std::min(drawables->get_Count(), static_cast<int32_t>(8));
         for (int32_t index = 0; index < maxLoggedDrawables; index++) {
             ::IDrawable3D* drawable = (*drawables)[index];
-            ::RuntimeMaterial* runtimeMaterial = drawable != nullptr ? drawable->get_Material() : nullptr;
+            Array<::RuntimeMaterial*>* runtimeMaterials = drawable != nullptr ? drawable->get_Materials() : nullptr;
+            ::RuntimeMaterial* runtimeMaterial = runtimeMaterials != nullptr && runtimeMaterials->get_Length() > 0
+                ? (*runtimeMaterials)[0]
+                : nullptr;
             auto ps2Material = he_cpp_try_cast<helengine::ps2::Ps2RuntimeMaterial>(runtimeMaterial);
             const std::string materialId = runtimeMaterial != nullptr ? runtimeMaterial->get_Id() : std::string("null");
             const std::string texturePath = ps2Material != nullptr ? ps2Material->GetTextureRelativePath() : std::string();
@@ -544,6 +574,7 @@ namespace {
         init_scr();
         scr_setbgcolor(0x101010);
         scr_clear();
+        scr_setXY(0, 0);
 
         const int historyCount = static_cast<int>(BootLogHistory.size());
         const int startIndex = std::max(0, historyCount - 30);
@@ -1010,6 +1041,10 @@ namespace {
 
     [[noreturn]] void FatalHalt(const char* message) {
         BootLog(message);
+        PresentBootLogHistoryToDebugConsole();
+        if (ActiveGsGlobal != nullptr) {
+            gsKit_sync_flip(ActiveGsGlobal);
+        }
         while (true) {
         }
     }
@@ -1017,8 +1052,6 @@ namespace {
     [[noreturn]] void FatalHalt(const std::string& message) {
         FatalHalt(message.c_str());
     }
-
-    GSGLOBAL* ActiveGsGlobal = nullptr;
 
     struct Ps2TextureRecord {
         GSTEXTURE Texture {};
@@ -1236,9 +1269,11 @@ namespace {
     }
 
     void UploadVuOpaqueMicroProgram() {
-        const u32 packetSize = packet2_utils_get_packet_size_for_program(&Ps2OpaqueDraw3D_CodeStart, &Ps2OpaqueDraw3D_CodeEnd) + 1;
-        packet2_t* packet2 = packet2_create(packetSize, P2_TYPE_NORMAL, P2_MODE_CHAIN, 1);
+        const u32 untexturedPacketSize = packet2_utils_get_packet_size_for_program(&Ps2OpaqueDraw3D_CodeStart, &Ps2OpaqueDraw3D_CodeEnd) + 1;
+        const u32 texturedPacketSize = packet2_utils_get_packet_size_for_program(&Ps2OpaqueTexturedDraw3D_CodeStart, &Ps2OpaqueTexturedDraw3D_CodeEnd) + 1;
+        packet2_t* packet2 = packet2_create(untexturedPacketSize + texturedPacketSize, P2_TYPE_NORMAL, P2_MODE_CHAIN, 1);
         packet2_vif_add_micro_program(packet2, 0, &Ps2OpaqueDraw3D_CodeStart, &Ps2OpaqueDraw3D_CodeEnd);
+        packet2_vif_add_micro_program(packet2, 64, &Ps2OpaqueTexturedDraw3D_CodeStart, &Ps2OpaqueTexturedDraw3D_CodeEnd);
         packet2_utils_vu_add_end_tag(packet2);
         dma_channel_send_packet2(packet2, DMA_CHANNEL_VIF1, 1);
         dma_channel_wait(DMA_CHANNEL_VIF1, 0);
@@ -1448,32 +1483,40 @@ namespace {
             }
 
             BootLog(std::string("render2d build cooked texture begin path=") + cookedAssetPath);
+            const std::string resolvedCookedAssetPath = ResolvePs2CookedAssetOpenPath(cookedAssetPath);
+            if (resolvedCookedAssetPath != cookedAssetPath) {
+                BootLog(
+                    std::string("render2d build cooked texture resolved path=")
+                    + resolvedCookedAssetPath
+                    + " logical="
+                    + cookedAssetPath);
+            }
             const std::clock_t totalStartTicks = std::clock();
             ::Array<uint8_t>* bufferedBytes = nullptr;
             [[maybe_unused]] auto bufferedBytesGuard = he_cpp_make_scope_exit([&bufferedBytes]() {
                 delete bufferedBytes;
             });
             std::clock_t deserializeStartTicks = 0;
-            if (IsPs2DiscRuntimePath(cookedAssetPath)) {
+            if (IsPs2DiscRuntimePath(resolvedCookedAssetPath)) {
                 double openMilliseconds = 0.0;
                 double readMilliseconds = 0.0;
-                bufferedBytes = ReadPs2DiscFileBytes(cookedAssetPath, openMilliseconds, readMilliseconds);
+                bufferedBytes = ReadPs2DiscFileBytes(resolvedCookedAssetPath, openMilliseconds, readMilliseconds);
                 CookedTextureOpenMilliseconds += openMilliseconds;
                 BootLog(
                     std::string("render2d build cooked texture open ms=")
                     + std::to_string(openMilliseconds)
                     + "ms path="
-                    + cookedAssetPath);
+                    + resolvedCookedAssetPath);
                 CookedTextureBufferedReadMilliseconds += readMilliseconds;
                 BootLog(
                     std::string("render2d build cooked texture buffered read ms=")
                     + std::to_string(readMilliseconds)
                     + "ms path="
-                    + cookedAssetPath);
+                    + resolvedCookedAssetPath);
                 deserializeStartTicks = std::clock();
             } else {
                 const std::clock_t openStartTicks = totalStartTicks;
-                ::FileStream* stream = ::File::OpenRead(cookedAssetPath);
+                ::FileStream* stream = ::File::OpenRead(resolvedCookedAssetPath);
                 [[maybe_unused]] auto streamGuard = he_cpp_make_scope_exit([stream]() {
                     if (stream != nullptr) {
                         stream->Dispose();
@@ -1485,7 +1528,7 @@ namespace {
                     std::string("render2d build cooked texture open ms=")
                     + FormatMillisecondsFromClockTicks(openStartTicks, openEndTicks)
                     + " path="
-                    + cookedAssetPath);
+                    + resolvedCookedAssetPath);
                 ::Stream* readStream = stream;
                 const std::clock_t bufferedReadStartTicks = openEndTicks;
                 const std::size_t streamLength = readStream->Seek(0, ::SeekOrigin::End);
@@ -1514,7 +1557,7 @@ namespace {
                     std::string("render2d build cooked texture buffered read ms=")
                     + FormatMillisecondsFromClockTicks(bufferedReadStartTicks, bufferedReadEndTicks)
                     + " path="
-                    + cookedAssetPath);
+                    + resolvedCookedAssetPath);
                 deserializeStartTicks = bufferedReadEndTicks;
             }
             ::MemoryStream* bufferedStream = new ::MemoryStream(bufferedBytes, false);
@@ -1531,7 +1574,7 @@ namespace {
                 std::string("render2d build cooked texture deserialize ms=")
                 + FormatMillisecondsFromClockTicks(deserializeStartTicks, deserializeEndTicks)
                 + " path="
-                + cookedAssetPath);
+                + resolvedCookedAssetPath);
             const std::clock_t populateStartTicks = deserializeEndTicks;
             Ps2TextureRecord record;
             if (!PopulateTextureRecordFromPs2TextureAsset(textureAsset, record)) {
@@ -1543,7 +1586,7 @@ namespace {
                 std::string("render2d build cooked texture populate ms=")
                 + FormatMillisecondsFromClockTicks(populateStartTicks, populateEndTicks)
                 + " path="
-                + cookedAssetPath);
+                + resolvedCookedAssetPath);
 
             const std::clock_t runtimeTextureCreateStartTicks = populateEndTicks;
             RuntimeTexture* runtimeTexture = new RuntimeTexture();
@@ -1557,13 +1600,13 @@ namespace {
                 std::string("render2d build cooked texture runtime texture create ms=")
                 + FormatMillisecondsFromClockTicks(runtimeTextureCreateStartTicks, runtimeTextureCreateEndTicks)
                 + " path="
-                + cookedAssetPath);
+                + resolvedCookedAssetPath);
             BootLog(
                 std::string("render2d build cooked texture total ms=")
                 + FormatMillisecondsFromClockTicks(totalStartTicks, runtimeTextureCreateEndTicks)
                 + " path="
-                + cookedAssetPath);
-            BootLog(std::string("render2d build cooked texture end path=") + cookedAssetPath);
+                + resolvedCookedAssetPath);
+            BootLog(std::string("render2d build cooked texture end path=") + resolvedCookedAssetPath);
             return runtimeTexture;
         }
 
@@ -1599,7 +1642,9 @@ namespace {
                         std::string("draw2d command list begin count=")
                         + std::to_string(commandList->get_Count())
                         + " cameraIndex="
-                        + std::to_string(cameraIndex));
+                        + std::to_string(cameraIndex)
+                        + " sceneId="
+                        + (Pending2dCommandTraceSceneId.empty() ? std::string("unknown") : Pending2dCommandTraceSceneId));
                     const int32_t commandTraceCount = std::min(commandList->get_Count(), static_cast<int32_t>(16));
                     for (int32_t commandIndex = 0; commandIndex < commandTraceCount; commandIndex++) {
                         const ::RenderCommand2DType tracedCommandType = commandList->GetCommandType(commandIndex);
@@ -1621,6 +1666,8 @@ namespace {
                             commandTrace += " bounds=" + FormatFloat4(commandList->GetGlyphQuadBounds(payloadIndex));
                             commandTrace += " src=" + FormatFloat4(commandList->GetGlyphQuadSourceRect(payloadIndex));
                             commandTrace += " color=" + FormatByte4(commandList->GetGlyphQuadColor(payloadIndex));
+                            ::RuntimeTexture* tracedTexture = commandList->GetGlyphQuadTexture(payloadIndex);
+                            commandTrace += " texId=" + (tracedTexture != nullptr ? tracedTexture->get_Id() : std::string("null"));
                         } else if (tracedCommandType == ::RenderCommand2DType::RoundedRect) {
                             const int32_t payloadIndex = commandList->GetRoundedRectPayloadIndex(commandIndex);
                             commandTrace += " bounds=" + FormatFloat4(commandList->GetRoundedRectBounds(payloadIndex));
@@ -1629,6 +1676,7 @@ namespace {
                         BootLog(commandTrace);
                     }
                     LoggedFirst2dCommandTrace = true;
+                    Pending2dCommandTraceSceneId.clear();
                 }
 
                 clipStack.clear();
@@ -1844,6 +1892,13 @@ namespace {
 
             auto textureIt = TextureRecords.find(runtimeTexture);
             if (textureIt == TextureRecords.end()) {
+                if (!Pending2dCommandTraceSceneId.empty() || LoggedFirst2dCommandTrace) {
+                    BootLog(
+                        std::string("draw2d textured missing texture record texture=")
+                        + runtimeTexture->get_Id()
+                        + " sceneId="
+                        + (Pending2dCommandTraceSceneId.empty() ? std::string("unknown") : Pending2dCommandTraceSceneId));
+                }
                 return;
             }
 
@@ -1937,6 +1992,10 @@ namespace helengine::ps2 {
 
             if (!StartupSceneLoaded) {
                 BootLog("startup scene load failed; halting");
+                PresentBootLogHistoryToDebugConsole();
+                if (GsGlobal != 0) {
+                    gsKit_sync_flip(GsGlobal);
+                }
                 while (true) {
                 }
             }
@@ -1969,8 +2028,7 @@ namespace helengine::ps2 {
         sceCdInit(SCECdINoD);
         sceCdDiskReady(0);
         BootLog("cdvd ready");
-        EngineCore = new Core();
-        EngineOptions = EngineCore->get_InitializationOptions();
+        EngineOptions = new CoreInitializationOptions();
         EngineOptions->set_ContentRootPath(ResolveApplicationDirectoryPath());
         EngineOptions->set_UpdateOrderLayers(1);
         EngineOptions->set_RenderOrderLayers3D(1);
@@ -1979,6 +2037,8 @@ namespace helengine::ps2 {
         EngineOptions->set_RenderList3DInitialCapacity(4);
         EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalogFromManifest());
         EngineOptions->set_StandardPlatformInputConfiguration(BuildStandardPlatformInputConfigurationFromManifest());
+        EngineCore = new Core(EngineOptions);
+        EngineOptions = EngineCore->get_InitializationOptions();
         EngineRuntimeDiagnosticsProvider = new Ps2BootRuntimeDiagnosticsProvider();
         EngineOptions->set_RuntimeDiagnosticsProvider(EngineRuntimeDiagnosticsProvider);
 #if HE_PS2_HAS_SCENE_LOAD_TIMING_DIAGNOSTICS_INTERFACE
@@ -2069,7 +2129,11 @@ namespace helengine::ps2 {
             }
 
             BootLog(std::string("startup scene path: ") + startupScenePhysicalPath);
-            const std::string startupSceneId = ResolveStartupSceneIdFromManifest();
+            std::string startupSceneId = ResolveStartupSceneIdFromManifest();
+            if (StartupSceneDiagnosticOverrideId != nullptr && StartupSceneDiagnosticOverrideId[0] != '\0') {
+                startupSceneId = StartupSceneDiagnosticOverrideId;
+                BootLog(std::string("startup scene override id: ") + startupSceneId);
+            }
             BootLog(std::string("startup scene id: ") + startupSceneId);
             if (EngineCore != nullptr && EngineCore->get_SceneManager() != nullptr) {
                 BootLog("startup scene invoking scene manager load");
@@ -2138,6 +2202,9 @@ namespace helengine::ps2 {
                     try {
                         EngineCore->Update();
                         if (!loggedFirstUpdateComplete) {
+                            if (EnableFirstUpdateStateHalt) {
+                                BootLogHistory.clear();
+                            }
                             BootLog("first update completed");
                             ::ObjectManager* objectManager = EngineCore->get_ObjectManager();
                             ::SceneManager* sceneManager = EngineCore->get_SceneManager();
@@ -2158,6 +2225,12 @@ namespace helengine::ps2 {
                                 + (sceneManager != nullptr ? sceneManager->get_LastTraceStage() : std::string("null"))
                                 + " sceneLoadTrace="
                                 + (EngineCore->get_SceneLoadService() != nullptr ? EngineCore->get_SceneLoadService()->get_LastTraceStage() : std::string("null")));
+                            if (EnableFirstUpdateStateHalt) {
+                                PresentBootLogHistoryToDebugConsole();
+                                gsKit_sync_flip(GsGlobal);
+                                while (true) {
+                                }
+                            }
                             loggedFirstUpdateComplete = true;
                         }
                     } catch (Exception* exception) {
