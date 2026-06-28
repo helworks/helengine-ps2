@@ -47,6 +47,8 @@ namespace helengine::ps2 {
         constexpr bool EnableVuPerTriangleTimingDiagnostics = false;
         constexpr std::size_t TriangleGifPacketTemplateQwordCount = 11u;
         constexpr std::size_t TriangleGifPacketTemplateByteCount = TriangleGifPacketTemplateQwordCount * 16u;
+        constexpr std::size_t TexturedTrianglePacketWordCount = 22u;
+        constexpr std::size_t TexturedTrianglePacketByteCount = TexturedTrianglePacketWordCount * sizeof(std::uint64_t);
         constexpr std::size_t UntexturedTriangleSourceQwordCount = 3u;
         constexpr std::size_t UntexturedTriangleGifPacketQwordOffset = UntexturedTriangleSourceQwordCount;
         constexpr std::size_t UntexturedTriangleRecordQwordCount = UntexturedTriangleGifPacketQwordOffset + TriangleGifPacketTemplateQwordCount;
@@ -336,6 +338,10 @@ namespace helengine::ps2 {
             }
         }
 
+        bool IsTexturedVertexInsideNearPlane(const ::float3& viewPosition, float nearPlaneDistance) {
+            return viewPosition.Z <= -nearPlaneDistance;
+        }
+
         bool IsFrontFacingTriangle(float screenAX, float screenAY, float screenBX, float screenBY, float screenCX, float screenCY) {
             const float edgeABX = screenBX - screenAX;
             const float edgeABY = screenBY - screenAY;
@@ -574,6 +580,25 @@ namespace helengine::ps2 {
             lightingConstants.EmissiveBoost = emissiveStrength * (lightingConstants.ShowcaseLit ? 72.0 : 24.0);
         }
 
+        double ResolveApproximateSpecularFactor(const Ps2VuLightingConstants& lightingConstants, double ndotl) {
+            if (lightingConstants.SpecularScale <= 0.0 || ndotl <= 0.0) {
+                return 0.0;
+            }
+
+            const double ndotl2 = ndotl * ndotl;
+            const double ndotl4 = ndotl2 * ndotl2;
+            const double ndotl8 = ndotl4 * ndotl4;
+            const double ndotl16 = ndotl8 * ndotl8;
+            double specularFactor = ndotl4;
+            if (lightingConstants.SpecularPower >= 10.0) {
+                specularFactor = ndotl16;
+            } else if (lightingConstants.SpecularPower >= 6.0) {
+                specularFactor = ndotl8;
+            }
+
+            return specularFactor * lightingConstants.SpecularScale;
+        }
+
         std::uint64_t ResolveTexturedVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection) {
             Ps2VuLightingConstants lightingConstants {};
             PopulateLightingConstants(material, lightingConstants);
@@ -604,7 +629,7 @@ namespace helengine::ps2 {
                     + (static_cast<double>(normalizedFaceNormal.Y) * static_cast<double>(normalizedLightDirection.Y))
                     + (static_cast<double>(normalizedFaceNormal.Z) * static_cast<double>(normalizedLightDirection.Z)));
             const double baseIntensity = CpuLightingBias + (ndotl * CpuLightingScale * lightingConstants.DiffuseScale);
-            const double specularBoost = std::pow(ndotl, lightingConstants.SpecularPower) * lightingConstants.SpecularScale;
+            const double specularBoost = ResolveApproximateSpecularFactor(lightingConstants, ndotl);
             double intensityValue = baseIntensity + specularBoost + lightingConstants.EmissiveBoost;
             if (lightingConstants.ShowcaseLit && lightingConstants.ExpensiveModeAllowed) {
                 intensityValue += 24.0 + (ndotl * 28.0);
@@ -619,7 +644,7 @@ namespace helengine::ps2 {
                 0x00);
         }
 
-        std::vector<std::uint8_t> BuildTexturedTriangleGifPacketBytes(
+        std::array<std::uint64_t, TexturedTrianglePacketWordCount> BuildTexturedTriangleGifPacketBytes(
             GSGLOBAL* gsGlobal,
             const GSTEXTURE* texture,
             int textureWidth,
@@ -631,12 +656,15 @@ namespace helengine::ps2 {
             float screenAX,
             float screenAY,
             float screenAZ,
+            std::uint64_t positionARegister,
             float screenBX,
             float screenBY,
             float screenBZ,
+            std::uint64_t positionBRegister,
             float screenCX,
             float screenCY,
-            float screenCZ) {
+            float screenCZ,
+            std::uint64_t positionCRegister) {
             if (gsGlobal == nullptr) {
                 throw std::invalid_argument("PS2 VU textured GIF packet encoding requires a GS global.");
             }
@@ -663,10 +691,7 @@ namespace helengine::ps2 {
             const std::uint64_t uvRegisterA = BuildGsUvRegister(screenTexCoordA);
             const std::uint64_t uvRegisterB = BuildGsUvRegister(screenTexCoordB);
             const std::uint64_t uvRegisterC = BuildGsUvRegister(screenTexCoordC);
-            const std::uint64_t positionARegister = BuildScreenSpacePositionRegister(screenAX, screenAY, screenAZ, gsGlobal);
-            const std::uint64_t positionBRegister = BuildScreenSpacePositionRegister(screenBX, screenBY, screenBZ, gsGlobal);
-            const std::uint64_t positionCRegister = BuildScreenSpacePositionRegister(screenCX, screenCY, screenCZ, gsGlobal);
-            std::array<std::uint64_t, 22u> packetWords {};
+            std::array<std::uint64_t, TexturedTrianglePacketWordCount> packetWords {};
             std::size_t packetWordIndex = 0u;
             packetWords[packetWordIndex++] = GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1);
             packetWords[packetWordIndex++] = GIF_REG_AD;
@@ -726,10 +751,7 @@ namespace helengine::ps2 {
             packetWords[packetWordIndex++] = triangleColor;
             packetWords[packetWordIndex++] = uvRegisterC;
             packetWords[packetWordIndex++] = positionCRegister;
-            const std::size_t gifPacketByteCount = packetWords.size() * sizeof(std::uint64_t);
-            std::vector<std::uint8_t> gifPacketBytes(gifPacketByteCount);
-            std::memcpy(gifPacketBytes.data(), packetWords.data(), gifPacketByteCount);
-            return gifPacketBytes;
+            return packetWords;
         }
     }
 
@@ -797,7 +819,7 @@ namespace helengine::ps2 {
         std::vector<Ps2VuGifTemplateCacheEntry> gifTemplateCache;
         gifTemplateCache.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);
         Ps2VuUntexturedSharedState sharedStateTemplate {};
-        std::vector<std::vector<std::uint8_t>> texturedTrianglePackets;
+        std::vector<std::array<std::uint64_t, TexturedTrianglePacketWordCount>> texturedTrianglePackets;
         texturedTrianglePackets.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);
         const std::clock_t triangleSetupStartTicks = std::clock();
         if (EnableVuFixedTriangleDiagnostics) {
@@ -911,6 +933,12 @@ namespace helengine::ps2 {
         } else {
             std::vector<Ps2VuTexturedClipVertex> clippedTexturedVertices;
             clippedTexturedVertices.reserve(4u);
+            ::float4x4 worldCopy = world;
+            ::float4x4 viewCopy = view;
+            ::float4x4 worldViewMatrix;
+            ::float4x4::Multiply__ref0_ref1_out2(worldCopy, viewCopy, worldViewMatrix);
+            Ps2VuLightingConstants lightingConstants {};
+            PopulateLightingConstants(*batch.Material, lightingConstants);
             const Ps2RuntimeModel* runtimeModel = batch.Proxy != nullptr ? batch.Proxy->GetModel() : nullptr;
             const std::vector<std::uint16_t>* runtimeIndices = runtimeModel != nullptr ? &runtimeModel->GetIndices() : nullptr;
             const std::vector<::float3>* runtimeNormals = runtimeModel != nullptr ? &runtimeModel->GetNormals() : nullptr;
@@ -918,6 +946,8 @@ namespace helengine::ps2 {
             const float* packedPositionWords = reinterpret_cast<const float*>(batch.Model->GetPositionBlockBytes());
             const float* packedNormalWords = reinterpret_cast<const float*>(batch.Model->GetNormalBlockBytes());
             const float* packedTexCoordWords = textured ? reinterpret_cast<const float*>(batch.Model->GetTexCoordBlockBytes()) : nullptr;
+            std::clock_t accumulatedTriangleLightingTicks = 0;
+            std::clock_t accumulatedTrianglePayloadFillTicks = 0;
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
                 texturedSourceTriangleCount++;
                 std::clock_t trianglePrepStartTicks = 0;
@@ -978,25 +1008,19 @@ namespace helengine::ps2 {
                 const ::float4 positionA(packedPositionA.X, packedPositionA.Y, packedPositionA.Z, 1.0f);
                 const ::float4 positionB(packedPositionB.X, packedPositionB.Y, packedPositionB.Z, 1.0f);
                 const ::float4 positionC(packedPositionC.X, packedPositionC.Y, packedPositionC.Z, 1.0f);
-                const ::float3 worldPositionA = TransformPosition(positionA, world);
-                const ::float3 worldPositionB = TransformPosition(positionB, world);
-                const ::float3 worldPositionC = TransformPosition(positionC, world);
-                const ::float4 worldPositionA4(worldPositionA.X, worldPositionA.Y, worldPositionA.Z, 1.0f);
-                const ::float4 worldPositionB4(worldPositionB.X, worldPositionB.Y, worldPositionB.Z, 1.0f);
-                const ::float4 worldPositionC4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
                 const ::float4 faceNormal4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f);
                 const ::float3 worldFaceNormal = NormalizeOrFallback(
                     TransformPosition(faceNormal4, world),
                     ::float3(0.0f, 0.0f, -1.0f));
-                const ::float3 worldNormalA = NormalizeOrFallback(
-                    TransformPosition(::float4(sourceNormalA.X, sourceNormalA.Y, sourceNormalA.Z, 0.0f), world),
-                    ::float3(0.0f, 0.0f, -1.0f));
-                const ::float3 worldNormalB = NormalizeOrFallback(
-                    TransformPosition(::float4(sourceNormalB.X, sourceNormalB.Y, sourceNormalB.Z, 0.0f), world),
-                    ::float3(0.0f, 0.0f, -1.0f));
-                const ::float3 worldNormalC = NormalizeOrFallback(
-                    TransformPosition(::float4(sourceNormalC.X, sourceNormalC.Y, sourceNormalC.Z, 0.0f), world),
-                    ::float3(0.0f, 0.0f, -1.0f));
+                const ::float3 sourceTriangleNormal = NormalizeOrFallback(
+                    ::float3(
+                        sourceNormalA.X + sourceNormalB.X + sourceNormalC.X,
+                        sourceNormalA.Y + sourceNormalB.Y + sourceNormalC.Y,
+                        sourceNormalA.Z + sourceNormalB.Z + sourceNormalC.Z),
+                    faceNormal);
+                const ::float3 triangleWorldNormal = NormalizeOrFallback(
+                    TransformPosition(::float4(sourceTriangleNormal.X, sourceTriangleNormal.Y, sourceTriangleNormal.Z, 0.0f), world),
+                    worldFaceNormal);
                 if (EnableVuPerTriangleTimingDiagnostics) {
                     const std::clock_t trianglePrepEndTicks = std::clock();
                     LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
@@ -1006,9 +1030,12 @@ namespace helengine::ps2 {
                     triangleEmitStartTicks = std::clock();
                 }
                 if (textured) {
-                    const ::float3 viewPositionA = TransformPosition(worldPositionA4, view);
-                    const ::float3 viewPositionB = TransformPosition(worldPositionB4, view);
-                    const ::float3 viewPositionC = TransformPosition(worldPositionC4, view);
+                    const ::float3 viewPositionA = TransformPosition(positionA, worldViewMatrix);
+                    const ::float3 viewPositionB = TransformPosition(positionB, worldViewMatrix);
+                    const ::float3 viewPositionC = TransformPosition(positionC, worldViewMatrix);
+                    const bool texturedVertexAInside = IsTexturedVertexInsideNearPlane(viewPositionA, nearPlaneDistance);
+                    const bool texturedVertexBInside = IsTexturedVertexInsideNearPlane(viewPositionB, nearPlaneDistance);
+                    const bool texturedVertexCInside = IsTexturedVertexInsideNearPlane(viewPositionC, nearPlaneDistance);
                     const ::float2 sourceTexCoordA = runtimeTexCoords != nullptr && sourceIndexA < runtimeTexCoords->size()
                         ? (*runtimeTexCoords)[sourceIndexA]
                         : ::float2(packedTexCoordWords[positionWordIndexA + 0u], packedTexCoordWords[positionWordIndexA + 1u]);
@@ -1027,7 +1054,16 @@ namespace helengine::ps2 {
                     const Ps2VuTexturedClipVertex texturedVertexC {
                         viewPositionC,
                         sourceTexCoordC };
-                    ClipTexturedTriangleAgainstNearPlane(texturedVertexA, texturedVertexB, texturedVertexC, nearPlaneDistance, clippedTexturedVertices);
+                    if (texturedVertexAInside && texturedVertexBInside && texturedVertexCInside) {
+                        clippedTexturedVertices.clear();
+                        clippedTexturedVertices.push_back(texturedVertexA);
+                        clippedTexturedVertices.push_back(texturedVertexB);
+                        clippedTexturedVertices.push_back(texturedVertexC);
+                    } else if (!texturedVertexAInside && !texturedVertexBInside && !texturedVertexCInside) {
+                        clippedTexturedVertices.clear();
+                    } else {
+                        ClipTexturedTriangleAgainstNearPlane(texturedVertexA, texturedVertexB, texturedVertexC, nearPlaneDistance, clippedTexturedVertices);
+                    }
                 }
 
                 const std::size_t clippedVertexCount = clippedTexturedVertices.size();
@@ -1059,12 +1095,7 @@ namespace helengine::ps2 {
                         continue;
                     }
 
-                    const ::float3 triangleWorldNormal = NormalizeOrFallback(
-                        ::float3(
-                            worldNormalA.X + worldNormalB.X + worldNormalC.X,
-                            worldNormalA.Y + worldNormalB.Y + worldNormalC.Y,
-                            worldNormalA.Z + worldNormalB.Z + worldNormalC.Z),
-                        worldFaceNormal);
+                    const std::clock_t triangleLightingStartTicks = std::clock();
                     const std::uint64_t triangleColor = EnableTexturedWhiteColorDiagnostics
                         ? GS_SETREG_RGBAQ(
                             batch.Material->GetBaseColorR(),
@@ -1072,7 +1103,11 @@ namespace helengine::ps2 {
                             batch.Material->GetBaseColorB(),
                             batch.Material->GetBaseColorA(),
                             0x00)
-                        : ResolveTexturedVertexColor(*batch.Material, triangleWorldNormal, normalizedLightDirection);
+                        : ResolveTexturedVertexColor(lightingConstants, triangleWorldNormal, normalizedLightDirection);
+                    const std::clock_t triangleLightingEndTicks = std::clock();
+                    accumulatedTriangleLightingTicks += (triangleLightingEndTicks - triangleLightingStartTicks);
+
+                    const std::clock_t trianglePayloadFillStartTicks = std::clock();
                     texturedTrianglePackets.push_back(
                         BuildTexturedTriangleGifPacketBytes(
                             gsGlobal,
@@ -1086,12 +1121,17 @@ namespace helengine::ps2 {
                             screenAX,
                             screenAY,
                             screenAZ,
+                            positionARegister,
                             screenBX,
                             screenBY,
                             screenBZ,
+                            positionBRegister,
                             screenCX,
                             screenCY,
-                            screenCZ));
+                            screenCZ,
+                            positionCRegister));
+                    const std::clock_t trianglePayloadFillEndTicks = std::clock();
+                    accumulatedTrianglePayloadFillTicks += (trianglePayloadFillEndTicks - trianglePayloadFillStartTicks);
                     texturedEmittedTriangleCount++;
                     const float minX = std::min({ screenAX, screenBX, screenCX });
                     const float minY = std::min({ screenAY, screenBY, screenCY });
@@ -1122,6 +1162,9 @@ namespace helengine::ps2 {
                     LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
                 }
             }
+
+            LastTriangleLightingMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTriangleLightingTicks);
+            LastTrianglePayloadFillMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTrianglePayloadFillTicks);
         }
         const std::clock_t triangleSetupEndTicks = std::clock();
         LastTriangleSetupMilliseconds = ResolveMillisecondsFromClockTicks(triangleSetupStartTicks, triangleSetupEndTicks);
@@ -1151,7 +1194,8 @@ namespace helengine::ps2 {
             GifPacketBytes.resize(TriangleGifPacketTemplateByteCount);
             std::memcpy(GifPacketBytes.data(), untexturedTrianglePayloads.front().TriangleRecord.GifPacketTemplate, TriangleGifPacketTemplateByteCount);
         } else if (textured && GifPacketBytes.empty()) {
-            GifPacketBytes = texturedTrianglePackets.front();
+            GifPacketBytes.resize(TexturedTrianglePacketByteCount);
+            std::memcpy(GifPacketBytes.data(), texturedTrianglePackets.front().data(), TexturedTrianglePacketByteCount);
         }
 
         const std::uint32_t emittedTriangleCount = textured
@@ -1178,10 +1222,10 @@ namespace helengine::ps2 {
 
         const std::clock_t packetAssemblyStartTicks = std::clock();
         if (textured) {
-            for (const std::vector<std::uint8_t>& trianglePacketBytes : texturedTrianglePackets) {
+            for (const std::array<std::uint64_t, TexturedTrianglePacketWordCount>& trianglePacketWords : texturedTrianglePackets) {
                 packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
-                std::memcpy(packet.get()->next, trianglePacketBytes.data(), trianglePacketBytes.size());
-                packet2_advance_next(packet.get(), trianglePacketBytes.size());
+                std::memcpy(packet.get()->next, trianglePacketWords.data(), TexturedTrianglePacketByteCount);
+                packet2_advance_next(packet.get(), TexturedTrianglePacketByteCount);
                 packet2_utils_vu_close_unpack(packet.get());
                 LastCompletedPhase = 4;
                 if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
@@ -1274,6 +1318,370 @@ namespace helengine::ps2 {
                     + FormatGifTemplateQwords(GifPacketBytes.data(), GifPacketBytes.size() / 16u));
             }
         }
+        LastCompletedPhase = 11;
+    }
+
+    void Ps2VuVifPacketBuilder::AddOpaqueTexturedBatches(
+        const std::vector<const Ps2VuOpaqueBatch*>& batches,
+        const std::vector<::float4x4>& worlds,
+        const ::float4x4& view,
+        const ::float4x4& projection,
+        const ::float4& viewport,
+        float nearPlaneDistance,
+        const ::float3& lightDirection,
+        GSGLOBAL* gsGlobal,
+        const std::vector<GSTEXTURE*>& textures,
+        const std::vector<int>& textureWidths,
+        const std::vector<int>& textureHeights) {
+        if (batches.size() != worlds.size()
+            || batches.size() != textures.size()
+            || batches.size() != textureWidths.size()
+            || batches.size() != textureHeights.size()) {
+            throw std::invalid_argument("PS2 textured VU batch aggregation requires aligned batch, world, and texture inputs.");
+        }
+
+        if (batches.empty()) {
+            return;
+        }
+
+        LastCompletedPhase = 1;
+        if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
+            return;
+        }
+
+        const ::float3 normalizedLightDirection = NormalizeOrFallback(lightDirection, ::float3(0.0f, 0.0f, -1.0f));
+        std::size_t texturedTriangleCapacity = 0u;
+        for (const Ps2VuOpaqueBatch* batch : batches) {
+            if (batch == nullptr || batch->Model == nullptr) {
+                continue;
+            }
+
+            texturedTriangleCapacity += static_cast<std::size_t>(batch->Model->GetTriangleVertexCount()) / 3u;
+        }
+
+        std::vector<std::array<std::uint64_t, TexturedTrianglePacketWordCount>> texturedTrianglePackets;
+        texturedTrianglePackets.reserve(texturedTriangleCapacity);
+        std::clock_t accumulatedTriangleLightingTicks = 0;
+        std::clock_t accumulatedTrianglePayloadFillTicks = 0;
+        const std::clock_t triangleSetupStartTicks = std::clock();
+        for (std::size_t batchIndex = 0; batchIndex < batches.size(); batchIndex++) {
+            const Ps2VuOpaqueBatch* batch = batches[batchIndex];
+            if (batch == nullptr || batch->Model == nullptr || batch->Material == nullptr) {
+                continue;
+            }
+
+            GSTEXTURE* texture = textures[batchIndex];
+            const int textureWidth = textureWidths[batchIndex];
+            const int textureHeight = textureHeights[batchIndex];
+            const bool textured = batch->Textured && texture != nullptr && textureWidth > 0 && textureHeight > 0;
+            if (!textured) {
+                continue;
+            }
+
+            gsKit_set_texfilter(gsGlobal, texture->Filter);
+            const ::float4x4& world = worlds[batchIndex];
+            const std::uint32_t triangleVertexCount = batch->Model->GetTriangleVertexCount();
+            if (triangleVertexCount == 0u) {
+                continue;
+            }
+
+            std::vector<Ps2VuTexturedClipVertex> clippedTexturedVertices;
+            clippedTexturedVertices.reserve(4u);
+            ::float4x4 worldCopy = world;
+            ::float4x4 viewCopy = view;
+            ::float4x4 worldViewMatrix;
+            ::float4x4::Multiply__ref0_ref1_out2(worldCopy, viewCopy, worldViewMatrix);
+            Ps2VuLightingConstants lightingConstants {};
+            PopulateLightingConstants(*batch->Material, lightingConstants);
+            const Ps2RuntimeModel* runtimeModel = batch->Proxy != nullptr ? batch->Proxy->GetModel() : nullptr;
+            const std::vector<std::uint16_t>* runtimeIndices = runtimeModel != nullptr ? &runtimeModel->GetIndices() : nullptr;
+            const std::vector<::float3>* runtimeNormals = runtimeModel != nullptr ? &runtimeModel->GetNormals() : nullptr;
+            const std::vector<::float2>* runtimeTexCoords = runtimeModel != nullptr ? &runtimeModel->GetTexCoords() : nullptr;
+            const float* packedPositionWords = reinterpret_cast<const float*>(batch->Model->GetPositionBlockBytes());
+            const float* packedNormalWords = reinterpret_cast<const float*>(batch->Model->GetNormalBlockBytes());
+            const float* packedTexCoordWords = reinterpret_cast<const float*>(batch->Model->GetTexCoordBlockBytes());
+            for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
+                std::clock_t trianglePrepStartTicks = 0;
+                if (EnableVuPerTriangleTimingDiagnostics) {
+                    trianglePrepStartTicks = std::clock();
+                }
+
+                const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
+                const std::size_t positionWordIndexB = static_cast<std::size_t>(vertexIndex + 1u) * 4u;
+                const std::size_t positionWordIndexC = static_cast<std::size_t>(vertexIndex + 2u) * 4u;
+                const ::float3 packedNormalA(
+                    packedNormalWords[positionWordIndexA + 0u],
+                    packedNormalWords[positionWordIndexA + 1u],
+                    packedNormalWords[positionWordIndexA + 2u]);
+                const ::float3 packedNormalB(
+                    packedNormalWords[positionWordIndexB + 0u],
+                    packedNormalWords[positionWordIndexB + 1u],
+                    packedNormalWords[positionWordIndexB + 2u]);
+                const ::float3 packedNormalC(
+                    packedNormalWords[positionWordIndexC + 0u],
+                    packedNormalWords[positionWordIndexC + 1u],
+                    packedNormalWords[positionWordIndexC + 2u]);
+                const ::float3 faceNormal = NormalizeOrFallback(
+                    ::float3(
+                        packedNormalA.X + packedNormalB.X + packedNormalC.X,
+                        packedNormalA.Y + packedNormalB.Y + packedNormalC.Y,
+                        packedNormalA.Z + packedNormalB.Z + packedNormalC.Z),
+                    ::float3(0.0f, 0.0f, -1.0f));
+                const ::float3 packedPositionA(
+                    packedPositionWords[positionWordIndexA + 0u],
+                    packedPositionWords[positionWordIndexA + 1u],
+                    packedPositionWords[positionWordIndexA + 2u]);
+                const ::float3 packedPositionB(
+                    packedPositionWords[positionWordIndexB + 0u],
+                    packedPositionWords[positionWordIndexB + 1u],
+                    packedPositionWords[positionWordIndexB + 2u]);
+                const ::float3 packedPositionC(
+                    packedPositionWords[positionWordIndexC + 0u],
+                    packedPositionWords[positionWordIndexC + 1u],
+                    packedPositionWords[positionWordIndexC + 2u]);
+                const std::uint16_t sourceIndexA = runtimeIndices != nullptr && vertexIndex < runtimeIndices->size()
+                    ? (*runtimeIndices)[vertexIndex + 0u]
+                    : static_cast<std::uint16_t>(vertexIndex + 0u);
+                const std::uint16_t sourceIndexB = runtimeIndices != nullptr && (vertexIndex + 1u) < runtimeIndices->size()
+                    ? (*runtimeIndices)[vertexIndex + 1u]
+                    : static_cast<std::uint16_t>(vertexIndex + 1u);
+                const std::uint16_t sourceIndexC = runtimeIndices != nullptr && (vertexIndex + 2u) < runtimeIndices->size()
+                    ? (*runtimeIndices)[vertexIndex + 2u]
+                    : static_cast<std::uint16_t>(vertexIndex + 2u);
+                const ::float3 sourceNormalA = runtimeNormals != nullptr && sourceIndexA < runtimeNormals->size()
+                    ? (*runtimeNormals)[sourceIndexA]
+                    : packedNormalA;
+                const ::float3 sourceNormalB = runtimeNormals != nullptr && sourceIndexB < runtimeNormals->size()
+                    ? (*runtimeNormals)[sourceIndexB]
+                    : packedNormalB;
+                const ::float3 sourceNormalC = runtimeNormals != nullptr && sourceIndexC < runtimeNormals->size()
+                    ? (*runtimeNormals)[sourceIndexC]
+                    : packedNormalC;
+                const ::float4 positionA(packedPositionA.X, packedPositionA.Y, packedPositionA.Z, 1.0f);
+                const ::float4 positionB(packedPositionB.X, packedPositionB.Y, packedPositionB.Z, 1.0f);
+                const ::float4 positionC(packedPositionC.X, packedPositionC.Y, packedPositionC.Z, 1.0f);
+                const ::float4 faceNormal4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f);
+                const ::float3 worldFaceNormal = NormalizeOrFallback(
+                    TransformPosition(faceNormal4, world),
+                    ::float3(0.0f, 0.0f, -1.0f));
+                const ::float3 sourceTriangleNormal = NormalizeOrFallback(
+                    ::float3(
+                        sourceNormalA.X + sourceNormalB.X + sourceNormalC.X,
+                        sourceNormalA.Y + sourceNormalB.Y + sourceNormalC.Y,
+                        sourceNormalA.Z + sourceNormalB.Z + sourceNormalC.Z),
+                    faceNormal);
+                const ::float3 triangleWorldNormal = NormalizeOrFallback(
+                    TransformPosition(::float4(sourceTriangleNormal.X, sourceTriangleNormal.Y, sourceTriangleNormal.Z, 0.0f), world),
+                    worldFaceNormal);
+                if (EnableVuPerTriangleTimingDiagnostics) {
+                    const std::clock_t trianglePrepEndTicks = std::clock();
+                    LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
+                }
+
+                std::clock_t triangleEmitStartTicks = 0;
+                if (EnableVuPerTriangleTimingDiagnostics) {
+                    triangleEmitStartTicks = std::clock();
+                }
+
+                const ::float3 viewPositionA = TransformPosition(positionA, worldViewMatrix);
+                const ::float3 viewPositionB = TransformPosition(positionB, worldViewMatrix);
+                const ::float3 viewPositionC = TransformPosition(positionC, worldViewMatrix);
+                const bool texturedVertexAInside = IsTexturedVertexInsideNearPlane(viewPositionA, nearPlaneDistance);
+                const bool texturedVertexBInside = IsTexturedVertexInsideNearPlane(viewPositionB, nearPlaneDistance);
+                const bool texturedVertexCInside = IsTexturedVertexInsideNearPlane(viewPositionC, nearPlaneDistance);
+                const ::float2 sourceTexCoordA = runtimeTexCoords != nullptr && sourceIndexA < runtimeTexCoords->size()
+                    ? (*runtimeTexCoords)[sourceIndexA]
+                    : ::float2(packedTexCoordWords[positionWordIndexA + 0u], packedTexCoordWords[positionWordIndexA + 1u]);
+                const ::float2 sourceTexCoordB = runtimeTexCoords != nullptr && sourceIndexB < runtimeTexCoords->size()
+                    ? (*runtimeTexCoords)[sourceIndexB]
+                    : ::float2(packedTexCoordWords[positionWordIndexB + 0u], packedTexCoordWords[positionWordIndexB + 1u]);
+                const ::float2 sourceTexCoordC = runtimeTexCoords != nullptr && sourceIndexC < runtimeTexCoords->size()
+                    ? (*runtimeTexCoords)[sourceIndexC]
+                    : ::float2(packedTexCoordWords[positionWordIndexC + 0u], packedTexCoordWords[positionWordIndexC + 1u]);
+                const Ps2VuTexturedClipVertex texturedVertexA { viewPositionA, sourceTexCoordA };
+                const Ps2VuTexturedClipVertex texturedVertexB { viewPositionB, sourceTexCoordB };
+                const Ps2VuTexturedClipVertex texturedVertexC { viewPositionC, sourceTexCoordC };
+                if (texturedVertexAInside && texturedVertexBInside && texturedVertexCInside) {
+                    clippedTexturedVertices.clear();
+                    clippedTexturedVertices.push_back(texturedVertexA);
+                    clippedTexturedVertices.push_back(texturedVertexB);
+                    clippedTexturedVertices.push_back(texturedVertexC);
+                } else if (!texturedVertexAInside && !texturedVertexBInside && !texturedVertexCInside) {
+                    clippedTexturedVertices.clear();
+                } else {
+                    ClipTexturedTriangleAgainstNearPlane(texturedVertexA, texturedVertexB, texturedVertexC, nearPlaneDistance, clippedTexturedVertices);
+                }
+
+                const std::size_t clippedVertexCount = clippedTexturedVertices.size();
+                if (clippedVertexCount < 3u) {
+                    continue;
+                }
+
+                for (std::size_t clippedIndex = 1u; (clippedIndex + 1u) < clippedVertexCount; clippedIndex++) {
+                    float screenAX = 0.0f;
+                    float screenAY = 0.0f;
+                    float screenAZ = 0.0f;
+                    float screenBX = 0.0f;
+                    float screenBY = 0.0f;
+                    float screenBZ = 0.0f;
+                    float screenCX = 0.0f;
+                    float screenCY = 0.0f;
+                    float screenCZ = 0.0f;
+                    std::uint64_t positionARegister = 0u;
+                    std::uint64_t positionBRegister = 0u;
+                    std::uint64_t positionCRegister = 0u;
+                    const ::float3& clippedPositionA = clippedTexturedVertices[0].ViewPosition;
+                    const ::float3& clippedPositionB = clippedTexturedVertices[clippedIndex].ViewPosition;
+                    const ::float3& clippedPositionC = clippedTexturedVertices[clippedIndex + 1u].ViewPosition;
+                    if (!TryBuildVertexPositionRegister(clippedPositionA, projection, viewport, gsGlobal, screenAX, screenAY, screenAZ, positionARegister)
+                        || !TryBuildVertexPositionRegister(clippedPositionB, projection, viewport, gsGlobal, screenBX, screenBY, screenBZ, positionBRegister)
+                        || !TryBuildVertexPositionRegister(clippedPositionC, projection, viewport, gsGlobal, screenCX, screenCY, screenCZ, positionCRegister)) {
+                        continue;
+                    }
+
+                    const std::clock_t triangleLightingStartTicks = std::clock();
+                    const std::uint64_t triangleColor = EnableTexturedWhiteColorDiagnostics
+                        ? GS_SETREG_RGBAQ(
+                            batch->Material->GetBaseColorR(),
+                            batch->Material->GetBaseColorG(),
+                            batch->Material->GetBaseColorB(),
+                            batch->Material->GetBaseColorA(),
+                            0x00)
+                        : ResolveTexturedVertexColor(lightingConstants, triangleWorldNormal, normalizedLightDirection);
+                    const std::clock_t triangleLightingEndTicks = std::clock();
+                    accumulatedTriangleLightingTicks += (triangleLightingEndTicks - triangleLightingStartTicks);
+
+                    const std::clock_t trianglePayloadFillStartTicks = std::clock();
+                    texturedTrianglePackets.push_back(
+                        BuildTexturedTriangleGifPacketBytes(
+                            gsGlobal,
+                            texture,
+                            textureWidth,
+                            textureHeight,
+                            triangleColor,
+                            clippedTexturedVertices[0],
+                            clippedTexturedVertices[clippedIndex],
+                            clippedTexturedVertices[clippedIndex + 1u],
+                            screenAX,
+                            screenAY,
+                            screenAZ,
+                            positionARegister,
+                            screenBX,
+                            screenBY,
+                            screenBZ,
+                            positionBRegister,
+                            screenCX,
+                            screenCY,
+                            screenCZ,
+                            positionCRegister));
+                    const std::clock_t trianglePayloadFillEndTicks = std::clock();
+                    accumulatedTrianglePayloadFillTicks += (trianglePayloadFillEndTicks - trianglePayloadFillStartTicks);
+
+                    const float minX = std::min({ screenAX, screenBX, screenCX });
+                    const float minY = std::min({ screenAY, screenBY, screenCY });
+                    const float maxX = std::max({ screenAX, screenBX, screenCX });
+                    const float maxY = std::max({ screenAY, screenBY, screenCY });
+                    if (SubmittedTriangleCount == 0u) {
+                        SubmittedScreenBounds = ::float4(minX, minY, maxX, maxY);
+                        SubmittedTriangleBoundsA = ::float4(minX, minY, maxX, maxY);
+                        SubmittedTriangleVertexA0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
+                        SubmittedTriangleVertexA1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
+                        SubmittedTriangleVertexA2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
+                    } else {
+                        SubmittedScreenBounds.X = std::min(SubmittedScreenBounds.X, minX);
+                        SubmittedScreenBounds.Y = std::min(SubmittedScreenBounds.Y, minY);
+                        SubmittedScreenBounds.Z = std::max(SubmittedScreenBounds.Z, maxX);
+                        SubmittedScreenBounds.W = std::max(SubmittedScreenBounds.W, maxY);
+                        if (SubmittedTriangleCount == 1u) {
+                            SubmittedTriangleBoundsB = ::float4(minX, minY, maxX, maxY);
+                            SubmittedTriangleVertexB0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
+                            SubmittedTriangleVertexB1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
+                            SubmittedTriangleVertexB2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
+                        }
+                    }
+
+                    SubmittedTriangleCount++;
+                }
+
+                if (EnableVuPerTriangleTimingDiagnostics) {
+                    const std::clock_t triangleEmitEndTicks = std::clock();
+                    LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
+                }
+            }
+        }
+
+        LastTriangleLightingMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTriangleLightingTicks);
+        LastTrianglePayloadFillMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTrianglePayloadFillTicks);
+        const std::clock_t triangleSetupEndTicks = std::clock();
+        LastTriangleSetupMilliseconds = ResolveMillisecondsFromClockTicks(triangleSetupStartTicks, triangleSetupEndTicks);
+        if (texturedTrianglePackets.empty()) {
+            return;
+        }
+
+        GifPacketBytes.resize(TexturedTrianglePacketByteCount);
+        std::memcpy(GifPacketBytes.data(), texturedTrianglePackets.front().data(), TexturedTrianglePacketByteCount);
+        const std::uint32_t emittedTriangleCount = static_cast<std::uint32_t>(texturedTrianglePackets.size());
+        std::uint32_t maxPacketQwordCount = std::max<std::uint32_t>(
+            1024u,
+            MinimumVifPacketOverheadQwords + (emittedTriangleCount * 24u));
+        if (maxPacketQwordCount > 0xFFFFu) {
+            throw std::runtime_error("PS2 textured VU aggregate packet exceeds packet2 qword capacity.");
+        }
+
+        LastCompletedPhase = 2;
+        if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
+            return;
+        }
+
+        std::unique_ptr<packet2_t, decltype(&packet2_free)> packet(CreatePacketOrThrow(static_cast<std::uint16_t>(maxPacketQwordCount), P2_MODE_CHAIN), &packet2_free);
+        LastCompletedPhase = 3;
+        if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
+            return;
+        }
+
+        const std::clock_t packetAssemblyStartTicks = std::clock();
+        for (const std::array<std::uint64_t, TexturedTrianglePacketWordCount>& trianglePacketWords : texturedTrianglePackets) {
+            packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
+            std::memcpy(packet.get()->next, trianglePacketWords.data(), TexturedTrianglePacketByteCount);
+            packet2_advance_next(packet.get(), TexturedTrianglePacketByteCount);
+            packet2_utils_vu_close_unpack(packet.get());
+            LastCompletedPhase = 4;
+            if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
+                return;
+            }
+
+            packet2_chain_open_cnt(packet.get(), 0, 0, 0);
+            packet2_vif_flush(packet.get(), 0);
+            packet2_vif_mscal(packet.get(), TexturedMicroProgramAddress, 0);
+            packet2_chain_close_tag(packet.get());
+            LastCompletedPhase = 5;
+            if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
+                return;
+            }
+        }
+
+        LastCompletedPhase = 6;
+        if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
+            return;
+        }
+
+        packet2_chain_open_end(packet.get(), 0, 0);
+        packet2_vif_nop(packet.get(), 0);
+        packet2_vif_nop(packet.get(), 0);
+        packet2_chain_close_tag(packet.get());
+        LastCompletedPhase = 9;
+        if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
+            return;
+        }
+
+        LastCompletedPhase = 10;
+        if (EnableVuPacketPhaseDiagnostics != 0 && LastCompletedPhase >= VuPacketDiagnosticCutoffPhase) {
+            return;
+        }
+
+        Packet = packet.release();
+        const std::clock_t packetAssemblyEndTicks = std::clock();
+        LastPacketAssemblyMilliseconds = ResolveMillisecondsFromClockTicks(packetAssemblyStartTicks, packetAssemblyEndTicks);
         LastCompletedPhase = 11;
     }
 
