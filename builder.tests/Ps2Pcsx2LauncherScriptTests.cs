@@ -20,6 +20,8 @@ public sealed class Ps2Pcsx2LauncherScriptTests {
         Assert.Contains("[string]$ArtifactPath", scriptSource, StringComparison.Ordinal);
         Assert.Contains("pcsx2-qt.exe", scriptSource, StringComparison.Ordinal);
         Assert.Contains("Get-Process -Name 'pcsx2-qt'", scriptSource, StringComparison.Ordinal);
+        Assert.Contains("Get-Process -Name $pcsx2ProcessName", scriptSource, StringComparison.Ordinal);
+        Assert.Contains("'pcsx2-qt', 'pcsx2'", scriptSource, StringComparison.Ordinal);
         Assert.Contains("'-fastboot', '-logfile', $logFilePath, '--', $resolvedArtifactPath", scriptSource, StringComparison.Ordinal);
         Assert.Contains("PROCESS_ID=", scriptSource, StringComparison.Ordinal);
         Assert.DoesNotContain("[string]$IsoPath", scriptSource, StringComparison.Ordinal);

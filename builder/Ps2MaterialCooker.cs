@@ -271,10 +271,28 @@ public sealed class Ps2MaterialCooker {
             throw new ArgumentNullException(nameof(request));
         }
         if (IsStandardShaderSchema(request.SchemaId)) {
-            return ReadOptionalField(request.FieldValues, StandardShaderTextureFieldId);
+            string builderOwnedTextureRelativePath = ReadOptionalField(request.FieldValues, Ps2MaterialSchemaIds.TextureRelativePathFieldId);
+            if (!string.IsNullOrWhiteSpace(builderOwnedTextureRelativePath)) {
+                return NormalizeTextureRelativePath(builderOwnedTextureRelativePath);
+            }
+
+            return NormalizeTextureRelativePath(ReadOptionalField(request.FieldValues, StandardShaderTextureFieldId));
         }
 
-        return ReadOptionalField(request.FieldValues, Ps2MaterialSchemaIds.TextureRelativePathFieldId);
+        return NormalizeTextureRelativePath(ReadOptionalField(request.FieldValues, Ps2MaterialSchemaIds.TextureRelativePathFieldId));
+    }
+
+    /// <summary>
+    /// Rewrites one logical cooked texture path into the PS2-safe disc-relative path that the runtime texture loader can open from the packaged content root.
+    /// </summary>
+    /// <param name="textureRelativePath">Logical cooked texture path authored by the shared editor/build pipeline.</param>
+    /// <returns>PS2-safe disc-relative texture path, or an empty string when the material is untextured.</returns>
+    static string NormalizeTextureRelativePath(string textureRelativePath) {
+        if (string.IsNullOrWhiteSpace(textureRelativePath)) {
+            return string.Empty;
+        }
+
+        return Ps2DiscPathResolver.ResolveDiscRelativePath(textureRelativePath);
     }
 
     /// <summary>

@@ -1393,6 +1393,10 @@ namespace helengine::ps2 {
             ::float4x4::Multiply__ref0_ref1_out2(worldCopy, viewCopy, worldViewMatrix);
             Ps2VuLightingConstants lightingConstants {};
             PopulateLightingConstants(*batch->Material, lightingConstants);
+            const Ps2RuntimeModel* runtimeModel = batch->Proxy != nullptr ? batch->Proxy->GetModel() : nullptr;
+            const std::vector<std::uint16_t>* runtimeIndices = runtimeModel != nullptr ? &runtimeModel->GetIndices() : nullptr;
+            const std::vector<::float3>* runtimeNormals = runtimeModel != nullptr ? &runtimeModel->GetNormals() : nullptr;
+            const std::vector<::float2>* runtimeTexCoords = runtimeModel != nullptr ? &runtimeModel->GetTexCoords() : nullptr;
             const float* packedPositionWords = reinterpret_cast<const float*>(batch->Model->GetPositionBlockBytes());
             const float* packedNormalWords = reinterpret_cast<const float*>(batch->Model->GetNormalBlockBytes());
             const float* packedTexCoordWords = reinterpret_cast<const float*>(batch->Model->GetTexCoordBlockBytes());
@@ -1438,11 +1442,37 @@ namespace helengine::ps2 {
                 const ::float4 positionA(packedPositionA.X, packedPositionA.Y, packedPositionA.Z, 1.0f);
                 const ::float4 positionB(packedPositionB.X, packedPositionB.Y, packedPositionB.Z, 1.0f);
                 const ::float4 positionC(packedPositionC.X, packedPositionC.Y, packedPositionC.Z, 1.0f);
+                const std::uint16_t sourceIndexA = runtimeIndices != nullptr && vertexIndex < runtimeIndices->size()
+                    ? (*runtimeIndices)[vertexIndex + 0u]
+                    : static_cast<std::uint16_t>(vertexIndex + 0u);
+                const std::uint16_t sourceIndexB = runtimeIndices != nullptr && (vertexIndex + 1u) < runtimeIndices->size()
+                    ? (*runtimeIndices)[vertexIndex + 1u]
+                    : static_cast<std::uint16_t>(vertexIndex + 1u);
+                const std::uint16_t sourceIndexC = runtimeIndices != nullptr && (vertexIndex + 2u) < runtimeIndices->size()
+                    ? (*runtimeIndices)[vertexIndex + 2u]
+                    : static_cast<std::uint16_t>(vertexIndex + 2u);
+                const ::float3 sourceNormalA = runtimeNormals != nullptr && sourceIndexA < runtimeNormals->size()
+                    ? (*runtimeNormals)[sourceIndexA]
+                    : packedNormalA;
+                const ::float3 sourceNormalB = runtimeNormals != nullptr && sourceIndexB < runtimeNormals->size()
+                    ? (*runtimeNormals)[sourceIndexB]
+                    : packedNormalB;
+                const ::float3 sourceNormalC = runtimeNormals != nullptr && sourceIndexC < runtimeNormals->size()
+                    ? (*runtimeNormals)[sourceIndexC]
+                    : packedNormalC;
                 const ::float4 faceNormal4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f);
                 const ::float3 worldFaceNormal = NormalizeOrFallback(
                     TransformPosition(faceNormal4, world),
                     ::float3(0.0f, 0.0f, -1.0f));
-                const ::float3 triangleWorldNormal = worldFaceNormal;
+                const ::float3 sourceTriangleNormal = NormalizeOrFallback(
+                    ::float3(
+                        sourceNormalA.X + sourceNormalB.X + sourceNormalC.X,
+                        sourceNormalA.Y + sourceNormalB.Y + sourceNormalC.Y,
+                        sourceNormalA.Z + sourceNormalB.Z + sourceNormalC.Z),
+                    faceNormal);
+                const ::float3 triangleWorldNormal = NormalizeOrFallback(
+                    TransformPosition(::float4(sourceTriangleNormal.X, sourceTriangleNormal.Y, sourceTriangleNormal.Z, 0.0f), world),
+                    worldFaceNormal);
                 if (EnableVuPerTriangleTimingDiagnostics) {
                     const std::clock_t trianglePrepEndTicks = std::clock();
                     LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
@@ -1459,19 +1489,117 @@ namespace helengine::ps2 {
                 const bool texturedVertexAInside = IsTexturedVertexInsideNearPlane(viewPositionA, nearPlaneDistance);
                 const bool texturedVertexBInside = IsTexturedVertexInsideNearPlane(viewPositionB, nearPlaneDistance);
                 const bool texturedVertexCInside = IsTexturedVertexInsideNearPlane(viewPositionC, nearPlaneDistance);
-                const ::float2 sourceTexCoordA(packedTexCoordWords[positionWordIndexA + 0u], packedTexCoordWords[positionWordIndexA + 1u]);
-                const ::float2 sourceTexCoordB(packedTexCoordWords[positionWordIndexB + 0u], packedTexCoordWords[positionWordIndexB + 1u]);
-                const ::float2 sourceTexCoordC(packedTexCoordWords[positionWordIndexC + 0u], packedTexCoordWords[positionWordIndexC + 1u]);
+                const ::float2 sourceTexCoordA = runtimeTexCoords != nullptr && sourceIndexA < runtimeTexCoords->size()
+                    ? (*runtimeTexCoords)[sourceIndexA]
+                    : ::float2(packedTexCoordWords[positionWordIndexA + 0u], packedTexCoordWords[positionWordIndexA + 1u]);
+                const ::float2 sourceTexCoordB = runtimeTexCoords != nullptr && sourceIndexB < runtimeTexCoords->size()
+                    ? (*runtimeTexCoords)[sourceIndexB]
+                    : ::float2(packedTexCoordWords[positionWordIndexB + 0u], packedTexCoordWords[positionWordIndexB + 1u]);
+                const ::float2 sourceTexCoordC = runtimeTexCoords != nullptr && sourceIndexC < runtimeTexCoords->size()
+                    ? (*runtimeTexCoords)[sourceIndexC]
+                    : ::float2(packedTexCoordWords[positionWordIndexC + 0u], packedTexCoordWords[positionWordIndexC + 1u]);
                 const Ps2VuTexturedClipVertex texturedVertexA { viewPositionA, sourceTexCoordA };
                 const Ps2VuTexturedClipVertex texturedVertexB { viewPositionB, sourceTexCoordB };
                 const Ps2VuTexturedClipVertex texturedVertexC { viewPositionC, sourceTexCoordC };
                 if (texturedVertexAInside && texturedVertexBInside && texturedVertexCInside) {
-                    clippedTexturedVertices.clear();
-                    clippedTexturedVertices.push_back(texturedVertexA);
-                    clippedTexturedVertices.push_back(texturedVertexB);
-                    clippedTexturedVertices.push_back(texturedVertexC);
+                    float screenAX = 0.0f;
+                    float screenAY = 0.0f;
+                    float screenAZ = 0.0f;
+                    float screenBX = 0.0f;
+                    float screenBY = 0.0f;
+                    float screenBZ = 0.0f;
+                    float screenCX = 0.0f;
+                    float screenCY = 0.0f;
+                    float screenCZ = 0.0f;
+                    std::uint64_t positionARegister = 0u;
+                    std::uint64_t positionBRegister = 0u;
+                    std::uint64_t positionCRegister = 0u;
+                    if (!TryBuildVertexPositionRegister(viewPositionA, projection, viewport, gsGlobal, screenAX, screenAY, screenAZ, positionARegister)
+                        || !TryBuildVertexPositionRegister(viewPositionB, projection, viewport, gsGlobal, screenBX, screenBY, screenBZ, positionBRegister)
+                        || !TryBuildVertexPositionRegister(viewPositionC, projection, viewport, gsGlobal, screenCX, screenCY, screenCZ, positionCRegister)) {
+                        if (EnableVuPerTriangleTimingDiagnostics) {
+                            const std::clock_t triangleEmitEndTicks = std::clock();
+                            LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
+                        }
+
+                        continue;
+                    }
+
+                    const std::clock_t triangleLightingStartTicks = std::clock();
+                    const std::uint64_t triangleColor = EnableTexturedWhiteColorDiagnostics
+                        ? GS_SETREG_RGBAQ(
+                            batch->Material->GetBaseColorR(),
+                            batch->Material->GetBaseColorG(),
+                            batch->Material->GetBaseColorB(),
+                            batch->Material->GetBaseColorA(),
+                            0x00)
+                        : ResolveTexturedVertexColor(lightingConstants, triangleWorldNormal, normalizedLightDirection);
+                    const std::clock_t triangleLightingEndTicks = std::clock();
+                    accumulatedTriangleLightingTicks += (triangleLightingEndTicks - triangleLightingStartTicks);
+
+                    const std::clock_t trianglePayloadFillStartTicks = std::clock();
+                    texturedTrianglePackets.push_back(
+                        BuildTexturedTriangleGifPacketBytes(
+                            gsGlobal,
+                            texture,
+                            textureWidth,
+                            textureHeight,
+                            triangleColor,
+                            texturedVertexA,
+                            texturedVertexB,
+                            texturedVertexC,
+                            screenAX,
+                            screenAY,
+                            screenAZ,
+                            positionARegister,
+                            screenBX,
+                            screenBY,
+                            screenBZ,
+                            positionBRegister,
+                            screenCX,
+                            screenCY,
+                            screenCZ,
+                            positionCRegister));
+                    const std::clock_t trianglePayloadFillEndTicks = std::clock();
+                    accumulatedTrianglePayloadFillTicks += (trianglePayloadFillEndTicks - trianglePayloadFillStartTicks);
+
+                    const float minX = std::min({ screenAX, screenBX, screenCX });
+                    const float minY = std::min({ screenAY, screenBY, screenCY });
+                    const float maxX = std::max({ screenAX, screenBX, screenCX });
+                    const float maxY = std::max({ screenAY, screenBY, screenCY });
+                    if (SubmittedTriangleCount == 0u) {
+                        SubmittedScreenBounds = ::float4(minX, minY, maxX, maxY);
+                        SubmittedTriangleBoundsA = ::float4(minX, minY, maxX, maxY);
+                        SubmittedTriangleVertexA0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
+                        SubmittedTriangleVertexA1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
+                        SubmittedTriangleVertexA2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
+                    } else {
+                        SubmittedScreenBounds.X = std::min(SubmittedScreenBounds.X, minX);
+                        SubmittedScreenBounds.Y = std::min(SubmittedScreenBounds.Y, minY);
+                        SubmittedScreenBounds.Z = std::max(SubmittedScreenBounds.Z, maxX);
+                        SubmittedScreenBounds.W = std::max(SubmittedScreenBounds.W, maxY);
+                        if (SubmittedTriangleCount == 1u) {
+                            SubmittedTriangleBoundsB = ::float4(minX, minY, maxX, maxY);
+                            SubmittedTriangleVertexB0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
+                            SubmittedTriangleVertexB1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
+                            SubmittedTriangleVertexB2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
+                        }
+                    }
+
+                    SubmittedTriangleCount++;
+                    if (EnableVuPerTriangleTimingDiagnostics) {
+                        const std::clock_t triangleEmitEndTicks = std::clock();
+                        LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
+                    }
+
+                    continue;
                 } else if (!texturedVertexAInside && !texturedVertexBInside && !texturedVertexCInside) {
-                    clippedTexturedVertices.clear();
+                    if (EnableVuPerTriangleTimingDiagnostics) {
+                        const std::clock_t triangleEmitEndTicks = std::clock();
+                        LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
+                    }
+
+                    continue;
                 } else {
                     ClipTexturedTriangleAgainstNearPlane(texturedVertexA, texturedVertexB, texturedVertexC, nearPlaneDistance, clippedTexturedVertices);
                 }

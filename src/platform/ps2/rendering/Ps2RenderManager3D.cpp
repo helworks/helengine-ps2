@@ -33,7 +33,7 @@
 #include "Ps2ModelAsset.hpp"
 #include "Ps2TextureAsset.hpp"
 #include "Ps2MaterialAsset.hpp"
-#include "Ps2MaterialLightingMode.hpp"
+#include <Ps2MaterialLightingMode.hpp>
 #include "MaterialBlendMode.hpp"
 #include "RenderTarget.hpp"
 #include "runtime/runtime_ps2_asset_path_manifest.hpp"
@@ -131,6 +131,7 @@ namespace helengine::ps2 {
         constexpr bool EnableVuDirectGifDispatchDiagnostics = false;
         constexpr bool EnableVuDirectGifHelperTriangleDiagnostics = false;
         constexpr bool EnableVuSingleTrianglePayloadDiagnostics = false;
+        constexpr bool EnableTexturedBatchAggregationDiagnostics = true;
         constexpr std::uint32_t TexturedVuSubmitDiagnosticLogLimit = 16u;
         constexpr float VuDirectGifDiagnosticTriangleAX = 211.843231f;
         constexpr float VuDirectGifDiagnosticTriangleAY = 332.156738f;
@@ -1009,7 +1010,11 @@ namespace helengine::ps2 {
                 }
             }
 
-            if (batch.Textured && batchTexture != nullptr && batchTextureWidth > 0 && batchTextureHeight > 0) {
+            if (EnableTexturedBatchAggregationDiagnostics
+                && batch.Textured
+                && batchTexture != nullptr
+                && batchTextureWidth > 0
+                && batchTextureHeight > 0) {
                 texturedBatches.push_back(&batch);
                 texturedWorlds.push_back(world);
                 texturedTextures.push_back(batchTexture);

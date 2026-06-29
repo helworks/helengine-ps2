@@ -28,9 +28,12 @@ if (-not (Test-Path -LiteralPath $globalProfileRoot)) {
     throw "PCSX2 profile root was not found: $globalProfileRoot"
 }
 
-$existingPcsx2Processes = @(Get-Process -Name 'pcsx2-qt' -ErrorAction SilentlyContinue)
-foreach ($process in $existingPcsx2Processes) {
-    Stop-Process -Id $process.Id -Force
+$pcsx2ProcessNames = @('pcsx2-qt', 'pcsx2')
+foreach ($pcsx2ProcessName in $pcsx2ProcessNames) {
+    $existingPcsx2Processes = @(Get-Process -Name $pcsx2ProcessName -ErrorAction SilentlyContinue)
+    foreach ($process in $existingPcsx2Processes) {
+        Stop-Process -Id $process.Id -Force
+    }
 }
 
 if (Test-Path -LiteralPath $resolvedLauncherRoot) {
