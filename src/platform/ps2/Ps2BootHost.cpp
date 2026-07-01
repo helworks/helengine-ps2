@@ -27,6 +27,7 @@
 #include "Core.hpp"
 #include "CoreInitializationOptions.hpp"
 #include "ContentManager.hpp"
+#include "CameraComponent.hpp"
 #include "Entity.hpp"
 #include "FontAsset.hpp"
 #include "FontChar.hpp"
@@ -121,12 +122,10 @@ namespace {
     constexpr const char* CubeRuntimeDiagnosticSceneId = "textured_cube_grid";
     constexpr bool EnableVerboseEntityDisposalDiagnostics = false;
     constexpr bool EnableVerboseUpdateStageDiagnostics = false;
-    constexpr bool EnableFrameTimingDiagnostics = false;
+    constexpr bool EnableFrameTimingDiagnostics = true;
     constexpr bool EnableFrameTimingDiagnosticHalt = false;
     constexpr bool EnableFirstUpdateStateHalt = false;
-    constexpr const char* StartupSceneDiagnosticOverrideId = "textured_cube_grid";
-    int32_t PendingDraw3dInspectionFrameCount = 0;
-    std::string PendingDraw3dInspectionSceneId;
+    constexpr const char* StartupSceneDiagnosticOverrideId = "";
     constexpr bool EnableStartupSceneLoadTimingDiagnostic = true;
     constexpr bool EnableStartupScenePreRenderHalt = false;
     constexpr const char* BootLogHostFilePath = "host:ps2_bootlog.txt";
@@ -174,6 +173,8 @@ namespace {
     double FrameTimingVuBatchDispatchCount = 0.0;
     double FrameTimingVuTrianglePrepMilliseconds = 0.0;
     double FrameTimingVuTriangleEmitMilliseconds = 0.0;
+    double FrameTimingVuTriangleLightingMilliseconds = 0.0;
+    double FrameTimingVuTrianglePayloadFillMilliseconds = 0.0;
     double FrameTimingVuPacketAssemblyMilliseconds = 0.0;
     double FrameTimingVuWaitMilliseconds = 0.0;
     double FrameTimingVuSubmitMilliseconds = 0.0;
@@ -182,8 +183,11 @@ namespace {
     bool FrameTimingSampleCompleted = false;
     bool FrameTimingOverlayPending = false;
     bool FrameTimingOverlayPresented = false;
+    bool FirstFramePresentCheckpointLogged = false;
     std::string FrameTimingOverlayLine1;
     std::string FrameTimingOverlayLine2;
+    std::string FrameTimingOverlayDetailLine;
+    std::string FrameTimingOverlayAdditionalText;
     std::vector<std::string> BootLogHistory;
     bool BootLogHostFileStatusPrinted = false;
     GSGLOBAL* ActiveGsGlobal = nullptr;
@@ -203,10 +207,9 @@ namespace {
 
     std::string FormatMillisecondsFromClockTicks(std::clock_t startTicks, std::clock_t endTicks);
     double ResolveMillisecondsFromClockTicks(std::clock_t startTicks, std::clock_t endTicks);
-    bool ShouldInspectDraw3dStateForCurrentFrame();
-    void QueueDraw3dInspectionFrames(const std::string& sceneId);
-    void ConsumeDraw3dInspectionFrame();
-
+    std::string FormatOverlayMilliseconds(double milliseconds);
+    std::string FormatFloat4(const ::float4& value);
+    void ApplyPlatformPerformanceOverlayRows(::Core* engineCore);
     void BootLog(const char* message);
 
     void BootLog(const std::string& message);
@@ -218,6 +221,8 @@ namespace {
     void AppendBootLogToHostFile(const char* message);
 
     void PrintHostLogStatusLine(const std::string& message);
+
+    void PresentBootLogHistoryToDebugConsole();
 
     class Ps2BootRuntimeDiagnosticsProvider final
         : public ::IRuntimeDiagnosticsProvider
@@ -271,10 +276,6 @@ namespace {
                 SceneLoadStartTicks = nowTicks;
             }
 
-            if (EnableCubeRuntimeDiagnostics && String::Equals(stage, "LoadSceneRequest", StringComparison::Ordinal)) {
-                QueueDraw3dInspectionFrames(sceneId);
-            }
-
             const std::string sincePrevious = FormatMillisecondsFromClockTicks(LastSceneStageTicks, nowTicks);
             const std::string sinceStart = FormatMillisecondsFromClockTicks(SceneLoadStartTicks, nowTicks);
             BootLog(
@@ -304,7 +305,6 @@ namespace {
             if (!EnableVerboseUpdateStageDiagnostics) {
                 return;
             }
-
             if (String::Equals(LastUpdateStage, stage, StringComparison::Ordinal)) {
                 return;
             }
@@ -476,69 +476,6 @@ namespace {
         return ShouldCaptureCubeRuntimeDiagnostics(engineCore->get_SceneManager());
     }
 
-    bool ShouldInspectDraw3dStateForCurrentFrame() {
-        return PendingDraw3dInspectionFrameCount > 0;
-    }
-
-    void QueueDraw3dInspectionFrames(const std::string& sceneId) {
-        PendingDraw3dInspectionFrameCount = 4;
-        PendingDraw3dInspectionSceneId = sceneId;
-    }
-
-    void ConsumeDraw3dInspectionFrame() {
-        if (PendingDraw3dInspectionFrameCount <= 0) {
-            return;
-        }
-
-        PendingDraw3dInspectionFrameCount--;
-    }
-
-    void BootLogActiveDrawables3DState(::Core* engineCore) {
-        if (engineCore == nullptr || engineCore->get_ObjectManager() == nullptr || engineCore->get_ObjectManager()->get_Drawables3D() == nullptr) {
-            BootLog("draw3d inspect unavailable");
-            return;
-        }
-
-        List<::IDrawable3D*>* drawables = engineCore->get_ObjectManager()->get_Drawables3D();
-        BootLog(
-            std::string("draw3d inspect sceneId=")
-            + PendingDraw3dInspectionSceneId
-            + " count="
-            + std::to_string(drawables->get_Count()));
-        const int32_t maxLoggedDrawables = std::min(drawables->get_Count(), static_cast<int32_t>(8));
-        for (int32_t index = 0; index < maxLoggedDrawables; index++) {
-            ::IDrawable3D* drawable = (*drawables)[index];
-            Array<::RuntimeMaterial*>* runtimeMaterials = drawable != nullptr ? drawable->get_Materials() : nullptr;
-            ::RuntimeMaterial* runtimeMaterial = runtimeMaterials != nullptr && runtimeMaterials->get_Length() > 0
-                ? (*runtimeMaterials)[0]
-                : nullptr;
-            auto ps2Material = he_cpp_try_cast<helengine::ps2::Ps2RuntimeMaterial>(runtimeMaterial);
-            const std::string materialId = runtimeMaterial != nullptr ? runtimeMaterial->get_Id() : std::string("null");
-            const std::string texturePath = ps2Material != nullptr ? ps2Material->GetTextureRelativePath() : std::string();
-            const long textureLength = static_cast<long>(texturePath.size());
-            const long textureByte0 = texturePath.empty() ? -1l : static_cast<long>(static_cast<unsigned char>(texturePath[0]));
-            const long textureByte1 = texturePath.size() > 1u ? static_cast<long>(static_cast<unsigned char>(texturePath[1])) : -1l;
-            const long textureByte2 = texturePath.size() > 2u ? static_cast<long>(static_cast<unsigned char>(texturePath[2])) : -1l;
-            BootLog(
-                std::string("draw3d drawable index=")
-                + std::to_string(index)
-                + " drawable="
-                + std::to_string(static_cast<unsigned long>(reinterpret_cast<std::uintptr_t>(drawable)))
-                + " material="
-                + std::to_string(static_cast<unsigned long>(reinterpret_cast<std::uintptr_t>(runtimeMaterial)))
-                + " materialId="
-                + materialId
-                + " textureLen="
-                + std::to_string(textureLength)
-                + " textureByte0="
-                + std::to_string(textureByte0)
-                + " textureByte1="
-                + std::to_string(textureByte1)
-                + " textureByte2="
-                + std::to_string(textureByte2));
-        }
-    }
-
     std::string BuildStartupSceneRootSummary(::SceneAsset* sceneAsset) {
         if (sceneAsset == nullptr) {
             return "scene=null";
@@ -630,6 +567,32 @@ namespace {
         return ResolveSecondsFromClockTicks(startTicks, endTicks) * 1000.0;
     }
 
+    std::string FormatOverlayMilliseconds(double milliseconds) {
+        char buffer[32];
+        std::snprintf(buffer, sizeof(buffer), "%.1f", milliseconds);
+        return std::string(buffer);
+    }
+
+    void ApplyPlatformPerformanceOverlayRows(::Core* engineCore) {
+        if (engineCore == nullptr) {
+            return;
+        }
+
+        if (FrameTimingOverlayLine1.empty()
+            && FrameTimingOverlayLine2.empty()
+            && FrameTimingOverlayDetailLine.empty()
+            && FrameTimingOverlayAdditionalText.empty()) {
+            return;
+        }
+
+        engineCore->SetPerformanceOverlayTextRows(
+            true,
+            FrameTimingOverlayLine1,
+            FrameTimingOverlayLine2,
+            FrameTimingOverlayDetailLine,
+            FrameTimingOverlayAdditionalText);
+    }
+
     void RecordRenderManagerTimingSample(const helengine::ps2::Ps2RenderManager3D& renderManager3DBackend) {
         if (!EnableFrameTimingDiagnostics) {
             return;
@@ -641,6 +604,8 @@ namespace {
         FrameTimingVuBatchDispatchCount += static_cast<double>(renderManager3DBackend.GetLastVuBatchDispatchCount());
         FrameTimingVuTrianglePrepMilliseconds += renderManager3DBackend.GetLastVuTrianglePrepMilliseconds();
         FrameTimingVuTriangleEmitMilliseconds += renderManager3DBackend.GetLastVuTriangleEmitMilliseconds();
+        FrameTimingVuTriangleLightingMilliseconds += renderManager3DBackend.GetLastVuTriangleLightingMilliseconds();
+        FrameTimingVuTrianglePayloadFillMilliseconds += renderManager3DBackend.GetLastVuTrianglePayloadFillMilliseconds();
         FrameTimingVuPacketAssemblyMilliseconds += renderManager3DBackend.GetLastVuPacketAssemblyMilliseconds();
         FrameTimingVuWaitMilliseconds += renderManager3DBackend.GetLastVuWaitMilliseconds();
         FrameTimingVuSubmitMilliseconds += renderManager3DBackend.GetLastVuSubmitMilliseconds();
@@ -683,10 +648,21 @@ namespace {
         const double averageVuBatchDispatchCount = FrameTimingVuBatchDispatchCount / sampledFrameCount;
         const double averageVuTrianglePrepMilliseconds = FrameTimingVuTrianglePrepMilliseconds / sampledFrameCount;
         const double averageVuTriangleEmitMilliseconds = FrameTimingVuTriangleEmitMilliseconds / sampledFrameCount;
+        const double averageVuTriangleLightingMilliseconds = FrameTimingVuTriangleLightingMilliseconds / sampledFrameCount;
+        const double averageVuTrianglePayloadFillMilliseconds = FrameTimingVuTrianglePayloadFillMilliseconds / sampledFrameCount;
         const double averageVuPacketAssemblyMilliseconds = FrameTimingVuPacketAssemblyMilliseconds / sampledFrameCount;
         const double averageVuWaitMilliseconds = FrameTimingVuWaitMilliseconds / sampledFrameCount;
         const double averageVuSubmitMilliseconds = FrameTimingVuSubmitMilliseconds / sampledFrameCount;
         const double averageVuPacketEncodeMilliseconds = FrameTimingVuPacketEncodeMilliseconds / sampledFrameCount;
+        const double averageSetMilliseconds = averageProxySyncMilliseconds
+            + averageFramePlanMilliseconds
+            + averageVuBatchBuildMilliseconds
+            + averageVuTrianglePrepMilliseconds
+            + averageVuTriangleEmitMilliseconds
+            + averageVuTriangleLightingMilliseconds
+            + averageVuTrianglePayloadFillMilliseconds
+            + averageVuPacketAssemblyMilliseconds
+            + averageVuPacketEncodeMilliseconds;
         const double totalSeconds = FrameTimingUpdateSeconds + FrameTimingDrawSeconds + FrameTimingPresentSeconds;
         const double averageFramesPerSecond = totalSeconds <= 0.0 ? 0.0 : sampledFrameCount / totalSeconds;
         BootLog(
@@ -702,27 +678,72 @@ namespace {
             + std::to_string(averageDrawMilliseconds)
             + " presentMs="
             + std::to_string(averagePresentMilliseconds)
+            + " setMs="
+            + std::to_string(averageSetMilliseconds)
+            + " syncMs="
+            + std::to_string(averageProxySyncMilliseconds)
+            + " planMs="
+            + std::to_string(averageFramePlanMilliseconds)
+            + " buildMs="
+            + std::to_string(averageVuBatchBuildMilliseconds)
+            + " encMs="
+            + std::to_string(averageVuPacketEncodeMilliseconds)
+            + " prepMs="
+            + std::to_string(averageVuTrianglePrepMilliseconds)
+            + " emitMs="
+            + std::to_string(averageVuTriangleEmitMilliseconds)
+            + " lgtMs="
+            + std::to_string(averageVuTriangleLightingMilliseconds)
+            + " tplMs="
+            + std::to_string(averageVuTrianglePayloadFillMilliseconds)
+            + " asmMs="
+            + std::to_string(averageVuPacketAssemblyMilliseconds)
+            + " wtMs="
+            + std::to_string(averageVuWaitMilliseconds)
+            + " subMs="
+            + std::to_string(averageVuSubmitMilliseconds)
+            + " disp="
+            + std::to_string(averageVuBatchDispatchCount)
             + " fps="
             + std::to_string(averageFramesPerSecond));
         FrameTimingOverlayLine1 =
-            std::string(renderManager3DBackend.IsUsingLegacyCpuOpaquePath() ? "OpaqueCPU " : "OpaqueVU2 ")
-            + "Ow: "
-            + std::to_string(renderManager3DBackend.GetLastOpaqueWorldCount())
-            + " Od: "
-            + std::to_string(renderManager3DBackend.GetLastOpaqueDynamicCount())
-            + " Disp: "
-            + std::to_string(averageVuBatchDispatchCount);
+            std::string("FPS ")
+            + FormatOverlayMilliseconds(averageFramesPerSecond)
+            + " Set "
+            + FormatOverlayMilliseconds(averageSetMilliseconds)
+            + " Drw "
+            + FormatOverlayMilliseconds(averageDrawMilliseconds);
         FrameTimingOverlayLine2 =
-            "RMM: "
-            + std::to_string(renderManager3DBackend.GetLastVuRejectedMissingMaterialCount())
-            + " RMP: "
-            + std::to_string(renderManager3DBackend.GetLastVuRejectedMissingPackedModelCount())
-            + " Tri: "
+            std::string("Drw ")
+            + FormatOverlayMilliseconds(averageDrawMilliseconds)
+            + " Sync "
+            + FormatOverlayMilliseconds(averageProxySyncMilliseconds)
+            + " Plan "
+            + FormatOverlayMilliseconds(averageFramePlanMilliseconds)
+            + " Bld "
+            + FormatOverlayMilliseconds(averageVuBatchBuildMilliseconds);
+        FrameTimingOverlayDetailLine =
+            std::string("Enc ")
+            + FormatOverlayMilliseconds(averageVuPacketEncodeMilliseconds)
+            + " Prep "
+            + FormatOverlayMilliseconds(averageVuTrianglePrepMilliseconds)
+            + " Emit "
+            + FormatOverlayMilliseconds(averageVuTriangleEmitMilliseconds)
+            + " Asm "
+            + FormatOverlayMilliseconds(averageVuPacketAssemblyMilliseconds);
+        FrameTimingOverlayAdditionalText =
+            std::string("Lgt ")
+            + FormatOverlayMilliseconds(averageVuTriangleLightingMilliseconds)
+            + " Tpl "
+            + FormatOverlayMilliseconds(averageVuTrianglePayloadFillMilliseconds)
+            + " Wt "
+            + FormatOverlayMilliseconds(averageVuWaitMilliseconds)
+            + " Sub "
+            + FormatOverlayMilliseconds(averageVuSubmitMilliseconds)
+            + " Hit "
             + std::to_string(renderManager3DBackend.GetLastSubmittedTriangleCount())
-            + " 3D: "
-            + std::to_string(averageDrawMilliseconds)
-            + " FPS: "
-            + std::to_string(averageFramesPerSecond);
+            + " Disp "
+            + FormatOverlayMilliseconds(averageVuBatchDispatchCount);
         FrameTimingOverlayPending = true;
         FrameTimingOverlayPresented = false;
         FrameTimingSampleCompleted = true;
@@ -738,6 +759,8 @@ namespace {
         FrameTimingVuBatchDispatchCount = 0.0;
         FrameTimingVuTrianglePrepMilliseconds = 0.0;
         FrameTimingVuTriangleEmitMilliseconds = 0.0;
+        FrameTimingVuTriangleLightingMilliseconds = 0.0;
+        FrameTimingVuTrianglePayloadFillMilliseconds = 0.0;
         FrameTimingVuPacketAssemblyMilliseconds = 0.0;
         FrameTimingVuWaitMilliseconds = 0.0;
         FrameTimingVuSubmitMilliseconds = 0.0;
@@ -1189,6 +1212,24 @@ namespace {
         return asset;
     }
 
+    void ReleaseOwnedByteArray(::Array<uint8_t>* bytes) {
+        if (bytes != nullptr && bytes != ::Array<uint8_t>::Empty()) {
+            delete bytes;
+        }
+    }
+
+    void ReleasePs2TextureAsset(::Ps2TextureAsset* asset) {
+        if (asset == nullptr) {
+            return;
+        }
+
+        ReleaseOwnedByteArray(asset->PixelData);
+        asset->PixelData = nullptr;
+        ReleaseOwnedByteArray(asset->PaletteData);
+        asset->PaletteData = nullptr;
+        delete asset;
+    }
+
     bool PopulateTextureRecordFromPs2TextureAsset(::Ps2TextureAsset* data, Ps2TextureRecord& record) {
         if (data == nullptr || data->PixelData == nullptr || data->PixelData->Length <= 0 || data->Width <= 0 || data->Height <= 0) {
             return false;
@@ -1259,6 +1300,9 @@ namespace {
             }
         });
         ::Ps2TextureAsset* textureAsset = DeserializePs2TextureAsset(stream);
+        [[maybe_unused]] auto textureAssetGuard = he_cpp_make_scope_exit([textureAsset]() {
+            ReleasePs2TextureAsset(textureAsset);
+        });
         Ps2TextureRecord record;
         if (!PopulateTextureRecordFromPs2TextureAsset(textureAsset, record)) {
             return nullptr;
@@ -1266,6 +1310,41 @@ namespace {
 
         auto insertedRecord = FontTextureRecords.emplace(font, record);
         return &insertedRecord.first->second;
+    }
+
+    void ReleaseTextureRecord(Ps2TextureRecord& record) {
+        if (record.Texture.Clut != nullptr) {
+            free(record.Texture.Clut);
+            record.Texture.Clut = nullptr;
+        }
+
+        if (record.Texture.Mem != nullptr) {
+            free(record.Texture.Mem);
+            record.Texture.Mem = nullptr;
+        }
+
+        record.Texture.Vram = 0;
+        record.Texture.VramClut = 0;
+        record.Pixels = nullptr;
+        record.ClutWidth = 0;
+        record.ClutHeight = 0;
+        record.Uploaded = false;
+    }
+
+    void InvalidateUploadedTextureRecords() {
+        for (auto& textureEntry : TextureRecords) {
+            Ps2TextureRecord& record = textureEntry.second;
+            record.Texture.Vram = 0;
+            record.Texture.VramClut = 0;
+            record.Uploaded = false;
+        }
+
+        for (auto& fontTextureEntry : FontTextureRecords) {
+            Ps2TextureRecord& record = fontTextureEntry.second;
+            record.Texture.Vram = 0;
+            record.Texture.VramClut = 0;
+            record.Uploaded = false;
+        }
     }
 
     void UploadVuOpaqueMicroProgram() {
@@ -1363,6 +1442,13 @@ namespace {
             gsKit_texture_size(record.Texture.Width, record.Texture.Height, record.Texture.PSM),
             GSKIT_ALLOC_USERBUFFER);
         if (record.Texture.Vram == GSKIT_ALLOC_ERROR) {
+            BootLog(
+                std::string("render2d upload failed texture vram width=")
+                + std::to_string(record.Texture.Width)
+                + " height="
+                + std::to_string(record.Texture.Height)
+                + " psm="
+                + std::to_string(record.Texture.PSM));
             return false;
         }
         if (record.Texture.Clut != nullptr) {
@@ -1371,6 +1457,15 @@ namespace {
                 gsKit_texture_size(record.ClutWidth, record.ClutHeight, GS_PSM_CT32),
                 GSKIT_ALLOC_USERBUFFER);
             if (record.Texture.VramClut == GSKIT_ALLOC_ERROR) {
+                BootLog(
+                    std::string("render2d upload failed clut vram width=")
+                    + std::to_string(record.ClutWidth)
+                    + " height="
+                    + std::to_string(record.ClutHeight)
+                    + " textureWidth="
+                    + std::to_string(record.Texture.Width)
+                    + " textureHeight="
+                    + std::to_string(record.Texture.Height));
                 return false;
             }
         }
@@ -1568,6 +1663,9 @@ namespace {
                 }
             });
             ::Ps2TextureAsset* textureAsset = DeserializePs2TextureAsset(bufferedStream);
+            [[maybe_unused]] auto textureAssetGuard = he_cpp_make_scope_exit([textureAsset]() {
+                ReleasePs2TextureAsset(textureAsset);
+            });
             const std::clock_t deserializeEndTicks = std::clock();
             CookedTextureDeserializeMilliseconds += ResolveMillisecondsFromClockTicks(deserializeStartTicks, deserializeEndTicks);
             BootLog(
@@ -1608,6 +1706,43 @@ namespace {
                 + resolvedCookedAssetPath);
             BootLog(std::string("render2d build cooked texture end path=") + resolvedCookedAssetPath);
             return runtimeTexture;
+        }
+
+        void ReleaseTexture(RuntimeTexture* texture) override {
+            if (texture == nullptr) {
+                throw std::invalid_argument("PS2 runtime texture release requires one texture.");
+            }
+
+            auto textureIt = TextureRecords.find(texture);
+            if (textureIt != TextureRecords.end()) {
+                ReleaseTextureRecord(textureIt->second);
+                TextureRecords.erase(textureIt);
+            }
+
+            RenderManager2D::ReleaseTexture(texture);
+        }
+
+        void ReleaseFont(FontAsset* font) override {
+            if (font == nullptr) {
+                throw std::invalid_argument("PS2 font release requires one font.");
+            }
+
+            auto fontTextureIt = FontTextureRecords.find(font);
+            if (fontTextureIt != FontTextureRecords.end()) {
+                ReleaseTextureRecord(fontTextureIt->second);
+                FontTextureRecords.erase(fontTextureIt);
+            }
+
+            RenderManager2D::ReleaseFont(font);
+        }
+
+        void FlushReleasedTextures() override {
+            if (ActiveGsGlobal == 0) {
+                return;
+            }
+
+            gsKit_vram_clear(ActiveGsGlobal);
+            InvalidateUploadedTextureRecords();
         }
 
         void Draw() override {
@@ -1904,6 +2039,13 @@ namespace {
 
             Ps2TextureRecord& record = textureIt->second;
             if (!EnsureTextureUploaded(record)) {
+                BootLog(
+                    std::string("draw2d textured upload failed texture=")
+                    + runtimeTexture->get_Id()
+                    + " width="
+                    + std::to_string(record.Texture.Width)
+                    + " height="
+                    + std::to_string(record.Texture.Height));
                 return;
             }
 
@@ -2069,7 +2211,6 @@ namespace helengine::ps2 {
             EnginePlatformInfo,
             EngineOptions);
         BootLog("core initialized");
-
         return true;
     }
 
@@ -2129,6 +2270,16 @@ namespace helengine::ps2 {
             }
 
             BootLog(std::string("startup scene path: ") + startupScenePhysicalPath);
+            BootLogDiscProbe("startup-scene-cdrom", startupScenePhysicalPath);
+            std::string startupSceneDiscTokenPath = startupScenePhysicalPath;
+            if (startupSceneDiscTokenPath.rfind("cdrom0:", 0) == 0 && startupSceneDiscTokenPath.length() > 7) {
+                startupSceneDiscTokenPath = startupSceneDiscTokenPath.substr(7);
+                BootLogDiscProbe("startup-scene-token", startupSceneDiscTokenPath.c_str());
+            }
+            BootLogDiscProbe("startup-probe-elf", "cdrom0:\\HELENGIN.ELF;1");
+            BootLogDiscProbe("startup-probe-cnf", "cdrom0:\\SYSTEM.CNF;1");
+            BootLogDiscProbe("startup-probe-menu-scene", "cdrom0:\\COOKED\\SCENES\\DE30A7E1.HAS;1");
+            BootLogDiscProbe("startup-probe-cubes-scene", "cdrom0:\\COOKED\\SCENES\\9F39545A.HAS;1");
             std::string startupSceneId = ResolveStartupSceneIdFromManifest();
             if (StartupSceneDiagnosticOverrideId != nullptr && StartupSceneDiagnosticOverrideId[0] != '\0') {
                 startupSceneId = StartupSceneDiagnosticOverrideId;
@@ -2204,28 +2355,25 @@ namespace helengine::ps2 {
                         if (!loggedFirstUpdateComplete) {
                             if (EnableFirstUpdateStateHalt) {
                                 BootLogHistory.clear();
-                            }
-                            BootLog("first update completed");
-                            ::ObjectManager* objectManager = EngineCore->get_ObjectManager();
-                            ::SceneManager* sceneManager = EngineCore->get_SceneManager();
-                            BootLog(
-                                "first update state: loadedScenes="
-                                + std::to_string(sceneManager != nullptr && sceneManager->get_LoadedScenes() != nullptr ? sceneManager->get_LoadedScenes()->get_Count() : 0)
-                                + " ids="
-                                + BuildLoadedSceneIdsDiagnostic(sceneManager)
-                                + " entities="
-                                + std::to_string(objectManager != nullptr && objectManager->get_Entities() != nullptr ? objectManager->get_Entities()->get_Count() : 0)
-                                + " draw2d="
-                                + std::to_string(objectManager != nullptr && objectManager->get_Drawables2D() != nullptr ? objectManager->get_Drawables2D()->get_Count() : 0)
-                                + " draw3d="
-                                + std::to_string(objectManager != nullptr && objectManager->get_Drawables3D() != nullptr ? objectManager->get_Drawables3D()->get_Count() : 0)
-                                + " cameras="
-                                + std::to_string(objectManager != nullptr && objectManager->get_Cameras() != nullptr ? objectManager->get_Cameras()->get_Count() : 0)
-                                + " sceneTrace="
-                                + (sceneManager != nullptr ? sceneManager->get_LastTraceStage() : std::string("null"))
-                                + " sceneLoadTrace="
-                                + (EngineCore->get_SceneLoadService() != nullptr ? EngineCore->get_SceneLoadService()->get_LastTraceStage() : std::string("null")));
-                            if (EnableFirstUpdateStateHalt) {
+                                ::ObjectManager* objectManager = EngineCore->get_ObjectManager();
+                                ::SceneManager* sceneManager = EngineCore->get_SceneManager();
+                                BootLog(
+                                    "U1 ls="
+                                    + std::to_string(sceneManager != nullptr && sceneManager->get_LoadedScenes() != nullptr ? sceneManager->get_LoadedScenes()->get_Count() : 0)
+                                    + " ids="
+                                    + BuildLoadedSceneIdsDiagnostic(sceneManager)
+                                    + " ent="
+                                    + std::to_string(objectManager != nullptr && objectManager->get_Entities() != nullptr ? objectManager->get_Entities()->get_Count() : 0)
+                                    + " d2="
+                                    + std::to_string(objectManager != nullptr && objectManager->get_Drawables2D() != nullptr ? objectManager->get_Drawables2D()->get_Count() : 0)
+                                    + " d3="
+                                    + std::to_string(objectManager != nullptr && objectManager->get_Drawables3D() != nullptr ? objectManager->get_Drawables3D()->get_Count() : 0)
+                                    + " cam="
+                                    + std::to_string(objectManager != nullptr && objectManager->get_Cameras() != nullptr ? objectManager->get_Cameras()->get_Count() : 0)
+                                    + " st="
+                                    + (sceneManager != nullptr ? sceneManager->get_LastTraceStage() : std::string("null"))
+                                    + " sl="
+                                    + (EngineCore->get_SceneLoadService() != nullptr ? EngineCore->get_SceneLoadService()->get_LastTraceStage() : std::string("null")));
                                 PresentBootLogHistoryToDebugConsole();
                                 gsKit_sync_flip(GsGlobal);
                                 while (true) {
@@ -2292,10 +2440,6 @@ namespace helengine::ps2 {
                             CubeFrameBoundaryCheckpointLogged = true;
                             BootLog("cube frame checkpoint: before EngineCore->Draw");
                         }
-                        if (ShouldInspectDraw3dStateForCurrentFrame()) {
-                            BootLogActiveDrawables3DState(EngineCore);
-                            ConsumeDraw3dInspectionFrame();
-                        }
                         EngineCore->Draw();
                         if (EnableCubeRuntimeDiagnostics
                             && !CubeFrameDrawReturnedLogged
@@ -2343,7 +2487,8 @@ namespace helengine::ps2 {
                     if (EnableCubeRuntimeDiagnostics
                         && !CubeDiagnosticsShown
                         && !CubeRuntimeDiagnosticsCompleted
-                        && ShouldCaptureCubeRuntimeDiagnostics(EngineCore->get_SceneManager())) {
+                        && ShouldCaptureCubeRuntimeDiagnostics(EngineCore->get_SceneManager())
+                        && RenderManager3DBackend.GetLastProxyCount() > 0u) {
                         CubeDiagnosticsShown = true;
                         scr_clear();
                         BootLog(
@@ -2427,10 +2572,12 @@ namespace helengine::ps2 {
 
                                 std::string currentText = textDrawable->get_Text();
                                 if (currentText.rfind("Update FPS:", 0) == 0
-                                    || currentText.rfind("Upd", 0) == 0) {
+                                    || currentText.rfind("Upd", 0) == 0
+                                    || currentText.rfind("FPS", 0) == 0) {
                                     textDrawable->set_Text(FrameTimingOverlayLine1);
                                 } else if (currentText.rfind("Render FPS:", 0) == 0
-                                    || currentText.rfind("Rdr", 0) == 0) {
+                                    || currentText.rfind("Rdr", 0) == 0
+                                    || currentText.rfind("Drw", 0) == 0) {
                                     textDrawable->set_Text(FrameTimingOverlayLine2);
                                 }
                             }
@@ -2462,6 +2609,10 @@ namespace helengine::ps2 {
                             while (true) {
                             }
                         }
+
+                        if (!FirstFramePresentCheckpointLogged) {
+                            BootLog("P0 after draw2d");
+                        }
                     }
                 }
                 if (frameGifWaitEndTicks == frameUpdateStartTicks) {
@@ -2470,8 +2621,18 @@ namespace helengine::ps2 {
                 frameDrawEndTicks = std::clock();
 
                 try {
+                    if (!FirstFramePresentCheckpointLogged) {
+                        BootLog("P1 before queue_exec");
+                    }
                     gsKit_queue_exec(GsGlobal);
+                    if (!FirstFramePresentCheckpointLogged) {
+                        BootLog("P2 after queue_exec");
+                    }
                     gsKit_sync_flip(GsGlobal);
+                    if (!FirstFramePresentCheckpointLogged) {
+                        BootLog("P3 after sync_flip");
+                        FirstFramePresentCheckpointLogged = true;
+                    }
                 } catch (Exception* exception) {
                     BootLogRuntimeException("frame present", exception, EngineCore, false);
                     delete exception;
@@ -2499,6 +2660,7 @@ namespace helengine::ps2 {
                     ResolveSecondsFromClockTicks(frameGifWaitEndTicks, frameDrawEndTicks),
                     ResolveSecondsFromClockTicks(frameUpdateEndTicks, frameDrawEndTicks),
                     ResolveSecondsFromClockTicks(frameDrawEndTicks, framePresentEndTicks));
+                ApplyPlatformPerformanceOverlayRows(EngineCore);
                 if (EnableCubeRuntimeDiagnostics && CubeDiagnosticsShown && !CubeRuntimeDiagnosticsCompleted) {
                     if (!CubeRuntimeDiagnosticWatchActive) {
                         CubeRuntimeDiagnosticWatchActive = true;
