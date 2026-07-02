@@ -8,3 +8,4 @@ render-validation-output/
 build/
 *.elf
 *.map
+tmp/
