@@ -365,6 +365,20 @@ public static class Ps2PlatformDefinitionFactory {
                             PlatformSettingKind.Text,
                             "System.Numerics.Vector2=helengine.float2|System.Numerics.Vector3=helengine.float3|System.Numerics.Vector4=helengine.float4|System.Numerics.Quaternion=helengine.float4",
                             true,
+                            []),
+                        new PlatformSettingDefinition(
+                            "native-file-system-header",
+                            "Native File System Header",
+                            PlatformSettingKind.Text,
+                            "\"platform/ps2/Ps2DiscFileSystem.hpp\"",
+                            true,
+                            []),
+                        new PlatformSettingDefinition(
+                            "native-file-system-type",
+                            "Native File System Type",
+                            PlatformSettingKind.Text,
+                            "helengine::ps2::Ps2DiscFileSystem",
+                            true,
                             [])
                     ])
             ],

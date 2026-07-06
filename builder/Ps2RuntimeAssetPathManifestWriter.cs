@@ -38,7 +38,7 @@ public sealed class Ps2RuntimeAssetPathManifestWriter {
         File.WriteAllText(Path.Combine(runtimeRootPath, "runtime_ps2_asset_path_manifest.hpp"), BuildHeaderContents());
         File.WriteAllText(
             Path.Combine(runtimeRootPath, "runtime_ps2_asset_path_manifest.cpp"),
-            BuildSourceContents(BuildRuntimePhysicalPath(startupPhysicalPath)));
+            BuildSourceContents(BuildRuntimePhysicalPath(startupPhysicalPath), logicalToPhysicalPaths));
         File.WriteAllText(Path.Combine(runtimeRootPath, "runtime_scene_catalog_manifest.hpp"), BuildSceneCatalogHeaderContents());
         File.WriteAllText(
             Path.Combine(runtimeRootPath, "runtime_scene_catalog_manifest.cpp"),
@@ -84,22 +84,107 @@ public sealed class Ps2RuntimeAssetPathManifestWriter {
     static string BuildHeaderContents() {
         return
             "#pragma once\n\n"
-            + "const char* he_get_runtime_ps2_startup_scene_path();\n";
+            + "const char* he_get_runtime_ps2_startup_scene_path();\n"
+            + "const char* he_get_runtime_ps2_asset_physical_path(const char* logicalPath);\n";
     }
 
     /// <summary>
     /// Builds the generated PS2 startup-path manifest implementation source.
     /// </summary>
     /// <param name="startupPhysicalPath">Resolved rooted PS2 startup-scene runtime path.</param>
+    /// <param name="logicalToPhysicalPaths">Logical-to-physical staged PS2 disc path mappings.</param>
     /// <returns>Generated source contents for the PS2 runtime startup-path manifest.</returns>
-    static string BuildSourceContents(string startupPhysicalPath) {
+    static string BuildSourceContents(string startupPhysicalPath, IReadOnlyDictionary<string, string> logicalToPhysicalPaths) {
+        if (logicalToPhysicalPaths == null) {
+            throw new ArgumentNullException(nameof(logicalToPhysicalPaths));
+        }
+
         StringBuilder builder = new();
         builder.AppendLine("#include \"runtime/runtime_ps2_asset_path_manifest.hpp\"");
         builder.AppendLine();
+        builder.AppendLine("#include <cstddef>");
+        builder.AppendLine();
         builder.AppendLine("static const char kRuntimePs2StartupScenePath[] = \"" + EscapeCpp(startupPhysicalPath) + "\";");
+        builder.AppendLine();
+        builder.AppendLine("struct HERuntimePs2AssetPathEntry {");
+        builder.AppendLine("    const char* LogicalPath;");
+        builder.AppendLine("    const char* PhysicalPath;");
+        builder.AppendLine("};");
+        builder.AppendLine();
+
+        List<string> logicalPaths = new(logicalToPhysicalPaths.Keys);
+        logicalPaths.Sort(StringComparer.Ordinal);
+        if (logicalPaths.Count == 0) {
+            builder.AppendLine("static const HERuntimePs2AssetPathEntry* kRuntimePs2AssetPathEntries = nullptr;");
+            builder.AppendLine("static const std::size_t kRuntimePs2AssetPathEntryCount = 0;");
+        } else {
+            builder.AppendLine("static const HERuntimePs2AssetPathEntry kRuntimePs2AssetPathEntries[] = {");
+            for (int index = 0; index < logicalPaths.Count; index++) {
+                string logicalPath = logicalPaths[index];
+                builder.Append("    { \"");
+                builder.Append(EscapeCpp(logicalPath));
+                builder.Append("\", \"");
+                builder.Append(EscapeCpp(BuildRuntimePhysicalPath(logicalToPhysicalPaths[logicalPath])));
+                builder.AppendLine("\" },");
+            }
+
+            builder.AppendLine("};");
+            builder.AppendLine("static const std::size_t kRuntimePs2AssetPathEntryCount = sizeof(kRuntimePs2AssetPathEntries) / sizeof(kRuntimePs2AssetPathEntries[0]);");
+        }
+
+        builder.AppendLine();
+        builder.AppendLine("static bool RuntimePs2LogicalPathsEqual(const char* logicalPath, const char* candidatePath) {");
+        builder.AppendLine("    if (logicalPath == nullptr || candidatePath == nullptr) {");
+        builder.AppendLine("        return false;");
+        builder.AppendLine("    }");
+        builder.AppendLine();
+        builder.AppendLine("    while (*candidatePath == '/' || *candidatePath == '\\\\') {");
+        builder.AppendLine("        candidatePath++;");
+        builder.AppendLine("    }");
+        builder.AppendLine();
+        builder.AppendLine("    while (*logicalPath != '\\0' && *candidatePath != '\\0') {");
+        builder.AppendLine("        char left = *logicalPath;");
+        builder.AppendLine("        char right = *candidatePath;");
+        builder.AppendLine("        if (left == '\\\\') {");
+        builder.AppendLine("            left = '/';");
+        builder.AppendLine("        }");
+        builder.AppendLine("        if (right == '\\\\') {");
+        builder.AppendLine("            right = '/';");
+        builder.AppendLine("        }");
+        builder.AppendLine("        if (left >= 'A' && left <= 'Z') {");
+        builder.AppendLine("            left = static_cast<char>(left - 'A' + 'a');");
+        builder.AppendLine("        }");
+        builder.AppendLine("        if (right >= 'A' && right <= 'Z') {");
+        builder.AppendLine("            right = static_cast<char>(right - 'A' + 'a');");
+        builder.AppendLine("        }");
+        builder.AppendLine("        if (left != right) {");
+        builder.AppendLine("            return false;");
+        builder.AppendLine("        }");
+        builder.AppendLine();
+        builder.AppendLine("        logicalPath++;");
+        builder.AppendLine("        candidatePath++;");
+        builder.AppendLine("    }");
+        builder.AppendLine();
+        builder.AppendLine("    return *logicalPath == '\\0' && *candidatePath == '\\0';");
+        builder.AppendLine("}");
         builder.AppendLine();
         builder.AppendLine("const char* he_get_runtime_ps2_startup_scene_path() {");
         builder.AppendLine("    return kRuntimePs2StartupScenePath;");
+        builder.AppendLine("}");
+        builder.AppendLine();
+        builder.AppendLine("const char* he_get_runtime_ps2_asset_physical_path(const char* logicalPath) {");
+        builder.AppendLine("    if (logicalPath == nullptr || logicalPath[0] == '\\0') {");
+        builder.AppendLine("        return nullptr;");
+        builder.AppendLine("    }");
+        builder.AppendLine();
+        builder.AppendLine("    for (std::size_t index = 0; index < kRuntimePs2AssetPathEntryCount; index++) {");
+        builder.AppendLine("        const HERuntimePs2AssetPathEntry& entry = kRuntimePs2AssetPathEntries[index];");
+        builder.AppendLine("        if (RuntimePs2LogicalPathsEqual(entry.LogicalPath, logicalPath)) {");
+        builder.AppendLine("            return entry.PhysicalPath;");
+        builder.AppendLine("        }");
+        builder.AppendLine("    }");
+        builder.AppendLine();
+        builder.AppendLine("    return nullptr;");
         builder.AppendLine("}");
         return builder.ToString();
     }

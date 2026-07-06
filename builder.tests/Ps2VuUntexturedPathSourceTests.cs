@@ -98,6 +98,76 @@ public sealed class Ps2VuUntexturedPathSourceTests {
     }
 
     /// <summary>
+    /// Ensures the stable untextured VU path always accumulates prep and emit timing so the FPS overlay can split the hot-path cost even while the heavier per-triangle diagnostics stay disabled.
+    /// </summary>
+    [Fact]
+    public void UntexturedVuPath_AlwaysAccumulatesPrepAndEmitTiming() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string vifSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        string untexturedBranch = ExtractSourceRange(
+            vifSource,
+            "} else if (!textured) {",
+            "} else {");
+
+        Assert.Contains("const std::clock_t trianglePrepStartTicks = std::clock();", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("const std::clock_t trianglePrepEndTicks = std::clock();", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("const std::clock_t triangleEmitStartTicks = std::clock();", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("const std::clock_t triangleEmitEndTicks = std::clock();", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);", untexturedBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::clock_t trianglePrepStartTicks = 0;", untexturedBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::clock_t triangleEmitStartTicks = 0;", untexturedBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the stable untextured VU path hoists material lighting constants once per batch and resolves flat colors from normalized inputs without re-reading material state for every triangle.
+    /// </summary>
+    [Fact]
+    public void UntexturedVuPath_HoistsLightingConstantsOutsideTriangleLoop() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string vifSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        string untexturedBranch = ExtractSourceRange(
+            vifSource,
+            "} else if (!textured) {",
+            "} else {");
+
+        Assert.Contains("struct Ps2VuLightingConstants final", vifSource, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuLightingConstants lightingConstants {};", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("PopulateLightingConstants(*batch.Material, lightingConstants);", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("const std::uint64_t triangleColor = ResolveTexturedVertexColor(lightingConstants, worldFaceNormal, normalizedLightDirection);", untexturedBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("ResolveTexturedVertexColor(*batch.Material, worldFaceNormal, normalizedLightDirection);", untexturedBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the stable untextured VU path splits emit timing into lighting work and payload-fill work using aggregated clock ticks so the coarse host-side profiling does not quantize away the hot substage.
+    /// </summary>
+    [Fact]
+    public void UntexturedVuPath_SplitsEmitTimingIntoLightingAndPayloadFillStages() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string vifHeader = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.hpp"));
+        string vifSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        string untexturedBranch = ExtractSourceRange(
+            vifSource,
+            "} else if (!textured) {",
+            "} else {");
+
+        Assert.Contains("double GetLastTriangleLightingMilliseconds() const;", vifHeader, StringComparison.Ordinal);
+        Assert.Contains("double GetLastTrianglePayloadFillMilliseconds() const;", vifHeader, StringComparison.Ordinal);
+        Assert.Contains("double LastTriangleLightingMilliseconds = 0.0;", vifHeader, StringComparison.Ordinal);
+        Assert.Contains("double LastTrianglePayloadFillMilliseconds = 0.0;", vifHeader, StringComparison.Ordinal);
+        Assert.Contains("std::clock_t accumulatedTriangleLightingTicks = 0;", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("std::clock_t accumulatedTrianglePayloadFillTicks = 0;", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("const std::clock_t triangleLightingStartTicks = std::clock();", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("const std::clock_t triangleLightingEndTicks = std::clock();", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("accumulatedTriangleLightingTicks += (triangleLightingEndTicks - triangleLightingStartTicks);", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("const std::clock_t trianglePayloadFillStartTicks = std::clock();", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("const std::clock_t trianglePayloadFillEndTicks = std::clock();", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("accumulatedTrianglePayloadFillTicks += (trianglePayloadFillEndTicks - trianglePayloadFillStartTicks);", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("LastTriangleLightingMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTriangleLightingTicks);", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("LastTrianglePayloadFillMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTrianglePayloadFillTicks);", untexturedBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the stable compact untextured payload contract still hoists batch-invariant transform state and reuses identical flat-color GIF templates instead of rebuilding both for every triangle.
     /// </summary>
     [Fact]
@@ -117,6 +187,28 @@ public sealed class Ps2VuUntexturedPathSourceTests {
         Assert.Contains("std::memcpy(&payload.SharedState, &sharedStateTemplate, sizeof(sharedStateTemplate));", untexturedBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("PopulateUntexturedSharedState(world, view, projection, viewport, payload.SharedState);", untexturedBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("PopulateTriangleGifPacketTemplate(batch, flatColor, gsGlobal, payload.TriangleRecord);", untexturedBranch, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the stable compact untextured payload path splits packet assembly into unpack-copy work and VIF dispatch work so the remaining `Enc` wall can be profiled without guessing.
+    /// </summary>
+    [Fact]
+    public void UntexturedVuPath_DoesNotOverwriteEmitSubstageMetricsWithPacketAssemblyTiming() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string vifSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        string packetAssemblyBlock = ExtractSourceRange(
+            vifSource,
+            "const std::clock_t packetAssemblyStartTicks = std::clock();",
+            "LastCompletedPhase = 6;");
+
+        Assert.DoesNotContain("accumulatedPacketUnpackTicks", packetAssemblyBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("accumulatedPacketDispatchTicks", packetAssemblyBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("packetUnpackStartTicks", packetAssemblyBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("packetDispatchStartTicks", packetAssemblyBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("LastTriangleLightingMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedPacketUnpackTicks);", vifSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("LastTrianglePayloadFillMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedPacketDispatchTicks);", vifSource, StringComparison.Ordinal);
+        Assert.Contains("LastTriangleLightingMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTriangleLightingTicks);", vifSource, StringComparison.Ordinal);
+        Assert.Contains("LastTrianglePayloadFillMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTrianglePayloadFillTicks);", vifSource, StringComparison.Ordinal);
     }
 
     /// <summary>

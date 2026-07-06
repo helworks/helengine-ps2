@@ -1,5 +1,3 @@
-using helengine.files;
-
 namespace helengine {
     /// <summary>
     /// Serializes and deserializes PS2-owned cooked runtime asset payloads.
@@ -60,8 +58,8 @@ namespace helengine {
                 (ushort)RecordKind,
                 (ushort)valueKind);
 
-            EngineBinaryHeaderSerializer.Write(stream, header);
-            using EngineBinaryWriter writer = EngineBinaryWriter.Create(stream, PayloadEndianness);
+            Ps2EngineBinaryHeaderWriter.Write(stream, header);
+            using Ps2EngineBinaryWriter writer = Ps2EngineBinaryWriter.Create(stream, PayloadEndianness);
             WriteAssetPayload(writer, asset);
         }
 
@@ -133,7 +131,7 @@ namespace helengine {
         /// </summary>
         /// <param name="writer">Destination writer for the payload.</param>
         /// <param name="asset">Asset instance to serialize.</param>
-        static void WriteAssetPayload(EngineBinaryWriter writer, Asset asset) {
+        static void WriteAssetPayload(Ps2EngineBinaryWriter writer, Asset asset) {
             if (asset is Ps2MaterialAsset ps2MaterialAsset) {
                 WritePs2MaterialAsset(writer, ps2MaterialAsset);
                 return;
@@ -173,7 +171,7 @@ namespace helengine {
         /// </summary>
         /// <param name="writer">Destination writer for the identity.</param>
         /// <param name="asset">Asset whose identity should be serialized.</param>
-        static void WriteAssetIdentity(EngineBinaryWriter writer, Asset asset) {
+        static void WriteAssetIdentity(Ps2EngineBinaryWriter writer, Asset asset) {
             if (writer == null) {
                 throw new ArgumentNullException(nameof(writer));
             } else if (asset == null) {
@@ -209,7 +207,7 @@ namespace helengine {
         /// </summary>
         /// <param name="writer">Destination writer for the runtime asset id payload.</param>
         /// <param name="runtimeAssetId">Runtime asset id value to encode.</param>
-        static void WriteRuntimeAssetId(EngineBinaryWriter writer, ulong runtimeAssetId) {
+        static void WriteRuntimeAssetId(Ps2EngineBinaryWriter writer, ulong runtimeAssetId) {
             if (writer == null) {
                 throw new ArgumentNullException(nameof(writer));
             }
@@ -247,7 +245,7 @@ namespace helengine {
                 return;
             }
 
-            asset.RuntimeAssetId = RuntimeAssetIdGenerator.Generate(asset.Id);
+            asset.RuntimeAssetId = Ps2RuntimeAssetIdGenerator.Generate(asset.Id);
         }
 
         /// <summary>
@@ -255,7 +253,7 @@ namespace helengine {
         /// </summary>
         /// <param name="writer">Destination writer for the payload.</param>
         /// <param name="asset">PS2 material asset to serialize.</param>
-        static void WritePs2MaterialAsset(EngineBinaryWriter writer, Ps2MaterialAsset asset) {
+        static void WritePs2MaterialAsset(Ps2EngineBinaryWriter writer, Ps2MaterialAsset asset) {
             WriteAssetIdentity(writer, asset);
             writer.WriteString(asset.RendererFamilyId ?? string.Empty);
             writer.WriteInt32((int)asset.LightingMode);
@@ -308,7 +306,7 @@ namespace helengine {
         /// </summary>
         /// <param name="writer">Destination writer for the payload.</param>
         /// <param name="asset">PS2 texture asset to serialize.</param>
-        static void WritePs2TextureAsset(EngineBinaryWriter writer, Ps2TextureAsset asset) {
+        static void WritePs2TextureAsset(Ps2EngineBinaryWriter writer, Ps2TextureAsset asset) {
             WriteAssetIdentity(writer, asset);
             writer.WriteUInt16(asset.Width);
             writer.WriteUInt16(asset.Height);
@@ -367,7 +365,7 @@ namespace helengine {
         /// </summary>
         /// <param name="writer">Destination writer for the current array element.</param>
         /// <param name="value">Three-component value to serialize.</param>
-        static void WriteFloat3Value(EngineBinaryWriter writer, float3 value) {
+        static void WriteFloat3Value(Ps2EngineBinaryWriter writer, float3 value) {
             if (writer == null) {
                 throw new ArgumentNullException(nameof(writer));
             }
@@ -380,7 +378,7 @@ namespace helengine {
         /// </summary>
         /// <param name="writer">Destination writer for the current array element.</param>
         /// <param name="value">Two-component value to serialize.</param>
-        static void WriteFloat2Value(EngineBinaryWriter writer, float2 value) {
+        static void WriteFloat2Value(Ps2EngineBinaryWriter writer, float2 value) {
             if (writer == null) {
                 throw new ArgumentNullException(nameof(writer));
             }
@@ -393,7 +391,7 @@ namespace helengine {
         /// </summary>
         /// <param name="writer">Destination writer for the current array element.</param>
         /// <param name="value">16-bit index to serialize.</param>
-        static void WriteUInt16Value(EngineBinaryWriter writer, ushort value) {
+        static void WriteUInt16Value(Ps2EngineBinaryWriter writer, ushort value) {
             if (writer == null) {
                 throw new ArgumentNullException(nameof(writer));
             }
@@ -445,7 +443,7 @@ namespace helengine {
         /// </summary>
         /// <param name="writer">Destination writer for the payload.</param>
         /// <param name="asset">PS2 model asset to serialize.</param>
-        static void WritePs2ModelAsset(EngineBinaryWriter writer, Ps2ModelAsset asset) {
+        static void WritePs2ModelAsset(Ps2EngineBinaryWriter writer, Ps2ModelAsset asset) {
             WriteAssetIdentity(writer, asset);
             writer.WriteArray(asset.Positions, WriteFloat3Value);
             writer.WriteArray(asset.Normals, WriteFloat3Value);

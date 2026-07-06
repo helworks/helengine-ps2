@@ -9,7 +9,7 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2RuntimeAssetPathManifestWriterTests {
     /// <summary>
-    /// Ensures the generated runtime manifests embed rooted physical startup and scene-catalog paths without logical-path lookup tables.
+    /// Ensures the generated runtime manifests embed rooted physical startup and scene-catalog paths and publish the staged logical-to-physical asset lookup.
     /// </summary>
     [Fact]
     public void Write_WhenStartupSceneExists_EmitsRootedPhysicalStartupAndSceneCatalogPaths() {
@@ -38,7 +38,8 @@ public sealed class Ps2RuntimeAssetPathManifestWriterTests {
             Array.Empty<PlatformBuildAsset>(),
             [
                 new PlatformBuildArtifact("cooked/scenes/DemoDiscMainMenu.hasset", "scene:menu", "sha256:scene", "scene", "shared"),
-                new PlatformBuildArtifact("cooked/fonts/DemoDiscBody.hefont", "font:body", "sha256:font", "font", "shared")
+                new PlatformBuildArtifact("cooked/fonts/DemoDiscBody.hefont", "font:body", "sha256:font", "font", "shared"),
+                new PlatformBuildArtifact("cooked/imported/demo_texture_hash", "runtime-texture:menu", "sha256:texture", "asset", "shared")
             ],
             Array.Empty<PlatformBuildCodeModule>(),
             Array.Empty<PlatformArtifactPlacement>(),
@@ -46,7 +47,8 @@ public sealed class Ps2RuntimeAssetPathManifestWriterTests {
 
         Dictionary<string, string> logicalToPhysicalPaths = new(StringComparer.OrdinalIgnoreCase) {
             ["cooked/scenes/DemoDiscMainMenu.hasset"] = "\\COOKED\\SCENES\\DEMODISC.HAS;1",
-            ["cooked/fonts/DemoDiscBody.hefont"] = "\\COOKED\\FONTS\\DEMODISC.HEF;1"
+            ["cooked/fonts/DemoDiscBody.hefont"] = "\\COOKED\\FONTS\\DEMODISC.HEF;1",
+            ["cooked/imported/demo_texture_hash"] = "\\COOKED\\I\\D\\I1234567.HAS;1"
         };
 
         Ps2RuntimeAssetPathManifestWriter writer = new();
@@ -56,13 +58,15 @@ public sealed class Ps2RuntimeAssetPathManifestWriterTests {
         string sceneCatalogSource = File.ReadAllText(Path.Combine(generatedCoreRootPath, "runtime", "runtime_scene_catalog_manifest.cpp"));
         Assert.Contains("kRuntimePs2StartupScenePath[] = \"cdrom0:\\\\COOKED\\\\SCENES\\\\DEMODISC.HAS;1\"", source, StringComparison.Ordinal);
         Assert.Contains("const char* he_get_runtime_ps2_startup_scene_path()", source, StringComparison.Ordinal);
+        Assert.Contains("const HERuntimePs2AssetPathEntry kRuntimePs2AssetPathEntries[]", source, StringComparison.Ordinal);
+        Assert.Contains("\"cooked/imported/demo_texture_hash\"", source, StringComparison.Ordinal);
+        Assert.Contains("\"cdrom0:\\\\COOKED\\\\I\\\\D\\\\I1234567.HAS;1\"", source, StringComparison.Ordinal);
+        Assert.Contains("const char* he_get_runtime_ps2_asset_physical_path(const char* logicalPath)", source, StringComparison.Ordinal);
+        Assert.Contains("RuntimePs2LogicalPathsEqual", source, StringComparison.Ordinal);
         Assert.Contains("const HERuntimeSceneCatalogEntry kRuntimeSceneCatalogEntries[]", sceneCatalogSource, StringComparison.Ordinal);
         Assert.Contains("\"Scenes/DemoDiscMainMenu.helen\"", sceneCatalogSource, StringComparison.Ordinal);
         Assert.Contains("\"cdrom0:\\\\COOKED\\\\SCENES\\\\DEMODISC.HAS;1\"", sceneCatalogSource, StringComparison.Ordinal);
         Assert.Contains("he_runtime_scene_catalog_entries", sceneCatalogSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("he_get_runtime_ps2_asset_physical_path", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("HERuntimePs2AssetPathEntry", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("RuntimePs2LogicalPathsEqual", source, StringComparison.Ordinal);
     }
 
     /// <summary>

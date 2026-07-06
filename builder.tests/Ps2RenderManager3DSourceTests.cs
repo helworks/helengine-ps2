@@ -45,6 +45,30 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures deferred PS2 3D asset flushes clear cached gsKit textures so later draws cannot retain stale GS VRAM pointers after one global texture-region reset.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenFlushingReleasedAssets_ClearsCachedTextures() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 render manager source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int flushReleasedAssetsIndex = source.IndexOf("void Ps2RenderManager3D::FlushReleasedAssets()", StringComparison.Ordinal);
+        int clearCachedTexturesIndex = source.IndexOf("void Ps2RenderManager3D::ClearCachedTextures()", StringComparison.Ordinal);
+        Assert.True(flushReleasedAssetsIndex >= 0, "Expected PS2 render manager deferred asset release flush.");
+        Assert.True(clearCachedTexturesIndex >= 0, "Expected PS2 render manager cached texture clear helper.");
+
+        string flushReleasedAssetsMethod = source.Substring(flushReleasedAssetsIndex, Math.Min(800, source.Length - flushReleasedAssetsIndex));
+        string clearCachedTexturesMethod = source.Substring(clearCachedTexturesIndex, Math.Min(500, source.Length - clearCachedTexturesIndex));
+
+        Assert.Contains("void ReleaseTextureRecord(GSTEXTURE* texture)", source, StringComparison.Ordinal);
+        Assert.Contains("ClearCachedTextures();", flushReleasedAssetsMethod, StringComparison.Ordinal);
+        Assert.Contains("for (auto& textureEntry : TextureRecords)", clearCachedTexturesMethod, StringComparison.Ordinal);
+        Assert.Contains("ReleaseTextureRecord(textureEntry.second);", clearCachedTexturesMethod, StringComparison.Ordinal);
+        Assert.Contains("TextureRecords.clear();", clearCachedTexturesMethod, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 renderer loads one PS2-native cooked model payload directly instead of deriving a packed-model sidecar path from the generic model path.
     /// </summary>
     [Fact]
@@ -73,9 +97,44 @@ public sealed class Ps2RenderManager3DSourceTests {
 
         string source = File.ReadAllText(sourcePath);
 
+        Assert.Contains("#include \"runtime/runtime_ps2_asset_path_manifest.hpp\"", source, StringComparison.Ordinal);
+        Assert.Contains("ResolvePs2CookedAssetOpenPath(const std::string& path)", source, StringComparison.Ordinal);
+        Assert.Contains("const std::string resolvedCookedAssetPath = ResolvePs2CookedAssetOpenPath(cookedAssetPath);", source, StringComparison.Ordinal);
         Assert.Contains("::Asset* asset = ::Ps2AssetSerializer::Deserialize(stream);", source, StringComparison.Ordinal);
         Assert.Contains("::Ps2MaterialAsset* cookedMaterialAsset = he_cpp_try_cast<::Ps2MaterialAsset>(asset);", source, StringComparison.Ordinal);
         Assert.DoesNotContain("::Asset* asset = ::AssetSerializer::Deserialize(stream);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 renderer roots disc-relative cooked texture payloads through the shared helper before opening them from the packaged runtime content root.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenResolvingMaterialTextures_RootsDiscRelativeCookedPathsBeforeOpenRead() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 render manager source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("const bool isCookedDiscRelativePath = normalizedPath.rfind(\"COOKED\\\\\", 0) == 0 || normalizedPath.rfind(\"\\\\COOKED\\\\\", 0) == 0;", source, StringComparison.Ordinal);
+        Assert.Contains("return std::string(\"cdrom0:\\\\\") + normalizedPath;", source, StringComparison.Ordinal);
+        Assert.Contains("normalizedPath.compare(normalizedPath.size() - 2u, 2u, \";1\") != 0", source, StringComparison.Ordinal);
+        Assert.Contains("const std::string resolvedTexturePath = ResolvePs2CookedAssetOpenPath(textureRelativePath);", source, StringComparison.Ordinal);
+        Assert.Contains("stream = ::File::OpenRead(resolvedTexturePath);", source, StringComparison.Ordinal);
+        Assert.Contains("resolvedPath='", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures textured opaque VU batches stay on the normal VIF submission path unless the explicit direct-GIF diagnostic switch is enabled.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenRenderingTexturedVuBatches_DoesNotForceDirectGifDiagnosticDispatch() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 render manager source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("const bool useDirectGifDispatchDiagnostics = EnableVuDirectGifDispatchDiagnostics;", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("const bool useDirectGifDispatchDiagnostics = EnableVuDirectGifDispatchDiagnostics || batch.Textured;", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -174,6 +233,29 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures the PS2 renderer publishes the coarse untextured VU profiling split through the existing overlay fields without changing the packet-builder runtime contract.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenPublishingPerformanceOverlay_UsesAssemblyLightingAndPayloadFillMetricsWithoutLayoutChanges() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 render manager source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int publishIndex = source.IndexOf("void Ps2RenderManager3D::PublishPerformanceOverlayMetrics() const", StringComparison.Ordinal);
+        Assert.True(publishIndex >= 0, "Expected PS2 render manager to publish performance overlay metrics.");
+        string publishBody = source.Substring(publishIndex, Math.Min(1200, source.Length - publishIndex));
+
+        Assert.Contains("LastVuPacketAssemblyMilliseconds,", publishBody, StringComparison.Ordinal);
+        Assert.Contains("LastVuTriangleLightingMilliseconds,", publishBody, StringComparison.Ordinal);
+        Assert.Contains("LastVuTrianglePayloadFillMilliseconds,", publishBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("LastVuPacketEncodeMilliseconds,", publishBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("LastVuSubmitMilliseconds,", publishBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("LastVuWaitMilliseconds,", publishBody, StringComparison.Ordinal);
+        Assert.Contains("LastVuTriangleLightingMilliseconds += VuVifPacketBuilder.GetLastTriangleLightingMilliseconds();", source, StringComparison.Ordinal);
+        Assert.Contains("LastVuTrianglePayloadFillMilliseconds += VuVifPacketBuilder.GetLastTrianglePayloadFillMilliseconds();", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures unlit PS2 materials preserve their authored base color instead of collapsing every cube to the same diagnostic gray.
     /// </summary>
     [Fact]
@@ -192,6 +274,61 @@ public sealed class Ps2RenderManager3DSourceTests {
         Assert.Contains("material.GetBaseColorB()", resolveVertexColorBody, StringComparison.Ordinal);
         Assert.Contains("material.GetBaseColorA()", resolveVertexColorBody, StringComparison.Ordinal);
         Assert.DoesNotContain("return GS_SETREG_RGBAQ(0xC0, 0xC0, 0xC0, 0x80, 0x00);", resolveVertexColorBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures textured VU batches pass the resolved GS texture into the packet builder so the textured GIF payload can encode TEX0 instead of relying on an external bind side effect.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenEncodingVuTexturedBatches_PassesResolvedTextureAndEncodesTex0InPacketBuilder() {
+        string rendererSourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string packetBuilderSourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        Assert.True(File.Exists(rendererSourcePath), $"Expected PS2 render manager source at '{rendererSourcePath}'.");
+        Assert.True(File.Exists(packetBuilderSourcePath), $"Expected PS2 VU packet builder source at '{packetBuilderSourcePath}'.");
+
+        string rendererSource = File.ReadAllText(rendererSourcePath);
+        int renderOpaqueIndex = rendererSource.IndexOf("void Ps2RenderManager3D::RenderOpaqueWithVuPath(", StringComparison.Ordinal);
+        Assert.True(renderOpaqueIndex >= 0, "Expected PS2 render manager VU opaque render path.");
+        string renderOpaqueBody = rendererSource.Substring(renderOpaqueIndex, Math.Min(3200, rendererSource.Length - renderOpaqueIndex));
+
+        string packetBuilderSource = File.ReadAllText(packetBuilderSourcePath);
+
+        Assert.DoesNotContain("#include <gsToolkit.h>", rendererSource, StringComparison.Ordinal);
+        Assert.Contains("GSTEXTURE* batchTexture = nullptr;", renderOpaqueBody, StringComparison.Ordinal);
+        Assert.Contains("batchTexture = ResolveTexture(GsGlobal, batch.Material->GetTextureRelativePath());", renderOpaqueBody, StringComparison.Ordinal);
+        Assert.Contains("batchTextureWidth = static_cast<int>(batchTexture->Width);", renderOpaqueBody, StringComparison.Ordinal);
+        Assert.Contains("batchTextureHeight = static_cast<int>(batchTexture->Height);", renderOpaqueBody, StringComparison.Ordinal);
+        Assert.Contains("GsGlobal,\n                batchTexture,\n                batchTextureWidth,\n                batchTextureHeight);", renderOpaqueBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("gsKit_TexManager_bind(GsGlobal, batchTexture);", renderOpaqueBody, StringComparison.Ordinal);
+
+        Assert.Contains("BuildTexturedTriangleGifPacketBytes(\n            GSGLOBAL* gsGlobal,\n            const GSTEXTURE* texture,", packetBuilderSource, StringComparison.Ordinal);
+        int texturedPacketIndex = packetBuilderSource.IndexOf("BuildTexturedTriangleGifPacketBytes(", StringComparison.Ordinal);
+        Assert.True(texturedPacketIndex >= 0, "Expected textured GIF packet builder helper.");
+        string texturedPacketBuilder = packetBuilderSource.Substring(texturedPacketIndex, Math.Min(3200, packetBuilderSource.Length - texturedPacketIndex));
+        Assert.Contains("if (textured) {\n            gsKit_set_texfilter(gsGlobal, texture->Filter);\n        }", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("ResolveGsTextureDimensionExponent(texture->Width)", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("ResolveGsTextureDimensionExponent(texture->Height)", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("GIF_TAG_TRIANGLE_GORAUD_TEXTURED(0)", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("GIF_TAG_TRIANGLE_GORAUD_TEXTURED_REGS(gsGlobal->PrimContext)", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("prim.shading = PRIM_SHADE_GOURAUD;", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.DoesNotContain("prim.shading = PRIM_SHADE_FLAT;", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("packetWords[packetWordIndex++] = GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1);", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("packetWords[packetWordIndex++] = ResolveOpaqueUntexturedTestRegister(gsGlobal);", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("packetWords[packetWordIndex++] = GS_REG_TEST;", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("packetWords[packetWordIndex++] = GS_SET_TEX1(0, 0, texture->Filter, texture->Filter, 0, 0, 0);", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("packetWords[packetWordIndex++] = GS_REG_TEX1;", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("const std::uint64_t uvRegisterA = BuildGsUvRegister(screenTexCoordA);", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("const std::uint32_t ix1 = static_cast<std::uint32_t>((2048.0f + screenAX) * 16.0f);", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("const std::uint64_t positionARegister = GS_SETREG_XYZ2(ix1, iy1, iz1);", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("GS_SETREG_TEX0(", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("GS_SETREG_PRIM(", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("texture->Vram / 256", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("texture->TBW", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("texture->PSM", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("texture->VramClut / 256", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.DoesNotContain("draw_prim_start(", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.DoesNotContain("draw_prim_end(", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.DoesNotContain("GsGlobal,\n                0,\n                0);", renderOpaqueBody, StringComparison.Ordinal);
     }
 
     /// <summary>

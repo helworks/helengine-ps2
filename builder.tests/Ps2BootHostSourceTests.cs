@@ -129,6 +129,8 @@ public sealed class Ps2BootHostSourceTests {
 
         Assert.Contains("font->get_CookedAtlasTextureRelativePath()", source, StringComparison.Ordinal);
         Assert.Contains("#include \"BinaryReaderLE.hpp\"", source, StringComparison.Ordinal);
+        Assert.Contains("ResolvePs2CookedAssetOpenPath(const std::string& path)", source, StringComparison.Ordinal);
+        Assert.Contains("he_get_runtime_ps2_asset_physical_path(path.c_str())", source, StringComparison.Ordinal);
         Assert.DoesNotContain("#include \"Ps2AssetSerializer.hpp\"", source, StringComparison.Ordinal);
         Assert.DoesNotContain("#include \"AssetSerializer.hpp\"", source, StringComparison.Ordinal);
         Assert.Contains("DeserializePs2TextureAsset(stream)", source, StringComparison.Ordinal);
@@ -136,6 +138,86 @@ public sealed class Ps2BootHostSourceTests {
         Assert.Contains("::Ps2TextureAsset* textureAsset = DeserializePs2TextureAsset(stream);", source, StringComparison.Ordinal);
         Assert.Contains("::Ps2TextureAsset* textureAsset = DeserializePs2TextureAsset(bufferedStream);", source, StringComparison.Ordinal);
         Assert.Contains("FontTextureRecords", source, StringComparison.Ordinal);
+        Assert.Contains("const std::string resolvedCookedAssetPath = ResolvePs2CookedAssetOpenPath(cookedAssetPath);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 2D renderer clears cached texture records before native runtime textures and fonts are deleted during scene transitions.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenReleasing2dRuntimeAssets_ClearsCachedTextureRecordsBeforeNativeDeletion() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int releaseTextureMethodIndex = source.IndexOf("void ReleaseTexture(RuntimeTexture* texture) override", StringComparison.Ordinal);
+        int releaseFontMethodIndex = source.IndexOf("void ReleaseFont(FontAsset* font) override", StringComparison.Ordinal);
+        Assert.True(releaseTextureMethodIndex >= 0, "Expected PS2 2D renderer runtime texture release override.");
+        Assert.True(releaseFontMethodIndex >= 0, "Expected PS2 2D renderer font release override.");
+
+        string releaseTextureMethod = source.Substring(releaseTextureMethodIndex, Math.Min(900, source.Length - releaseTextureMethodIndex));
+        string releaseFontMethod = source.Substring(releaseFontMethodIndex, Math.Min(900, source.Length - releaseFontMethodIndex));
+
+        Assert.Contains("void ReleaseTextureRecord(Ps2TextureRecord& record)", source, StringComparison.Ordinal);
+        Assert.Contains("ReleaseTextureRecord(textureIt->second);", releaseTextureMethod, StringComparison.Ordinal);
+        Assert.Contains("TextureRecords.erase(textureIt);", releaseTextureMethod, StringComparison.Ordinal);
+        Assert.Contains("RenderManager2D::ReleaseTexture(texture);", releaseTextureMethod, StringComparison.Ordinal);
+        Assert.Contains("ReleaseTextureRecord(fontTextureIt->second);", releaseFontMethod, StringComparison.Ordinal);
+        Assert.Contains("FontTextureRecords.erase(fontTextureIt);", releaseFontMethod, StringComparison.Ordinal);
+        Assert.Contains("RenderManager2D::ReleaseFont(font);", releaseFontMethod, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures temporary PS2 texture assets created during 2D cooked-texture deserialization release their nested byte buffers after the runtime copies payload data into gsKit-owned records.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenDeserializingTemporary2dTextureAssets_ReleasesNestedByteArraysAfterRecordPopulation() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int resolveFontTextureRecordIndex = source.IndexOf("Ps2TextureRecord* ResolveFontTextureRecord(::FontAsset* font)", StringComparison.Ordinal);
+        int buildTextureFromCookedIndex = source.IndexOf("RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath) override", StringComparison.Ordinal);
+        Assert.True(resolveFontTextureRecordIndex >= 0, "Expected PS2 font texture record resolver.");
+        Assert.True(buildTextureFromCookedIndex >= 0, "Expected PS2 cooked texture builder.");
+
+        string resolveFontTextureRecordMethod = source.Substring(resolveFontTextureRecordIndex, Math.Min(1200, source.Length - resolveFontTextureRecordIndex));
+        string buildTextureFromCookedMethod = source.Substring(buildTextureFromCookedIndex, Math.Min(2200, source.Length - buildTextureFromCookedIndex));
+
+        Assert.Contains("void ReleasePs2TextureAsset(::Ps2TextureAsset* asset)", source, StringComparison.Ordinal);
+        Assert.Contains("void ReleaseOwnedByteArray(::Array<uint8_t>* bytes)", source, StringComparison.Ordinal);
+        Assert.Contains("if (bytes != nullptr && bytes != ::Array<uint8_t>::Empty())", source, StringComparison.Ordinal);
+        Assert.Contains("delete bytes;", source, StringComparison.Ordinal);
+        Assert.Contains("ReleaseOwnedByteArray(asset->PixelData);", source, StringComparison.Ordinal);
+        Assert.Contains("ReleaseOwnedByteArray(asset->PaletteData);", source, StringComparison.Ordinal);
+        Assert.Contains("delete asset;", source, StringComparison.Ordinal);
+        Assert.Contains("auto textureAssetGuard = he_cpp_make_scope_exit([textureAsset]() {", resolveFontTextureRecordMethod, StringComparison.Ordinal);
+        Assert.Contains("ReleasePs2TextureAsset(textureAsset);", resolveFontTextureRecordMethod, StringComparison.Ordinal);
+        Assert.Contains("auto textureAssetGuard = he_cpp_make_scope_exit([textureAsset]() {", buildTextureFromCookedMethod, StringComparison.Ordinal);
+        Assert.Contains("ReleasePs2TextureAsset(textureAsset);", buildTextureFromCookedMethod, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures deferred PS2 2D texture flushes reclaim gsKit texture VRAM and invalidate cached upload state before later draws reuse runtime textures.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenFlushingReleased2dTextures_ClearsGsKitTextureVramAndInvalidatesUploadState() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int flushReleasedTexturesIndex = source.IndexOf("void FlushReleasedTextures() override", StringComparison.Ordinal);
+        Assert.True(flushReleasedTexturesIndex >= 0, "Expected PS2 2D release flush override.");
+        string flushReleasedTexturesMethod = source.Substring(flushReleasedTexturesIndex, Math.Min(700, source.Length - flushReleasedTexturesIndex));
+
+        Assert.Contains("void InvalidateUploadedTextureRecords()", source, StringComparison.Ordinal);
+        Assert.Contains("for (auto& textureEntry : TextureRecords)", source, StringComparison.Ordinal);
+        Assert.Contains("for (auto& fontTextureEntry : FontTextureRecords)", source, StringComparison.Ordinal);
+        Assert.Contains("record.Texture.Vram = 0;", source, StringComparison.Ordinal);
+        Assert.Contains("record.Texture.VramClut = 0;", source, StringComparison.Ordinal);
+        Assert.Contains("record.Uploaded = false;", source, StringComparison.Ordinal);
+        Assert.Contains("gsKit_vram_clear(ActiveGsGlobal);", flushReleasedTexturesMethod, StringComparison.Ordinal);
+        Assert.Contains("InvalidateUploadedTextureRecords();", flushReleasedTexturesMethod, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -298,6 +380,25 @@ public sealed class Ps2BootHostSourceTests {
     }
 
     /// <summary>
+    /// Ensures the PS2 boot host attaches the physics runtime at startup whenever the packaged build includes any cooked scene with 3D physics features.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenPackagedBuildIncludesPhysicsScenes_RegistersPhysicsRuntimeDuringRuntimeInitialization() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("#include \"runtime/runtime_physics3d_scene_feature_manifest.hpp\"", source, StringComparison.Ordinal);
+        Assert.Contains("#include \"Physics3DRuntimeComponentRegistration.hpp\"", source, StringComparison.Ordinal);
+        Assert.Contains("bool HasPackagedPhysics3DScenes()", source, StringComparison.Ordinal);
+        Assert.Contains("he_runtime_physics3d_scene_feature_entries(&sceneCount);", source, StringComparison.Ordinal);
+        Assert.Contains("if (entry.FeatureFlags != 0u)", source, StringComparison.Ordinal);
+        Assert.Contains("if (HasPackagedPhysics3DScenes()) {", source, StringComparison.Ordinal);
+        Assert.Contains("Physics3DRuntimeComponentRegistration::Register(EngineCore);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures PS2 debug boot diagnostics consume the shared engine-owned scene-load timing contract instead of defining PS2-specific timing boundaries.
     /// </summary>
     [Fact]
@@ -389,6 +490,25 @@ public sealed class Ps2BootHostSourceTests {
     }
 
     /// <summary>
+    /// Ensures boot-log history halts reset the debug console cursor before replaying retained lines so first-frame diagnostics stay visible on screen.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenPresentingBootLogHistory_ResetsDebugConsoleCursorBeforePrinting() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int methodIndex = source.IndexOf("void PresentBootLogHistoryToDebugConsole()", StringComparison.Ordinal);
+        Assert.True(methodIndex >= 0, "Expected PS2 boot host boot-log history presentation helper.");
+
+        string method = source.Substring(methodIndex, Math.Min(560, source.Length - methodIndex));
+        Assert.Contains("scr_setbgcolor(0x101010);", method, StringComparison.Ordinal);
+        Assert.Contains("scr_clear();", method, StringComparison.Ordinal);
+        Assert.Contains("scr_setXY(0, 0);", method, StringComparison.Ordinal);
+        Assert.Contains("scr_printf(\"[helengine-ps2] %s\\n\", BootLogHistory[static_cast<size_t>(index)].c_str());", method, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 boot host includes the full generated-core type definitions required by the current native boot path.
     /// </summary>
     [Fact]
@@ -405,6 +525,27 @@ public sealed class Ps2BootHostSourceTests {
         Assert.Contains("#include \"RuntimeSceneLoadService.hpp\"", source, StringComparison.Ordinal);
         Assert.Contains("#include \"SceneManager.hpp\"", source, StringComparison.Ordinal);
         Assert.Contains("#include \"ICamera.hpp\"", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 boot host records periodic memory diagnostics from the steady-state present loop.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenPresentingFrames_RecordsMemoryDiagnosticsSamples() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int presentBootFrameIndex = source.IndexOf("void Ps2BootHost::PresentBootFrame()", StringComparison.Ordinal);
+        int frameTimingSampleIndex = source.IndexOf("RecordFrameTimingSample(", presentBootFrameIndex, StringComparison.Ordinal);
+        int memorySampleIndex = source.IndexOf("RecordMemoryDiagnosticsSample(EngineCore, framePresentEndTicks);", presentBootFrameIndex, StringComparison.Ordinal);
+
+        Assert.Contains("constexpr double MemoryDiagnosticsLogIntervalSeconds = 5.0;", source, StringComparison.Ordinal);
+        Assert.Contains("struct Ps2MemoryDiagnosticsSnapshot {", source, StringComparison.Ordinal);
+        Assert.Contains("void RecordMemoryDiagnosticsSample(::Core* engineCore, std::clock_t framePresentEndTicks)", source, StringComparison.Ordinal);
+        Assert.True(presentBootFrameIndex >= 0, "Expected steady-state present loop in PS2 boot host.");
+        Assert.True(frameTimingSampleIndex > presentBootFrameIndex, "Expected frame timing sampling inside the present loop.");
+        Assert.True(memorySampleIndex > frameTimingSampleIndex, "Expected memory diagnostics sampling after frame timing inside the present loop.");
     }
 
     /// <summary>

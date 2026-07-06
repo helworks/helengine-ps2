@@ -33,11 +33,23 @@ foreach ($pcsx2ProcessName in $pcsx2ProcessNames) {
     $existingPcsx2Processes = @(Get-Process -Name $pcsx2ProcessName -ErrorAction SilentlyContinue)
     foreach ($process in $existingPcsx2Processes) {
         Stop-Process -Id $process.Id -Force
+        Wait-Process -Id $process.Id -Timeout 5 -ErrorAction SilentlyContinue
     }
 }
 
 if (Test-Path -LiteralPath $resolvedLauncherRoot) {
-    Remove-Item -LiteralPath $resolvedLauncherRoot -Recurse -Force
+    for ($retryIndex = 0; $retryIndex -lt 20; $retryIndex++) {
+        try {
+            Remove-Item -LiteralPath $resolvedLauncherRoot -Recurse -Force
+            break
+        } catch {
+            if ($retryIndex -eq 19) {
+                throw
+            }
+
+            Start-Sleep -Milliseconds 250
+        }
+    }
 }
 
 New-Item -ItemType Directory -Force -Path $resolvedLauncherRoot | Out-Null

@@ -387,12 +387,19 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             return resolvedCurrentWorkingDirectoryPath;
         }
 
-        string resolvedAssemblyDirectoryPath = ResolveRepositoryRootPathFromStartPath(AppContext.BaseDirectory);
-        if (!string.IsNullOrWhiteSpace(resolvedAssemblyDirectoryPath)) {
-            return resolvedAssemblyDirectoryPath;
+        string builderAssemblyPath = typeof(Ps2PlatformAssetBuilder).Assembly.Location;
+        string builderAssemblyDirectoryPath = Path.GetDirectoryName(builderAssemblyPath) ?? string.Empty;
+        string resolvedBuilderAssemblyDirectoryPath = ResolveRepositoryRootPathFromStartPath(builderAssemblyDirectoryPath);
+        if (!string.IsNullOrWhiteSpace(resolvedBuilderAssemblyDirectoryPath)) {
+            return resolvedBuilderAssemblyDirectoryPath;
         }
 
-        throw new InvalidOperationException("Could not resolve the helengine-ps2 repository root from the configured root, current working directory, or builder assembly location.");
+        string resolvedAppContextDirectoryPath = ResolveRepositoryRootPathFromStartPath(AppContext.BaseDirectory);
+        if (!string.IsNullOrWhiteSpace(resolvedAppContextDirectoryPath)) {
+            return resolvedAppContextDirectoryPath;
+        }
+
+        throw new InvalidOperationException("Could not resolve the helengine-ps2 repository root from the configured root, current working directory, builder assembly location, or host app base directory.");
     }
 
     /// <summary>

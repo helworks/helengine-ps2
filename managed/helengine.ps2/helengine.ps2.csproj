@@ -10,7 +10,12 @@
 
   <ItemGroup>
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.core\helengine.core.csproj" />
-    <ProjectReference Include="$(HelengineRoot)\engine\helengine.files\helengine.files.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="artifacts\**\*.cs" />
+    <EmbeddedResource Remove="artifacts\**\*" />
+    <None Remove="artifacts\**\*" />
   </ItemGroup>
 
   <Target Name="ValidateHelengineRoot" BeforeTargets="CollectPackageReferences">

@@ -18,16 +18,22 @@ public sealed class Ps2DiscPathResolverTests {
     }
 
     /// <summary>
-    /// Ensures long logical names collapse into deterministic PS2-safe aliases instead of exceeding ISO9660-friendly limits.
+    /// Ensures top-level scene filenames that require aliasing shard beneath the scene namespace so runtime disc lookups avoid a dense flat `COOKED\SCENES` directory.
     /// </summary>
     [Fact]
-    public void ResolveDiscRelativePath_WhenGivenLongPath_UsesDeterministicAliasedSegments() {
+    public void ResolveDiscRelativePath_WhenGivenLongScenePath_UsesShardedSceneAliasBucket() {
         string resolved = Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/scenes/directional_shadow_plaza.hasset");
+        string runtimePhysicalPath = "\\" + resolved.Replace('/', '\\') + ";1";
         string[] segments = resolved.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
 
         Assert.Equal("COOKED", segments[0]);
         Assert.Equal("SCENES", segments[1]);
-        Assert.Matches("^[A-Z0-9_]{8}\\.[A-Z0-9_]{3}$", segments[2]);
+        Assert.Equal(4, segments.Length);
+        Assert.Matches("^[A-Z0-9_]$", segments[2]);
+        Assert.Matches("^[A-Z0-9_]{8}\\.[A-Z0-9_]{3}$", segments[3]);
+        Assert.Equal(segments[2], segments[3].Substring(0, 1));
+        Assert.EndsWith(".HAS", segments[3], StringComparison.Ordinal);
+        Assert.True(runtimePhysicalPath.Length <= 32, $"Expected a PS2-safe runtime path length, but got {runtimePhysicalPath.Length} for '{runtimePhysicalPath}'.");
     }
 
     /// <summary>
@@ -67,19 +73,21 @@ public sealed class Ps2DiscPathResolverTests {
     }
 
     /// <summary>
-    /// Ensures deep scene assets collapse into a dedicated short `COOKED\SCENES` namespace instead of the generic alias bucket so startup scene paths stay compact and scene-specific.
+    /// Ensures deep scene assets collapse into a sharded short `COOKED\SCENES` namespace instead of the generic alias bucket so runtime disc lookups do not depend on a dense flat scene directory.
     /// </summary>
     [Fact]
-    public void ResolveDiscRelativePath_WhenGivenDeepScenePath_CollapsesToScenesDirectoryBudget() {
+    public void ResolveDiscRelativePath_WhenGivenDeepScenePath_UsesShardedSceneAliasBucket() {
         string resolved = Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/scenes/reff7c42/colored_cube_grid.hasset");
         string runtimePhysicalPath = "\\" + resolved.Replace('/', '\\') + ";1";
         string[] segments = resolved.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
 
         Assert.Equal("COOKED", segments[0]);
         Assert.Equal("SCENES", segments[1]);
-        Assert.Equal(3, segments.Length);
-        Assert.Matches("^[A-Z0-9_]{8}\\.[A-Z0-9_]{3}$", segments[2]);
-        Assert.EndsWith(".HAS", segments[2], StringComparison.Ordinal);
+        Assert.Equal(4, segments.Length);
+        Assert.Matches("^[A-Z0-9_]$", segments[2]);
+        Assert.Matches("^[A-Z0-9_]{8}\\.[A-Z0-9_]{3}$", segments[3]);
+        Assert.Equal(segments[2], segments[3].Substring(0, 1));
+        Assert.EndsWith(".HAS", segments[3], StringComparison.Ordinal);
         Assert.True(runtimePhysicalPath.Length <= 32, $"Expected a PS2-safe runtime path length, but got {runtimePhysicalPath.Length} for '{runtimePhysicalPath}'.");
     }
 

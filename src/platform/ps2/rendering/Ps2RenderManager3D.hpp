@@ -44,6 +44,7 @@ namespace helengine::ps2 {
         void FlushReleasedAssets() override;
         void ReleaseMaterial(::RuntimeMaterial* material) override;
         void ReleaseModel(::RuntimeModel* model) override;
+        void ClearCachedTextures();
         void SetHdrEnabled(bool enabled);
         void SetGsGlobal(GSGLOBAL* gsGlobal);
         std::size_t GetLastProxyCount() const;
@@ -72,6 +73,8 @@ namespace helengine::ps2 {
         double GetLastVuPacketAssemblyMilliseconds() const;
         double GetLastVuTrianglePrepMilliseconds() const;
         double GetLastVuTriangleEmitMilliseconds() const;
+        double GetLastVuTriangleLightingMilliseconds() const;
+        double GetLastVuTrianglePayloadFillMilliseconds() const;
         bool IsUsingLegacyCpuOpaquePath() const;
         ::float4 GetLastResolvedViewport() const;
         ::float4 GetLastSubmittedScreenBounds() const;

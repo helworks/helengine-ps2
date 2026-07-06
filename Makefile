@@ -26,6 +26,7 @@ GENERATED_CORE_STAGE_INPUTS = $(shell find $(HELENGINE_CORE_CPP_ROOT) -type f | 
 PS2_SOURCES := \
 	$(SOURCE_DIR)/main.cpp \
 	$(SOURCE_DIR)/platform/ps2/Ps2InputBackend.cpp \
+	$(SOURCE_DIR)/platform/ps2/Ps2DiscFileSystem.cpp \
 	$(SOURCE_DIR)/platform/ps2/Ps2BootHost.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2FramePlan.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2FramePlanner.cpp \

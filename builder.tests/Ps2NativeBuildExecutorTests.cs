@@ -644,6 +644,14 @@ public:
         Assert.Contains("if (gsGlobal->ZBuffering == GS_SETTING_ON) {", source, StringComparison.Ordinal);
         Assert.Contains("gsKit_set_test(gsGlobal, GS_ZTEST_ON);", source, StringComparison.Ordinal);
         Assert.Contains("gsKit_set_test(gsGlobal, GS_ZTEST_OFF);", source, StringComparison.Ordinal);
+        Assert.Contains("const Ps2RuntimeMaterial* material = batch.Material;", source, StringComparison.Ordinal);
+        Assert.Contains("gsKit_set_test(gsGlobal, GS_ATEST_OFF);", source, StringComparison.Ordinal);
+        Assert.Contains("material == nullptr || material->GetAlphaMode() == ::Ps2MaterialAlphaMode::Opaque", source, StringComparison.Ordinal);
+        Assert.Contains("material->GetAlphaMode() == ::Ps2MaterialAlphaMode::AlphaTest", source, StringComparison.Ordinal);
+        Assert.Contains("material->GetAlphaMode() == ::Ps2MaterialAlphaMode::AlphaBlend", source, StringComparison.Ordinal);
+        Assert.Contains("material->GetAlphaMode() == ::Ps2MaterialAlphaMode::Additive", source, StringComparison.Ordinal);
+        Assert.Contains("gsKit_set_primalpha(gsGlobal, GS_BLEND_BACK2FRONT, 0);", source, StringComparison.Ordinal);
+        Assert.Contains("gsKit_set_primalpha(gsGlobal, GS_SETREG_ALPHA(0, 2, 2, 1, 0x80), 0);", source, StringComparison.Ordinal);
         Assert.DoesNotContain("packet2_create(", source, StringComparison.Ordinal);
         Assert.DoesNotContain("packet2_utils_gif_add_set(", source, StringComparison.Ordinal);
         Assert.DoesNotContain("dma_channel_send_packet2(packet.get(), DMA_CHANNEL_GIF, true);", source, StringComparison.Ordinal);

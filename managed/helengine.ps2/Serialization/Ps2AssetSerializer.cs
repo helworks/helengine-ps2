@@ -1,5 +1,3 @@
-using helengine.files;
-
 namespace helengine {
     /// <summary>
     /// Provides HELE serialization helpers for PS2-owned cooked runtime assets.

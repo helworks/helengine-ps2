@@ -35,6 +35,11 @@ public static class Ps2DiscPathResolver {
     const string SceneAliasDirectoryToken = "SCENES";
 
     /// <summary>
+    /// Number of alias-stem characters used to shard dense scene alias buckets across multiple small directories.
+    /// </summary>
+    const int SceneAliasShardLength = 1;
+
+    /// <summary>
     /// Stable shortest-form HEL asset directory token preserved when deep HEL assets collapse into a short deterministic alias.
     /// </summary>
     const string HelAssetAliasDirectoryToken = "H";
@@ -77,6 +82,10 @@ public static class Ps2DiscPathResolver {
             resolvedSegments[index] = isLastSegment
                 ? ResolveFileName(segments[index])
                 : ResolveComponentToken(segments[index], 8);
+        }
+
+        if (ShouldUseSceneAliasShard(normalizedPath, segments[^1])) {
+            return ResolveScenePathAlias(normalizedPath, segments[^1]);
         }
 
         string resolvedPath = string.Join(Path.DirectorySeparatorChar, resolvedSegments);
@@ -163,7 +172,7 @@ public static class Ps2DiscPathResolver {
     /// <returns>Collapsed deterministic physical disc-relative path.</returns>
     static string ResolveLongPathAlias(string normalizedLogicalPath, string[] resolvedSegments, string fileName) {
         if (IsDeepSceneLogicalPath(normalizedLogicalPath)) {
-            return ResolveDeepScenePathAlias(normalizedLogicalPath, fileName);
+            return ResolveScenePathAlias(normalizedLogicalPath, fileName);
         }
         if (IsDeepHelLogicalPath(fileName)) {
             return ResolveDeepHelPathAlias(normalizedLogicalPath, fileName);
@@ -246,14 +255,15 @@ public static class Ps2DiscPathResolver {
     }
 
     /// <summary>
-    /// Resolves one deep scene logical path into a short deterministic `COOKED\SCENES` alias.
+    /// Resolves one aliased scene logical path into a sharded short `COOKED\SCENES` alias.
     /// </summary>
     /// <param name="normalizedLogicalPath">Normalized logical scene path using forward slashes.</param>
     /// <param name="fileName">Original logical file name including its extension.</param>
     /// <returns>Collapsed deterministic scene physical disc-relative path.</returns>
-    static string ResolveDeepScenePathAlias(string normalizedLogicalPath, string fileName) {
+    static string ResolveScenePathAlias(string normalizedLogicalPath, string fileName) {
         string resolvedExtension = ResolveResolvedExtension(fileName);
-        string aliasFileStem = ComputeHash(normalizedLogicalPath);
+        string aliasFileStem = ResolveSceneAliasStem(normalizedLogicalPath, fileName);
+        string aliasShardDirectory = ResolveSceneAliasShardDirectory(aliasFileStem);
         string aliasFileName = string.IsNullOrWhiteSpace(resolvedExtension)
             ? aliasFileStem
             : aliasFileStem + "." + resolvedExtension;
@@ -262,6 +272,7 @@ public static class Ps2DiscPathResolver {
             [
                 ResolveComponentToken("COOKED", 8),
                 SceneAliasDirectoryToken,
+                aliasShardDirectory,
                 aliasFileName
             ]);
         if (GetRuntimePhysicalPathLength(aliasedPath) > MaxPhysicalRuntimePathLength) {
@@ -317,6 +328,20 @@ public static class Ps2DiscPathResolver {
     }
 
     /// <summary>
+    /// Resolves the deterministic scene alias stem used by one aliased scene path.
+    /// </summary>
+    /// <param name="normalizedLogicalPath">Normalized logical scene path using forward slashes.</param>
+    /// <param name="fileName">Original logical file name including its extension.</param>
+    /// <returns>Deterministic scene alias stem.</returns>
+    static string ResolveSceneAliasStem(string normalizedLogicalPath, string fileName) {
+        if (IsDeepSceneLogicalPath(normalizedLogicalPath)) {
+            return ComputeHash(normalizedLogicalPath);
+        }
+
+        return Path.GetFileNameWithoutExtension(ResolveFileName(fileName));
+    }
+
+    /// <summary>
     /// Resolves the shard directory for one HEL alias stem so large HEL buckets do not require multi-sector ISO directory scans at runtime.
     /// </summary>
     /// <param name="aliasFileStem">Deterministic HEL alias stem that will be emitted as the physical file name.</param>
@@ -346,6 +371,22 @@ public static class Ps2DiscPathResolver {
         }
 
         return aliasFileStem.Substring(2, ImportedAssetAliasShardLength);
+    }
+
+    /// <summary>
+    /// Resolves the shard directory for one scene alias stem so dense scene buckets do not require broad directory scans at runtime.
+    /// </summary>
+    /// <param name="aliasFileStem">Deterministic scene alias stem that will be emitted as the physical file name.</param>
+    /// <returns>Stable shard directory token derived from the scene alias stem.</returns>
+    static string ResolveSceneAliasShardDirectory(string aliasFileStem) {
+        if (string.IsNullOrWhiteSpace(aliasFileStem)) {
+            throw new ArgumentException("Scene alias file stem must be provided.", nameof(aliasFileStem));
+        }
+        if (aliasFileStem.Length < SceneAliasShardLength) {
+            throw new InvalidOperationException($"Scene alias file stem '{aliasFileStem}' is too short to derive a shard directory.");
+        }
+
+        return aliasFileStem[..SceneAliasShardLength];
     }
 
     /// <summary>
@@ -432,6 +473,49 @@ public static class Ps2DiscPathResolver {
 
         return normalizedLogicalPath.StartsWith("cooked/scenes/", StringComparison.OrdinalIgnoreCase)
             && normalizedLogicalPath.Count(character => character == '/') >= 3;
+    }
+
+    /// <summary>
+    /// Returns whether one logical scene path should resolve through the sharded scene alias namespace.
+    /// </summary>
+    /// <param name="normalizedLogicalPath">Normalized logical path using forward slashes.</param>
+    /// <param name="fileName">Original logical file name including its extension.</param>
+    /// <returns>True when the scene path should use the sharded scene alias namespace; otherwise false.</returns>
+    static bool ShouldUseSceneAliasShard(string normalizedLogicalPath, string fileName) {
+        if (string.IsNullOrWhiteSpace(normalizedLogicalPath) || string.IsNullOrWhiteSpace(fileName)) {
+            return false;
+        }
+        if (!normalizedLogicalPath.StartsWith("cooked/scenes/", StringComparison.OrdinalIgnoreCase)) {
+            return false;
+        }
+        if (IsDeepSceneLogicalPath(normalizedLogicalPath)) {
+            return true;
+        }
+
+        return RequiresSceneFileNameAliasing(fileName);
+    }
+
+    /// <summary>
+    /// Returns whether one logical scene file name must be shortened to fit the PS2-safe filename budget.
+    /// </summary>
+    /// <param name="fileName">Original logical file name including its extension.</param>
+    /// <returns>True when the scene file name requires aliasing; otherwise false.</returns>
+    static bool RequiresSceneFileNameAliasing(string fileName) {
+        if (string.IsNullOrWhiteSpace(fileName)) {
+            return false;
+        }
+
+        int extensionSeparatorIndex = fileName.LastIndexOf('.');
+        if (extensionSeparatorIndex <= 0) {
+            return SanitizeToken(fileName).Length > 8;
+        }
+
+        string stem = fileName[..extensionSeparatorIndex];
+        if (string.Equals(stem, "generatedbootscene", StringComparison.OrdinalIgnoreCase)) {
+            return true;
+        }
+
+        return SanitizeToken(stem).Length > 8;
     }
 
     /// <summary>

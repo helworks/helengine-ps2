@@ -24,4 +24,22 @@ public sealed class Ps2PlatformDefinitionFactoryTests {
             "System.Numerics.Vector2=helengine.float2|System.Numerics.Vector3=helengine.float3|System.Numerics.Vector4=helengine.float4|System.Numerics.Quaternion=helengine.float4",
             typeRemapSetting.DefaultValue);
     }
+
+    /// <summary>
+    /// Ensures the default PS2 codegen profile enables the generated custom file-system hook that remaps logical packaged paths onto disc-layout runtime paths.
+    /// </summary>
+    [Fact]
+    public void Create_WhenBuildingDefaultPs2CodegenProfile_DeclaresCustomFileSystemDefaults() {
+        PlatformDefinition definition = Ps2PlatformDefinitionFactory.Create();
+        PlatformCodegenProfileDefinition codegenProfile = Assert.Single(definition.CodegenProfiles);
+        PlatformSettingDefinition headerSetting = Assert.Single(
+            codegenProfile.Settings,
+            setting => string.Equals(setting.SettingId, "native-file-system-header", StringComparison.Ordinal));
+        PlatformSettingDefinition typeSetting = Assert.Single(
+            codegenProfile.Settings,
+            setting => string.Equals(setting.SettingId, "native-file-system-type", StringComparison.Ordinal));
+
+        Assert.Equal("\"platform/ps2/Ps2DiscFileSystem.hpp\"", headerSetting.DefaultValue);
+        Assert.Equal("helengine::ps2::Ps2DiscFileSystem", typeSetting.DefaultValue);
+    }
 }

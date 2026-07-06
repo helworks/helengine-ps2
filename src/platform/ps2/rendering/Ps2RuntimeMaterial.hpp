@@ -1,8 +1,8 @@
 #pragma once
 
-#include "Ps2MaterialAlphaMode.hpp"
-#include "Ps2MaterialLightingMode.hpp"
-#include "Ps2RenderClass.hpp"
+#include <Ps2MaterialAlphaMode.hpp>
+#include <Ps2MaterialLightingMode.hpp>
+#include <Ps2RenderClass.hpp>
 #include "RuntimeMaterial.hpp"
 
 class PlatformMaterialAsset;

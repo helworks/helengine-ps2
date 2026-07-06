@@ -4,10 +4,10 @@
 #include <stdexcept>
 
 #include "PlatformMaterialAsset.hpp"
-#include "Ps2MaterialAlphaMode.hpp"
+#include <Ps2MaterialAlphaMode.hpp>
 #include "Ps2MaterialAsset.hpp"
-#include "Ps2MaterialLightingMode.hpp"
-#include "Ps2RenderClass.hpp"
+#include <Ps2MaterialLightingMode.hpp>
+#include <Ps2RenderClass.hpp>
 namespace helengine::ps2 {
     Ps2RuntimeMaterial::Ps2RuntimeMaterial()
         : AlphaMode(::Ps2MaterialAlphaMode::Opaque),

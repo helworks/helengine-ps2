@@ -10,8 +10,9 @@ internal sealed class SingleGlyphFontImporter : IFontImporter {
     /// Imports a minimal font asset with one glyph atlas payload so builder-owned font-atlas cooking can extract and externalize that atlas.
     /// </summary>
     /// <param name="stream">Source stream supplied by the editor import pipeline.</param>
+    /// <param name="settings">Active platform font settings supplied by the editor import pipeline.</param>
     /// <returns>One imported font asset with a one-pixel raw atlas texture payload.</returns>
-    public FontAsset ImportFont(Stream stream) {
+    public FontAsset ImportFont(Stream stream, FontAssetProcessorSettings settings) {
         if (stream == null) {
             throw new ArgumentNullException(nameof(stream));
         }

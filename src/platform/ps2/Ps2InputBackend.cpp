@@ -8,7 +8,10 @@
 
 namespace helengine::ps2 {
     Ps2InputBackend::Ps2InputBackend()
-        : Port(0),
+        : PrimaryCachedGamepads(new Array<InputGamepadState>(1)),
+          SecondaryCachedGamepads(new Array<InputGamepadState>(1)),
+          UsePrimaryCachedGamepads(true),
+          Port(0),
           Slot(0),
           IsPadAvailable(false),
           ShowGreenFrame(false),
@@ -46,10 +49,11 @@ namespace helengine::ps2 {
 
         InputGamepadState gamepad = CaptureGamepadState();
         if (gamepad.get_Connected()) {
-            Array<InputGamepadState>* gamepads = new Array<InputGamepadState>(1);
+            Array<InputGamepadState>* gamepads = UsePrimaryCachedGamepads ? PrimaryCachedGamepads : SecondaryCachedGamepads;
             (*gamepads)[0] = gamepad;
             frame.set_Gamepads(gamepads);
             frame.set_GamepadCount(1);
+            UsePrimaryCachedGamepads = !UsePrimaryCachedGamepads;
         } else {
             frame.set_Gamepads(Array<InputGamepadState>::Empty());
             frame.set_GamepadCount(0);

@@ -73,7 +73,7 @@ public sealed class Ps2PlatformCookWorkItemExecutor {
                     diagnosticReporter,
                     PlatformBuildDiagnosticSeverity.Error,
                     "PS2BUILD003",
-                    $"Failed to execute platform cook work item '{workItem.WorkItemId}': {exception.Message}",
+                    $"Failed to execute platform cook work item '{workItem.WorkItemId}' from '{workItem.SourceAssetPath}' (kind '{workItem.SourceAssetKind}'): {exception.Message}",
                     string.Empty,
                     workItem.OutputLogicalArtifactId,
                     workItem.SourceAssetPath);
@@ -133,6 +133,11 @@ public sealed class Ps2PlatformCookWorkItemExecutor {
             throw new ArgumentNullException(nameof(workItem));
         }
 
+        TextureAsset serializedTextureAsset = TryLoadSerializedTextureAsset(workItem.SourceAssetPath);
+        if (serializedTextureAsset != null) {
+            return serializedTextureAsset;
+        }
+
         if (string.Equals(workItem.SourceAssetKind, "font-atlas-texture", StringComparison.OrdinalIgnoreCase)) {
             TextureAsset fontAtlasTexture = TryLoadPackagedFontAtlasSourceTexture(workItem.SourceAssetPath);
             if (fontAtlasTexture != null) {
@@ -146,6 +151,26 @@ public sealed class Ps2PlatformCookWorkItemExecutor {
         }
 
         return SourceTextureDecoder.Decode(workItem.SourceAssetPath);
+    }
+
+    /// <summary>
+    /// Attempts to load one serialized raw texture asset staged by the editor under one `.hasset` or `.hetex` source path.
+    /// </summary>
+    /// <param name="sourceAssetPath">Absolute source asset path declared by the editor work item.</param>
+    /// <returns>Serialized texture asset when the source path points at one texture asset payload; otherwise null.</returns>
+    static TextureAsset TryLoadSerializedTextureAsset(string sourceAssetPath) {
+        if (string.IsNullOrWhiteSpace(sourceAssetPath)) {
+            return null;
+        }
+
+        string extension = Path.GetExtension(sourceAssetPath);
+        if (!string.Equals(extension, ".hasset", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(extension, ".hetex", StringComparison.OrdinalIgnoreCase)) {
+            return null;
+        }
+
+        using FileStream stream = File.OpenRead(sourceAssetPath);
+        return AssetSerializer.Deserialize(stream) as TextureAsset;
     }
 
     /// <summary>

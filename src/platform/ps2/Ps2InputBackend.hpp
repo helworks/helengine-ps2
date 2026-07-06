@@ -25,6 +25,10 @@ namespace helengine::ps2 {
 
         void Refresh();
 
+        Array<InputGamepadState>* PrimaryCachedGamepads;
+        Array<InputGamepadState>* SecondaryCachedGamepads;
+        bool UsePrimaryCachedGamepads;
+
         int Port;
         int Slot;
         bool IsPadAvailable;

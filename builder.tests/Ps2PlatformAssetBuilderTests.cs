@@ -274,12 +274,7 @@ public class Ps2PlatformAssetBuilderTests {
 
         SceneAsset sceneAsset = new() {
             AssetReferences = [
-                new SceneAssetReference {
-                    SourceKind = SceneAssetReferenceSourceKind.FileSystem,
-                    RelativePath = rootedTexturePath,
-                    ProviderId = string.Empty,
-                    AssetId = string.Empty
-                }
+                CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, rootedTexturePath, string.Empty, string.Empty)
             ]
         };
 
@@ -438,6 +433,72 @@ public class Ps2PlatformAssetBuilderTests {
 
             Assert.True(report.Succeeded, string.Join(Environment.NewLine, report.Diagnostics.Select(diagnostic => diagnostic.Message)));
             string stagedTexturePath = Path.Combine(request.WorkingRoot, "ps2-staging", "cooked", "fonts", "DemoDiscBody.ps2tex");
+            Assert.True(File.Exists(stagedTexturePath));
+            using FileStream textureStream = File.OpenRead(stagedTexturePath);
+            Ps2TextureAsset textureAsset = Assert.IsType<Ps2TextureAsset>(Ps2AssetSerializer.Deserialize(textureStream));
+            Assert.True(textureAsset.Width > 0);
+            Assert.True(textureAsset.Height > 0);
+            Assert.Equal(Ps2TextureFormat.Indexed8, textureAsset.Format);
+        } finally {
+            Directory.SetCurrentDirectory(previousDirectory);
+
+            if (Directory.Exists(workingRoot)) {
+                Directory.Delete(workingRoot, true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Verifies that the PS2 builder can resolve a font-atlas work item from one serialized generated texture asset staged by the editor.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_WhenFontAtlasTextureCookWorkItemUsesSerializedGeneratedTextureAsset_WritesPs2RuntimeTextureToDeclaredOutputPath() {
+        string workingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        string outputRoot = Path.Combine(workingRoot, "out");
+        string stagingRoot = Path.Combine(workingRoot, "staging");
+        string generatedCoreRoot = Path.Combine(workingRoot, "generated-core");
+        string sceneOutputPath = Path.Combine(stagingRoot, "cooked", "scenes", "main.hasset");
+        string sourceTexturePath = Path.Combine(workingRoot, "source", "generated-font-atlas.hasset");
+        string outputRelativePath = "cooked/fonts/default.ps2tex";
+
+        Directory.CreateDirectory(Path.GetDirectoryName(sourceTexturePath)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(sceneOutputPath)!);
+        Directory.CreateDirectory(stagingRoot);
+        Directory.CreateDirectory(generatedCoreRoot);
+        File.WriteAllBytes(sceneOutputPath, helengine.files.AssetSerializer.SerializeToBytes(new SceneAsset()));
+        File.WriteAllBytes(sourceTexturePath, helengine.files.AssetSerializer.SerializeToBytes(new TextureAsset {
+            Id = "generated/default-font-atlas",
+            Width = 1,
+            Height = 1,
+            ColorFormat = TextureAssetColorFormat.Rgba32,
+            AlphaPrecision = TextureAssetAlphaPrecision.Opaque,
+            Colors = [255, 255, 255, 255],
+            PaletteColors = Array.Empty<byte>()
+        }));
+        File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "// generated");
+
+        string previousDirectory = Directory.GetCurrentDirectory();
+        try {
+            Directory.SetCurrentDirectory(stagingRoot);
+
+            Ps2PlatformAssetBuilder builder = new(new FakePs2NativeBuildExecutor());
+            PlatformAssetCookCapabilityDefinition textureCapability = Assert.Single(
+                builder.Definition.AssetCookCapabilities,
+                capability => capability.SourceAssetKind == "font-atlas-texture");
+            PlatformBuildManifest manifest = CreateManifestWithTextureWorkItem(
+                sourceTexturePath,
+                "font-atlas-texture",
+                outputRelativePath,
+                "runtime-texture:default-font-atlas",
+                textureCapability.DefaultSerializedPlatformSettings);
+            PlatformBuildRequest request = CreateBuildRequest(manifest, outputRoot, workingRoot, generatedCoreRoot);
+            RecordingProgressReporter progressReporter = new();
+            RecordingDiagnosticReporter diagnosticReporter = new();
+
+            PlatformBuildReport report = await builder.BuildAsync(request, progressReporter, diagnosticReporter, CancellationToken.None);
+
+            Assert.True(report.Succeeded, string.Join(Environment.NewLine, report.Diagnostics.Select(diagnostic => diagnostic.Message)));
+            string stagedTexturePath = Path.Combine(request.WorkingRoot, "ps2-staging", "cooked", "fonts", "default.ps2tex");
             Assert.True(File.Exists(stagedTexturePath));
             using FileStream textureStream = File.OpenRead(stagedTexturePath);
             Ps2TextureAsset textureAsset = Assert.IsType<Ps2TextureAsset>(Ps2AssetSerializer.Deserialize(textureStream));
@@ -620,6 +681,60 @@ public class Ps2PlatformAssetBuilderTests {
         Assert.Equal((byte)64, ReadByteField(materialAsset, "BaseColorG"));
         Assert.Equal((byte)64, ReadByteField(materialAsset, "BaseColorB"));
         Assert.Equal((byte)255, ReadByteField(materialAsset, "BaseColorA"));
+    }
+
+    /// <summary>
+    /// Verifies that textured PS2 materials rewrite generic imported cooked texture paths into PS2-safe disc-relative paths that the runtime texture loader can open directly.
+    /// </summary>
+    [Fact]
+    public void CookMaterial_when_ps2_material_uses_imported_texture_rewrites_texture_path_to_ps2_disc_relative_path() {
+        Ps2PlatformAssetBuilder builder = new();
+
+        const string logicalImportedTexturePath = "cooked/imported/ff8a0f1fafe1f1c4989f73f39db8b800512e09e26439b011cb7afb0fed44dd5a";
+        PlatformMaterialCookResult result = builder.CookMaterial(new PlatformMaterialCookRequest(
+            "Materials/Test.helmat",
+            "Materials/Test.helmat",
+            "ps2",
+            "ps2-default",
+            "ps2-standard-forward",
+            "ps2-simple-lit-textured",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
+                ["texture-relative-path"] = logicalImportedTexturePath,
+                ["alpha-mode"] = "opaque",
+                ["double-sided"] = "false",
+                ["cast-shadows"] = "false",
+                ["vertex-color-mode"] = "multiply"
+            }));
+
+        Ps2MaterialAsset materialAsset = Assert.IsType<Ps2MaterialAsset>(Ps2AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
+        Assert.Equal(Ps2DiscPathResolver.ResolveDiscRelativePath(logicalImportedTexturePath), materialAsset.TextureRelativePath);
+    }
+
+    /// <summary>
+    /// Verifies that standard-shader compatibility cooks preserve the builder-owned imported texture runtime path instead of the authored diffuse texture asset id field.
+    /// </summary>
+    [Fact]
+    public void CookMaterial_when_standard_shader_uses_builder_owned_texture_relative_path_preserves_runtime_texture_path() {
+        Ps2PlatformAssetBuilder builder = new();
+
+        const string logicalImportedTexturePath = "cooked/imported/ff8a0f1fafe1f1c4989f73f39db8b800512e09e26439b011cb7afb0fed44dd5a";
+        PlatformMaterialCookResult result = builder.CookMaterial(new PlatformMaterialCookRequest(
+            "Materials/Test.helmat",
+            "Materials/Test.helmat",
+            "ps2",
+            "ps2-default",
+            "ps2-standard-forward",
+            "standard-shader",
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) {
+                ["texture-id"] = string.Empty,
+                ["texture-relative-path"] = logicalImportedTexturePath,
+                ["casts-shadow"] = "true",
+                ["receives-shadow"] = "true",
+                ["base-color"] = "#FFFFFFFF"
+            }));
+
+        Ps2MaterialAsset materialAsset = Assert.IsType<Ps2MaterialAsset>(Ps2AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
+        Assert.Equal(Ps2DiscPathResolver.ResolveDiscRelativePath(logicalImportedTexturePath), materialAsset.TextureRelativePath);
     }
 
     /// <summary>
@@ -834,11 +949,13 @@ public class Ps2PlatformAssetBuilderTests {
             string runtimeManifestSource = File.ReadAllText(Path.Combine(generatedCoreRoot, "runtime", "runtime_ps2_asset_path_manifest.cpp"));
             string runtimeSceneCatalogSource = File.ReadAllText(Path.Combine(generatedCoreRoot, "runtime", "runtime_scene_catalog_manifest.cpp"));
             Assert.Contains("he_get_runtime_ps2_startup_scene_path", runtimeManifestSource, StringComparison.Ordinal);
+            Assert.Contains("he_get_runtime_ps2_asset_physical_path", runtimeManifestSource, StringComparison.Ordinal);
+            Assert.Contains("RuntimePs2LogicalPathsEqual", runtimeManifestSource, StringComparison.Ordinal);
             Assert.Contains("cdrom0:\\\\COOKED\\\\SCENES\\\\MAIN.HAS;1", runtimeManifestSource, StringComparison.Ordinal);
+            Assert.Contains("\"cooked/imported/box_a.phm\"", runtimeManifestSource, StringComparison.Ordinal);
             Assert.Contains("he_runtime_scene_catalog_entries", runtimeSceneCatalogSource, StringComparison.Ordinal);
             Assert.Contains("\"Scenes/Rendering/DirectionalShadowPlaza.helen\"", runtimeSceneCatalogSource, StringComparison.Ordinal);
             Assert.Equal(2, runtimeSceneCatalogSource.Split(new[] { "cdrom0:\\\\COOKED\\\\SCENES\\\\" }, StringSplitOptions.None).Length - 1);
-            Assert.DoesNotContain("he_get_runtime_ps2_asset_physical_path", runtimeManifestSource, StringComparison.Ordinal);
             Assert.Equal(generatedCoreRoot, nativeBuildExecutor.LastWorkspace.GeneratedCoreRootPath);
             Assert.True(nativeBuildExecutor.PackageIsoCalled);
         } finally {
@@ -1062,18 +1179,8 @@ public class Ps2PlatformAssetBuilderTests {
                 }
             ],
             AssetReferences = [
-                new SceneAssetReference {
-                    SourceKind = SceneAssetReferenceSourceKind.FileSystem,
-                    RelativePath = rootedFontPath,
-                    ProviderId = string.Empty,
-                    AssetId = string.Empty
-                },
-                new SceneAssetReference {
-                    SourceKind = SceneAssetReferenceSourceKind.FileSystem,
-                    RelativePath = rootedMaterialPath,
-                    ProviderId = string.Empty,
-                    AssetId = string.Empty
-                }
+                CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, rootedFontPath, string.Empty, string.Empty),
+                CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, rootedMaterialPath, string.Empty, string.Empty)
             ]
         };
         Ps2MaterialAsset materialAsset = new() {
@@ -1404,12 +1511,7 @@ public class Ps2PlatformAssetBuilderTests {
                 }
             ],
             AssetReferences = [
-                new SceneAssetReference {
-                    SourceKind = SceneAssetReferenceSourceKind.FileSystem,
-                    RelativePath = "cooked/engine/mat/Cube00/Cube00.hasset",
-                    ProviderId = string.Empty,
-                    AssetId = string.Empty
-                }
+                CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, "cooked/engine/mat/Cube00/Cube00.hasset", string.Empty, string.Empty)
             ]
         };
         Ps2MaterialAsset materialAsset = new() {
@@ -2157,12 +2259,7 @@ public class Ps2PlatformAssetBuilderTests {
         using MemoryStream stream = new();
         using EngineBinaryWriter writer = EngineBinaryWriter.Create(stream, EngineBinaryEndianness.LittleEndian);
         writer.WriteByte(1);
-        WriteOptionalReference(writer, new SceneAssetReference {
-            SourceKind = SceneAssetReferenceSourceKind.FileSystem,
-            RelativePath = fontRelativePath,
-            ProviderId = string.Empty,
-            AssetId = string.Empty
-        });
+        WriteOptionalReference(writer, CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, fontRelativePath, string.Empty, string.Empty));
         writer.WriteString("Demo Disc");
         writer.WriteByte(0);
         writer.WriteInt2(new int2(320, 64));
@@ -2180,12 +2277,7 @@ public class Ps2PlatformAssetBuilderTests {
 
     static byte[] BuildTaggedTextComponentPayload(string fontRelativePath) {
         EditorTaggedSceneComponentFieldWriter writer = new();
-        writer.WriteField("FontReference", fieldWriter => SceneComponentBinaryFieldEncoding.WriteOptionalReference(fieldWriter, new SceneAssetReference {
-            SourceKind = SceneAssetReferenceSourceKind.FileSystem,
-            RelativePath = fontRelativePath,
-            ProviderId = string.Empty,
-            AssetId = string.Empty
-        }));
+        writer.WriteField("FontReference", fieldWriter => SceneComponentBinaryFieldEncoding.WriteOptionalReference(fieldWriter, CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, fontRelativePath, string.Empty, string.Empty)));
         writer.WriteField("Text", fieldWriter => fieldWriter.WriteString("Demo Disc"));
         writer.WriteField("WrapText", fieldWriter => fieldWriter.WriteByte(0));
         writer.WriteField("Size", fieldWriter => fieldWriter.WriteInt2(new int2(320, 64)));
@@ -2200,12 +2292,7 @@ public class Ps2PlatformAssetBuilderTests {
 
     static byte[] BuildTaggedFpsComponentPayload(string fontRelativePath) {
         EditorTaggedSceneComponentFieldWriter writer = new();
-        writer.WriteField("Font", fieldWriter => SceneComponentBinaryFieldEncoding.WriteOptionalReference(fieldWriter, new SceneAssetReference {
-            SourceKind = SceneAssetReferenceSourceKind.FileSystem,
-            RelativePath = fontRelativePath,
-            ProviderId = string.Empty,
-            AssetId = string.Empty
-        }));
+        writer.WriteField("Font", fieldWriter => SceneComponentBinaryFieldEncoding.WriteOptionalReference(fieldWriter, CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, fontRelativePath, string.Empty, string.Empty)));
         writer.WriteField("RefreshIntervalSeconds", fieldWriter => fieldWriter.WriteInt64(BitConverter.DoubleToInt64Bits(0.5d)));
         writer.WriteField("Padding", fieldWriter => fieldWriter.WriteInt2(new int2(8, 6)));
         writer.WriteField("RenderOrder2D", fieldWriter => fieldWriter.WriteByte(250));
@@ -2214,12 +2301,7 @@ public class Ps2PlatformAssetBuilderTests {
 
     static byte[] BuildTaggedSpriteComponentPayload(string textureRelativePath) {
         EditorTaggedSceneComponentFieldWriter writer = new();
-        writer.WriteField("TextureReference", fieldWriter => SceneComponentBinaryFieldEncoding.WriteOptionalReference(fieldWriter, new SceneAssetReference {
-            SourceKind = SceneAssetReferenceSourceKind.FileSystem,
-            RelativePath = textureRelativePath,
-            ProviderId = string.Empty,
-            AssetId = string.Empty
-        }));
+        writer.WriteField("TextureReference", fieldWriter => SceneComponentBinaryFieldEncoding.WriteOptionalReference(fieldWriter, CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, textureRelativePath, string.Empty, string.Empty)));
         writer.WriteField("SourceRect", fieldWriter => fieldWriter.WriteFloat4(new float4(0f, 0f, 1f, 1f)));
         writer.WriteField("Size", fieldWriter => fieldWriter.WriteInt2(new int2(64, 64)));
         writer.WriteField("Color", fieldWriter => SceneComponentBinaryFieldEncoding.WriteByte4(fieldWriter, new byte4(255, 255, 255, 255)));
@@ -2235,7 +2317,6 @@ public class Ps2PlatformAssetBuilderTests {
                 Width = 128,
                 Height = 128
             },
-            Rotation = 0f,
             LayerMask = 1,
             SourceRect = new float4(0f, 0f, 1f, 1f),
             Size = new int2(320, 180),
@@ -2243,12 +2324,7 @@ public class Ps2PlatformAssetBuilderTests {
             RenderOrder2D = 1
         };
         EntityComponentSaveState saveState = new();
-        saveState.SetAssetReference("Texture", new SceneAssetReference {
-            SourceKind = SceneAssetReferenceSourceKind.FileSystem,
-            RelativePath = textureRelativePath,
-            ProviderId = string.Empty,
-            AssetId = string.Empty
-        });
+        saveState.SetAssetReference("Texture", CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, textureRelativePath, string.Empty, string.Empty));
 
         ScriptComponentReflectionSchema schema = new ScriptComponentReflectionSchemaBuilder().Build(typeof(SpriteComponent));
         using MemoryStream stream = new();
@@ -2266,40 +2342,48 @@ public class Ps2PlatformAssetBuilderTests {
         using MemoryStream stream = new();
         using EngineBinaryWriter writer = EngineBinaryWriter.Create(stream, EngineBinaryEndianness.LittleEndian);
         writer.WriteByte(1);
-        WriteOptionalReference(writer, new SceneAssetReference {
-            SourceKind = SceneAssetReferenceSourceKind.FileSystem,
-            RelativePath = modelRelativePath,
-            ProviderId = string.Empty,
-            AssetId = string.Empty
-        });
-        WriteOptionalReference(writer, new SceneAssetReference {
-            SourceKind = SceneAssetReferenceSourceKind.FileSystem,
-            RelativePath = materialRelativePath,
-            ProviderId = string.Empty,
-            AssetId = string.Empty
-        });
+        WriteOptionalReference(writer, CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, modelRelativePath, string.Empty, string.Empty));
+        WriteOptionalReference(writer, CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, materialRelativePath, string.Empty, string.Empty));
         writer.WriteByte(0);
         return stream.ToArray();
     }
 
     static byte[] BuildMeshComponentPayloadVersion2(string modelRelativePath, IReadOnlyList<string> materialRelativePaths) {
-        using MemoryStream stream = new();
-        using EngineBinaryWriter writer = EngineBinaryWriter.Create(stream, EngineBinaryEndianness.LittleEndian);
         SceneAssetReference modelReference = CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, modelRelativePath, string.Empty, string.Empty);
         SceneAssetReference[] materialReferences = new SceneAssetReference[materialRelativePaths.Count];
         for (int materialIndex = 0; materialIndex < materialRelativePaths.Count; materialIndex++) {
             materialReferences[materialIndex] = CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, materialRelativePaths[materialIndex], string.Empty, string.Empty);
         }
 
-        MeshComponentScenePayloadSerializer.Write(writer, modelReference, materialReferences, 0);
-        return stream.ToArray();
+        return BuildMeshComponentPayloadVersion2(modelReference, materialReferences);
     }
 
     static byte[] BuildMeshComponentPayloadVersion2(SceneAssetReference modelReference, IReadOnlyList<SceneAssetReference> materialReferences) {
-        using MemoryStream stream = new();
-        using EngineBinaryWriter writer = EngineBinaryWriter.Create(stream, EngineBinaryEndianness.LittleEndian);
-        MeshComponentScenePayloadSerializer.Write(writer, modelReference, materialReferences.ToArray(), 0);
-        return stream.ToArray();
+        MeshComponent meshComponent = new() {
+            RenderOrder3D = 0
+        };
+        if (modelReference != null) {
+            meshComponent.Model = new TestRuntimeModel();
+        }
+
+        RuntimeMaterial[] runtimeMaterials = new RuntimeMaterial[materialReferences.Count];
+        for (int materialIndex = 0; materialIndex < materialReferences.Count; materialIndex++) {
+            runtimeMaterials[materialIndex] = new RuntimeMaterial();
+        }
+
+        meshComponent.SetMaterials(runtimeMaterials);
+
+        EntityComponentSaveState saveState = new();
+        if (modelReference != null) {
+            saveState.SetAssetReference("Model", modelReference);
+        }
+
+        for (int materialIndex = 0; materialIndex < materialReferences.Count; materialIndex++) {
+            saveState.SetAssetReference($"Materials[{materialIndex}]", materialReferences[materialIndex]);
+        }
+
+        ComponentPersistenceRegistry persistenceRegistry = new();
+        return persistenceRegistry.GetDescriptor(meshComponent).SerializeComponent(meshComponent, 0, saveState).Payload;
     }
 
     /// <summary>
@@ -2330,12 +2414,11 @@ public class Ps2PlatformAssetBuilderTests {
     }
 
     static SceneAssetReference CreateSceneReference(SceneAssetReferenceSourceKind sourceKind, string relativePath, string providerId, string assetId) {
-        return new SceneAssetReference {
-            SourceKind = sourceKind,
-            RelativePath = relativePath,
-            ProviderId = providerId,
-            AssetId = assetId
-        };
+        MethodInfo method = typeof(global::helengine.SceneAssetReferenceFactory).GetMethod(
+            "Rehydrate",
+            BindingFlags.Static | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("SceneAssetReferenceFactory.Rehydrate was not found.");
+        return (SceneAssetReference)method.Invoke(null, [sourceKind, relativePath, providerId, assetId]);
     }
 
     static SceneAssetReference ReadTextFontReference(SceneComponentAssetRecord record) {
@@ -2411,12 +2494,7 @@ public class Ps2PlatformAssetBuilderTests {
             AdditionalText = "Return: Start"
         };
         EntityComponentSaveState saveState = new();
-        saveState.SetAssetReference("Font", new SceneAssetReference {
-            SourceKind = SceneAssetReferenceSourceKind.FileSystem,
-            RelativePath = fontRelativePath,
-            ProviderId = string.Empty,
-            AssetId = string.Empty
-        });
+        saveState.SetAssetReference("Font", CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, fontRelativePath, string.Empty, string.Empty));
 
         return descriptor.SerializeComponent(fpsComponent, 0, saveState).Payload;
     }
@@ -2432,12 +2510,7 @@ public class Ps2PlatformAssetBuilderTests {
             AdditionalText = string.Empty
         };
         EntityComponentSaveState saveState = new();
-        saveState.SetAssetReference("Font", new SceneAssetReference {
-            SourceKind = SceneAssetReferenceSourceKind.FileSystem,
-            RelativePath = fontRelativePath,
-            ProviderId = string.Empty,
-            AssetId = string.Empty
-        });
+        saveState.SetAssetReference("Font", CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, fontRelativePath, string.Empty, string.Empty));
 
         ScriptComponentReflectionSchema schema = new ScriptComponentReflectionSchemaBuilder().Build(typeof(FPSComponent));
         using MemoryStream stream = new();
@@ -2498,21 +2571,13 @@ public class Ps2PlatformAssetBuilderTests {
         out byte renderOrder3D) {
         using MemoryStream stream = new(record.Payload ?? Array.Empty<byte>(), false);
         using EngineBinaryReader reader = EngineBinaryReader.Create(stream, EngineBinaryEndianness.LittleEndian);
-        MeshComponentScenePayloadSerializer.Read(reader, out modelReference, out materialReferences, out renderOrder3D);
-        Assert.Equal(MeshComponentScenePayloadSerializer.CurrentVersion, record.Payload[0]);
+        modelReference = SceneComponentBinaryFieldEncoding.ReadOptionalReference(reader);
+        materialReferences = SceneComponentBinaryFieldEncoding.ReadOptionalReferenceArray(reader);
+        renderOrder3D = reader.ReadByte();
     }
 
     static SceneAssetReference ReadOptionalReference(EngineBinaryReader reader) {
-        if (reader.ReadByte() == 0) {
-            return null;
-        }
-
-        return new SceneAssetReference {
-            SourceKind = (SceneAssetReferenceSourceKind)reader.ReadInt32(),
-            RelativePath = reader.ReadString(),
-            ProviderId = reader.ReadString(),
-            AssetId = reader.ReadString()
-        };
+        return global::helengine.SceneAssetReferenceFactory.ReadOptionalReference(reader);
     }
 
     static void WriteOptionalReference(EngineBinaryWriter writer, SceneAssetReference reference) {
@@ -2565,7 +2630,7 @@ public class Ps2PlatformAssetBuilderTests {
         string fontSourcePath = ResolveProjectAssetPath(projectRoot, fontRelativePath);
         Directory.CreateDirectory(Path.GetDirectoryName(fontSourcePath)!);
 
-        FontAsset fontAsset = new SingleGlyphFontImporter().ImportFont(new MemoryStream(new byte[] { 0x01 }));
+        FontAsset fontAsset = new SingleGlyphFontImporter().ImportFont(new MemoryStream(new byte[] { 0x01 }), new FontAssetProcessorSettings());
         using FileStream stream = new(fontSourcePath, FileMode.Create, FileAccess.Write, FileShare.None);
         helengine.files.FontAssetBinarySerializer.Serialize(stream, fontAsset);
     }
@@ -2732,7 +2797,7 @@ public class Ps2PlatformAssetBuilderTests {
                 new TextureImporterRegistration("test-texture", new SinglePixelTextureImporter(), [".png"]),
                 new FontImporterRegistration("test-font", new SingleGlyphFontImporter(), [".hefont"])
             },
-            new SingleGlyphFontImporter().ImportFont(new MemoryStream(new byte[] { 0x01 })),
+            new SingleGlyphFontImporter().ImportFont(new MemoryStream(new byte[] { 0x01 }), new FontAssetProcessorSettings()),
             null,
             null) ?? throw new InvalidOperationException("EditorPlatformAssetCookService could not be created.");
         MethodInfo cookMethod = serviceType.GetMethod("Cook", BindingFlags.Instance | BindingFlags.Public)
@@ -2871,6 +2936,12 @@ public class Ps2PlatformAssetBuilderTests {
     /// <returns>One-pixel PNG file bytes.</returns>
     static byte[] CreateSinglePixelPngBytes() {
         return Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==");
+    }
+
+    /// <summary>
+    /// Provides one concrete runtime-model placeholder so mesh payload persistence can follow the current editor contract.
+    /// </summary>
+    sealed class TestRuntimeModel : RuntimeModel {
     }
 
     sealed class FakePs2NativeBuildExecutor : IPs2NativeBuildExecutor {

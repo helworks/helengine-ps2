@@ -1,6 +1,6 @@
 #include "platform/ps2/rendering/Ps2FramePlanner.hpp"
 
-#include "Ps2RenderClass.hpp"
+#include <Ps2RenderClass.hpp>
 #include "platform/ps2/rendering/Ps2FramePlan.hpp"
 #include "platform/ps2/rendering/Ps2RenderProxy.hpp"
 #include "platform/ps2/rendering/Ps2RuntimeMaterial.hpp"

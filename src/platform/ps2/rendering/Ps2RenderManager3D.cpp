@@ -52,6 +52,8 @@
 
 namespace helengine::ps2 {
     namespace {
+        void AppendDiagnosticToHostBootLog(const std::string& message);
+
         std::string ResolvePs2CookedAssetOpenPath(const std::string& path) {
             if (path.empty()) {
                 return path;
@@ -142,6 +144,26 @@ namespace helengine::ps2 {
         constexpr std::uint32_t VuDirectGifDiagnosticTriangleZ = 0x007FFFFFu;
         const ::float3 DefaultForward(0.0f, 0.0f, -1.0f);
         const ::float3 DefaultUp(0.0f, 1.0f, 0.0f);
+
+        void ReleaseTextureRecord(GSTEXTURE* texture) {
+            if (texture == nullptr) {
+                return;
+            }
+
+            if (texture->Clut != nullptr) {
+                free(texture->Clut);
+                texture->Clut = nullptr;
+            }
+
+            if (texture->Mem != nullptr) {
+                free(texture->Mem);
+                texture->Mem = nullptr;
+            }
+
+            texture->Vram = 0;
+            texture->VramClut = 0;
+            delete texture;
+        }
 
         double ResolveMillisecondsFromClockTicks(std::clock_t startTicks, std::clock_t endTicks) {
             if (endTicks <= startTicks) {
@@ -750,6 +772,15 @@ namespace helengine::ps2 {
         }
 
         PendingReleasedModels.clear();
+        ClearCachedTextures();
+    }
+
+    void Ps2RenderManager3D::ClearCachedTextures() {
+        for (auto& textureEntry : TextureRecords) {
+            ReleaseTextureRecord(textureEntry.second);
+        }
+
+        TextureRecords.clear();
     }
 
     void Ps2RenderManager3D::ReleaseMaterial(::RuntimeMaterial* material) {
@@ -828,7 +859,8 @@ namespace helengine::ps2 {
             std::fflush(stdout);
             throw;
         }
-        if (camera == nullptr || camera->get_Parent() == nullptr) {
+        ::Entity* cameraParent = camera != nullptr ? camera->get_ParentUnsafe() : nullptr;
+        if (camera == nullptr || cameraParent == nullptr) {
             return;
         }
 
@@ -993,6 +1025,7 @@ namespace helengine::ps2 {
         texturedTextures.reserve(batches.size());
         texturedTextureWidths.reserve(batches.size());
         texturedTextureHeights.reserve(batches.size());
+        static std::uint32_t texturedBatchClassificationDiagnosticCount = 0u;
         for (const Ps2VuOpaqueBatch& batch : batches) {
             if (batch.Proxy == nullptr) {
                 continue;
@@ -1008,6 +1041,18 @@ namespace helengine::ps2 {
                     batchTextureWidth = static_cast<int>(batchTexture->Width);
                     batchTextureHeight = static_cast<int>(batchTexture->Height);
                 }
+            }
+
+            if (texturedBatchClassificationDiagnosticCount < TexturedVuSubmitDiagnosticLogLimit) {
+                texturedBatchClassificationDiagnosticCount++;
+                AppendDiagnosticToHostBootLog(
+                    std::string("[helengine-ps2] batch classify")
+                    + " materialPtr=" + std::to_string(static_cast<unsigned long>(reinterpret_cast<std::uintptr_t>(batch.Material)))
+                    + " texturedFlag=" + std::to_string(batch.Textured ? 1 : 0)
+                    + " hasTexturePath=" + std::to_string(batch.Material != nullptr && batch.Material->HasTextureRelativePath() ? 1 : 0)
+                    + " texturePath=" + (batch.Material != nullptr && batch.Material->HasTextureRelativePath() ? batch.Material->GetTextureRelativePath() : std::string("none"))
+                    + " textureResolved=" + std::to_string(batchTexture != nullptr ? 1 : 0)
+                    + " textureSize=" + std::to_string(batchTextureWidth) + "x" + std::to_string(batchTextureHeight));
             }
 
             if (EnableTexturedBatchAggregationDiagnostics
@@ -1393,6 +1438,14 @@ namespace helengine::ps2 {
 
     double Ps2RenderManager3D::GetLastVuTriangleEmitMilliseconds() const {
         return LastVuTriangleEmitMilliseconds;
+    }
+
+    double Ps2RenderManager3D::GetLastVuTriangleLightingMilliseconds() const {
+        return LastVuTriangleLightingMilliseconds;
+    }
+
+    double Ps2RenderManager3D::GetLastVuTrianglePayloadFillMilliseconds() const {
+        return LastVuTrianglePayloadFillMilliseconds;
     }
 
     bool Ps2RenderManager3D::IsUsingLegacyCpuOpaquePath() const {

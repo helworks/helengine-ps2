@@ -7,6 +7,27 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2NativeBuildInputsTests {
     /// <summary>
+    /// Ensures the PS2 native runtime exposes one custom file-system bridge that maps rooted cooked logical paths onto the generated disc-layout manifest before delegating to file-stream reads.
+    /// </summary>
+    [Fact]
+    public void Ps2_runtime_custom_file_system_resolves_rooted_cooked_paths_through_the_generated_manifest() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string makefile = File.ReadAllText(Path.Combine(repositoryRootPath, "Makefile"));
+        string header = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2DiscFileSystem.hpp"));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2DiscFileSystem.cpp"));
+
+        Assert.Contains("$(SOURCE_DIR)/platform/ps2/Ps2DiscFileSystem.cpp", makefile, StringComparison.Ordinal);
+        Assert.Contains("class Ps2DiscFileSystem final", header, StringComparison.Ordinal);
+        Assert.Contains("static bool CanHandlePath(const char* path);", header, StringComparison.Ordinal);
+        Assert.Contains("static bool Exists(const char* path);", header, StringComparison.Ordinal);
+        Assert.Contains("static FileStream* OpenRead(const char* path);", header, StringComparison.Ordinal);
+        Assert.Contains("#include \"runtime/runtime_ps2_asset_path_manifest.hpp\"", source, StringComparison.Ordinal);
+        Assert.Contains("return path.rfind(\"/cooked/\", 0) == 0;", source, StringComparison.Ordinal);
+        Assert.Contains("const char* physicalPath = he_get_runtime_ps2_asset_physical_path(logicalPath);", source, StringComparison.Ordinal);
+        Assert.Contains("return new FileStream(resolvedPhysicalPath, FileMode::Open, FileAccess::Read, FileShare::Read);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 runtime model exposes embedded VU packed geometry loaded directly from the single-file PS2 cooked model asset payload.
     /// </summary>
     [Fact]
@@ -195,7 +216,6 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("std::size_t GetLastVuRejectedMissingModelCount() const;", header, StringComparison.Ordinal);
         Assert.Contains("std::size_t GetLastVuRejectedMissingPackedModelCount() const;", header, StringComparison.Ordinal);
         Assert.Contains("std::uint32_t GetLastVuPacketPhase() const;", header, StringComparison.Ordinal);
-        Assert.Contains("LastVuBatchDispatchCount = batches.size();", source, StringComparison.Ordinal);
         Assert.Contains("LastVuTriangleVertexCount += static_cast<std::size_t>(batch.Model->GetTriangleVertexCount());", source, StringComparison.Ordinal);
         Assert.Contains("LastVuPacketByteCount += VuVifPacketBuilder.GetPacketByteCount();", source, StringComparison.Ordinal);
         Assert.Contains("LastVuRejectedMissingMaterialCount = VuOpaqueBatchBuilder.GetLastRejectedMissingMaterialCount();", source, StringComparison.Ordinal);
@@ -257,8 +277,12 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("#include <packet2_utils.h>", source, StringComparison.Ordinal);
         Assert.Contains("extern u32 Ps2OpaqueDraw3D_CodeStart", source, StringComparison.Ordinal);
         Assert.Contains("extern u32 Ps2OpaqueDraw3D_CodeEnd", source, StringComparison.Ordinal);
+        Assert.Contains("extern u32 Ps2OpaqueTexturedDraw3D_CodeStart", source, StringComparison.Ordinal);
+        Assert.Contains("extern u32 Ps2OpaqueTexturedDraw3D_CodeEnd", source, StringComparison.Ordinal);
         Assert.Contains("dma_channel_initialize(DMA_CHANNEL_VIF1, NULL, 0);", source, StringComparison.Ordinal);
         Assert.Contains("packet2_vif_add_micro_program(", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_vif_add_micro_program(packet2, 0, &Ps2OpaqueDraw3D_CodeStart, &Ps2OpaqueDraw3D_CodeEnd);", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_vif_add_micro_program(packet2, 64, &Ps2OpaqueTexturedDraw3D_CodeStart, &Ps2OpaqueTexturedDraw3D_CodeEnd);", source, StringComparison.Ordinal);
         Assert.Contains("packet2_utils_vu_add_double_buffer(", source, StringComparison.Ordinal);
         Assert.Contains("dma_channel_send_packet2(", source, StringComparison.Ordinal);
         Assert.Contains("dma_channel_wait(DMA_CHANNEL_VIF1, 0);", source, StringComparison.Ordinal);

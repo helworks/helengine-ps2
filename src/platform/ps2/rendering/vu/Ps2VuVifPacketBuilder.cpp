@@ -1361,6 +1361,8 @@ namespace helengine::ps2 {
 
         std::vector<std::array<std::uint64_t, TexturedTrianglePacketWordCount>> texturedTrianglePackets;
         texturedTrianglePackets.reserve(texturedTriangleCapacity);
+        std::clock_t accumulatedTrianglePrepTicks = 0;
+        std::clock_t accumulatedTriangleEmitTicks = 0;
         std::clock_t accumulatedTriangleLightingTicks = 0;
         std::clock_t accumulatedTrianglePayloadFillTicks = 0;
         const std::clock_t triangleSetupStartTicks = std::clock();
@@ -1401,10 +1403,7 @@ namespace helengine::ps2 {
             const float* packedNormalWords = reinterpret_cast<const float*>(batch->Model->GetNormalBlockBytes());
             const float* packedTexCoordWords = reinterpret_cast<const float*>(batch->Model->GetTexCoordBlockBytes());
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
-                std::clock_t trianglePrepStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    trianglePrepStartTicks = std::clock();
-                }
+                const std::clock_t trianglePrepStartTicks = std::clock();
 
                 const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
                 const std::size_t positionWordIndexB = static_cast<std::size_t>(vertexIndex + 1u) * 4u;
@@ -1461,9 +1460,6 @@ namespace helengine::ps2 {
                     ? (*runtimeNormals)[sourceIndexC]
                     : packedNormalC;
                 const ::float4 faceNormal4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f);
-                const ::float3 worldFaceNormal = NormalizeOrFallback(
-                    TransformPosition(faceNormal4, world),
-                    ::float3(0.0f, 0.0f, -1.0f));
                 const ::float3 sourceTriangleNormal = NormalizeOrFallback(
                     ::float3(
                         sourceNormalA.X + sourceNormalB.X + sourceNormalC.X,
@@ -1472,16 +1468,11 @@ namespace helengine::ps2 {
                     faceNormal);
                 const ::float3 triangleWorldNormal = NormalizeOrFallback(
                     TransformPosition(::float4(sourceTriangleNormal.X, sourceTriangleNormal.Y, sourceTriangleNormal.Z, 0.0f), world),
-                    worldFaceNormal);
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    const std::clock_t trianglePrepEndTicks = std::clock();
-                    LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
-                }
+                    ::float3(0.0f, 0.0f, -1.0f));
+                const std::clock_t trianglePrepEndTicks = std::clock();
+                accumulatedTrianglePrepTicks += (trianglePrepEndTicks - trianglePrepStartTicks);
 
-                std::clock_t triangleEmitStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    triangleEmitStartTicks = std::clock();
-                }
+                const std::clock_t triangleEmitStartTicks = std::clock();
 
                 const ::float3 viewPositionA = TransformPosition(positionA, worldViewMatrix);
                 const ::float3 viewPositionB = TransformPosition(positionB, worldViewMatrix);
@@ -1517,10 +1508,8 @@ namespace helengine::ps2 {
                     if (!TryBuildVertexPositionRegister(viewPositionA, projection, viewport, gsGlobal, screenAX, screenAY, screenAZ, positionARegister)
                         || !TryBuildVertexPositionRegister(viewPositionB, projection, viewport, gsGlobal, screenBX, screenBY, screenBZ, positionBRegister)
                         || !TryBuildVertexPositionRegister(viewPositionC, projection, viewport, gsGlobal, screenCX, screenCY, screenCZ, positionCRegister)) {
-                        if (EnableVuPerTriangleTimingDiagnostics) {
-                            const std::clock_t triangleEmitEndTicks = std::clock();
-                            LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
-                        }
+                        const std::clock_t triangleEmitEndTicks = std::clock();
+                        accumulatedTriangleEmitTicks += (triangleEmitEndTicks - triangleEmitStartTicks);
 
                         continue;
                     }
@@ -1695,14 +1684,14 @@ namespace helengine::ps2 {
                     SubmittedTriangleCount++;
                 }
 
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    const std::clock_t triangleEmitEndTicks = std::clock();
-                    LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
-                }
+                const std::clock_t triangleEmitEndTicks = std::clock();
+                accumulatedTriangleEmitTicks += (triangleEmitEndTicks - triangleEmitStartTicks);
             }
 
         }
 
+        LastTrianglePrepMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTrianglePrepTicks);
+        LastTriangleEmitMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTriangleEmitTicks);
         LastTriangleLightingMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTriangleLightingTicks);
         LastTrianglePayloadFillMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTrianglePayloadFillTicks);
         const std::clock_t triangleSetupEndTicks = std::clock();
