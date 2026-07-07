@@ -33,7 +33,7 @@ namespace helengine.ps2.packagedsceneprobe {
             PrintSceneSummary(sceneAsset);
 
             CoreInitializationOptions options = new CoreInitializationOptions {
-                ContentRootPath = Path.Combine(ExportRootPath, "disc"),
+                ContentStreamSource = new HostFileSystemContentStreamSource(Path.Combine(ExportRootPath, "disc")),
                 UpdateOrderLayers = 1,
                 RenderOrderLayers3D = 1,
                 UpdateListInitialCapacity = 4,

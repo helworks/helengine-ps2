@@ -12,6 +12,7 @@
 #include "EngineBinaryEndianness.hpp"
 #include "EngineBinaryReader.hpp"
 #include "FontAsset.hpp"
+#include "HostFileSystemContentStreamSource.hpp"
 #include "ModelAsset.hpp"
 #include "PlatformInfo.hpp"
 #include "PlatformMaterialAsset.hpp"
@@ -63,7 +64,7 @@ namespace helengine::ps2::host {
 #endif
         EngineCore = new ::Core();
         CoreInitializationOptions* engineOptions = EngineCore->get_InitializationOptions();
-        engineOptions->set_ContentRootPath(runtimeContentRootPath);
+        engineOptions->set_ContentStreamSource(new HostFileSystemContentStreamSource(runtimeContentRootPath));
         engineOptions->set_UpdateOrderLayers(1);
         engineOptions->set_RenderOrderLayers3D(1);
         engineOptions->set_UpdateListInitialCapacity(4);

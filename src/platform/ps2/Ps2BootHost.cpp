@@ -27,6 +27,7 @@
 #include "Core.hpp"
 #include "CoreInitializationOptions.hpp"
 #include "ContentManager.hpp"
+#include "HostFileSystemContentStreamSource.hpp"
 #include "CameraComponent.hpp"
 #include "Entity.hpp"
 #include "FPSComponent.hpp"
@@ -1574,7 +1575,7 @@ namespace {
             return nullptr;
         }
 
-        const std::string fullPath = ::Path::GetFullPath(::Path::Combine(core->get_ContentManager()->get_RootDirectory(), cookedAtlasTextureRelativePath));
+        const std::string fullPath = ::Path::GetFullPath(::Path::Combine(ResolveApplicationDirectoryPath(), cookedAtlasTextureRelativePath));
         ::FileStream* stream = ::File::OpenRead(fullPath);
         [[maybe_unused]] auto streamGuard = he_cpp_make_scope_exit([stream]() {
             if (stream != nullptr) {
@@ -2474,7 +2475,7 @@ namespace helengine::ps2 {
         sceCdDiskReady(0);
         BootLog("cdvd ready");
         EngineOptions = new CoreInitializationOptions();
-        EngineOptions->set_ContentRootPath(ResolveApplicationDirectoryPath());
+        EngineOptions->set_ContentStreamSource(new HostFileSystemContentStreamSource(ResolveApplicationDirectoryPath()));
         EngineOptions->set_UpdateOrderLayers(1);
         EngineOptions->set_RenderOrderLayers3D(1);
         EngineOptions->set_UpdateListInitialCapacity(4);
