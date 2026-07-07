@@ -670,7 +670,8 @@ namespace helengine::ps2 {
         return runtimeMaterial;
     }
 
-    ::RuntimeMaterial* Ps2RenderManager3D::BuildMaterialFromCooked(std::string cookedAssetPath) {
+    ::RuntimeMaterial* Ps2RenderManager3D::BuildMaterialFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) {
+        (void)contentStreamSource;
         if (cookedAssetPath.empty()) {
             throw std::invalid_argument("PS2 cooked material path is required.");
         }
@@ -702,7 +703,8 @@ namespace helengine::ps2 {
         return BuildMaterialFromCooked(cookedMaterialAsset);
     }
 
-    ::RuntimeModel* Ps2RenderManager3D::BuildModelFromCooked(std::string cookedAssetPath) {
+    ::RuntimeModel* Ps2RenderManager3D::BuildModelFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) {
+        (void)contentStreamSource;
         if (cookedAssetPath.empty()) {
             throw std::invalid_argument("PS2 cooked model path is required.");
         }

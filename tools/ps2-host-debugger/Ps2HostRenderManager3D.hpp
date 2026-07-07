@@ -28,9 +28,9 @@ namespace helengine::ps2::host {
         Ps2HostRenderManager3D();
 
         RuntimeMaterial* BuildMaterialFromCooked(PlatformMaterialAsset* materialAsset) override;
-        RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath) override;
+        RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) override;
         RuntimeMaterial* BuildMaterialFromRawAsset(ContentManager* assetContentManager, std::string contentRootPath, std::string materialAssetPath) override;
-        RuntimeModel* BuildModelFromCooked(std::string cookedAssetPath) override;
+        RuntimeModel* BuildModelFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) override;
         RuntimeModel* BuildModelFromRaw(ModelAsset* data) override;
         RenderTarget* CreateRenderTarget(int32_t width, int32_t height) override;
         void Draw() override;

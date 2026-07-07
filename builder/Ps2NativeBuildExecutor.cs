@@ -219,6 +219,11 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             return;
         }
 
+        if (contents.Contains("BuildMaterialFromCooked(generatedFullPath, this->AssetContentManager->get_ContentStreamSource())", StringComparison.Ordinal)
+            && contents.Contains("BuildMaterialFromCooked(fullPath, this->AssetContentManager->get_ContentStreamSource())", StringComparison.Ordinal)) {
+            return;
+        }
+
         if (contents.Contains("BuildMaterialFromCooked(materialAsset)", StringComparison.Ordinal)
             && contents.Contains("PlatformMaterialAsset *materialAsset", StringComparison.Ordinal)) {
             return;

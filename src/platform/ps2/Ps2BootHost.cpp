@@ -1575,11 +1575,11 @@ namespace {
             return nullptr;
         }
 
-        const std::string fullPath = ::Path::GetFullPath(::Path::Combine(ResolveApplicationDirectoryPath(), cookedAtlasTextureRelativePath));
-        ::FileStream* stream = ::File::OpenRead(fullPath);
+        ::Stream* stream = core->get_ContentManager()->get_ContentStreamSource()->OpenRead(cookedAtlasTextureRelativePath);
         [[maybe_unused]] auto streamGuard = he_cpp_make_scope_exit([stream]() {
             if (stream != nullptr) {
                 stream->Dispose();
+                delete stream;
             }
         });
         ::Ps2TextureAsset* textureAsset = DeserializePs2TextureAsset(stream);
@@ -1870,7 +1870,8 @@ namespace {
             return texture;
         }
 
-        RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath) override {
+        RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) override {
+            (void)contentStreamSource;
             if (cookedAssetPath.empty()) {
                 throw std::invalid_argument("PS2 cooked texture path is required.");
             }

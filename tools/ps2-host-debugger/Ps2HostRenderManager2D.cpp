@@ -25,7 +25,8 @@ namespace helengine::ps2::host {
           LoggedRoundedRectTrace(false) {
     }
 
-    RuntimeTexture* Ps2HostRenderManager2D::BuildTextureFromCooked(std::string cookedAssetPath) {
+    RuntimeTexture* Ps2HostRenderManager2D::BuildTextureFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) {
+        (void)contentStreamSource;
         if (cookedAssetPath.empty()) {
             throw std::invalid_argument("One PS2 cooked texture path is required.");
         }

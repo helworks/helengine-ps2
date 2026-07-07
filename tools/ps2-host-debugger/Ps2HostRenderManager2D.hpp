@@ -16,7 +16,7 @@ namespace helengine::ps2::host {
     public:
         Ps2HostRenderManager2D();
 
-        RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath) override;
+        RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) override;
         RuntimeTexture* BuildTextureFromRaw(TextureAsset* data) override;
         void DrawRoundedRect(IRoundedRectDrawable2D* shape) override;
         void DrawSprite(ISpriteDrawable2D* sprite) override;
