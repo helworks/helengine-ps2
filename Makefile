@@ -28,6 +28,7 @@ PS2_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/Ps2InputBackend.cpp \
 	$(SOURCE_DIR)/platform/ps2/Ps2DiscFileSystem.cpp \
 	$(SOURCE_DIR)/platform/ps2/Ps2BootHost.cpp \
+	$(SOURCE_DIR)/platform/ps2/audio/Ps2AudioBackend.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2FramePlan.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2FramePlanner.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RenderManager3D.cpp \
@@ -46,8 +47,14 @@ VU_PROGRAM_SOURCES := \
 VU_PROGRAM_OBJECTS := \
 	$(BUILD_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueDraw3D.o \
 	$(BUILD_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueTexturedDraw3D.o
+IRX_EMBED_SOURCES := \
+	$(SOURCE_DIR)/platform/ps2/audio/irx/audsrv.irx-em \
+	$(SOURCE_DIR)/platform/ps2/audio/irx/libsd.irx-em
+IRX_EMBED_OBJECTS := \
+	$(patsubst $(SOURCE_DIR)/%.irx-em,$(BUILD_DIR)/%.o,$(IRX_EMBED_SOURCES))
 OBJECTS := \
 	$(patsubst $(SOURCE_DIR)/%.cpp,$(BUILD_DIR)/%.o,$(PS2_SOURCES)) \
+	$(IRX_EMBED_OBJECTS) \
 	$(VU_PROGRAM_OBJECTS) \
 	$(BUILD_DIR)/generated/runtime/runtime_startup_manifest.o \
 	$(BUILD_DIR)/generated/runtime/runtime_scene_catalog_manifest.o \
@@ -56,6 +63,7 @@ OBJECTS := \
 	$(BUILD_DIR)/generated/helengine_core_amalgamated.o
 
 CXX := mips64r5900el-ps2-elf-g++
+AS := mips64r5900el-ps2-elf-as
 STRIP := mips64r5900el-ps2-elf-strip
 EE_DVP := dvp-as
 HOST_CXX ?= g++
@@ -65,6 +73,7 @@ CPPFLAGS := \
 	-I$(SOURCE_DIR) \
 	-I$(PS2SDK)/ee/include \
 	-I$(PS2SDK)/common/include \
+	-I$(PS2SDK)/ports/include \
 	-I$(GENERATED_CORE_STAGE_ROOT) \
 	$(GSKIT_CFLAGS)
 
@@ -92,6 +101,7 @@ LDFLAGS := \
 	-T$(PS2SDK)/ee/startup/linkfile \
 	-L$(PS2SDK)/ee/lib \
 	-L$(PS2SDK)/common/lib \
+	-L$(PS2SDK)/ports/lib \
 	-Wl,-zmax-page-size=128
 
 LDLIBS := \
@@ -100,6 +110,8 @@ LDLIBS := \
 	-lkernel \
 	-lpad \
 	-ldebug \
+	-laudsrv \
+	-lpatches \
 	$(GSKIT_LIBS) \
 	-lmath3d \
 	-ldraw \
@@ -151,12 +163,29 @@ $(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $< -o $@
 
+$(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.irx-em Makefile
+	@mkdir -p $(dir $@)
+	@irx_path=$$(head -1 $<); \
+		irx_symbol=$$(sed -n '2p' $<); \
+		echo ".section .rodata" > $@.s; \
+		echo ".align 4" >> $@.s; \
+		echo ".global $$irx_symbol" >> $@.s; \
+		echo ".global size_$$irx_symbol" >> $@.s; \
+		echo "$$irx_symbol:" >> $@.s; \
+		echo ".incbin \"$$irx_path\"" >> $@.s; \
+		echo "1:" >> $@.s; \
+		echo ".align 2" >> $@.s; \
+		echo "size_$$irx_symbol:" >> $@.s; \
+		echo ".word 1b - $$irx_symbol" >> $@.s
+	$(AS) $@.s -o $@
+
 $(BUILD_DIR)/platform/ps2/rendering/vu/programs/%.o: $(SOURCE_DIR)/platform/ps2/rendering/vu/programs/%.vsm
 	@mkdir -p $(dir $@)
 	$(EE_DVP) $< -o $@
 
 $(BUILD_DIR)/platform/ps2/Ps2BootHost.o: $(GENERATED_CORE_STAGE_STAMP)
 $(BUILD_DIR)/platform/ps2/Ps2InputBackend.o: $(GENERATED_CORE_STAGE_STAMP)
+$(BUILD_DIR)/platform/ps2/audio/%.o: $(GENERATED_CORE_STAGE_STAMP)
 $(BUILD_DIR)/platform/ps2/rendering/%.o: $(GENERATED_CORE_STAGE_STAMP)
 
 $(BUILD_DIR)/generated/helengine_core_amalgamated.o: $(GENERATED_CORE_STAGE_ROOT)/helengine_core_unity.cpp $(GENERATED_CORE_STAGE_STAMP)

@@ -36,6 +36,7 @@
 #include "FontInfo.hpp"
 #include "ICamera.hpp"
 #include "IDrawable3D.hpp"
+#include "IAudioBackend.hpp"
 #include "IRuntimeDiagnosticsProvider.hpp"
 #include "IRuntimeEntityDisposalDiagnosticsProvider.hpp"
 #if HE_CPP_REQ_DEBUG
@@ -64,6 +65,7 @@
 #include "SceneEntityAsset.hpp"
 #include "SceneManager.hpp"
 #include "SpriteComponent.hpp"
+#include "platform/ps2/audio/Ps2AudioBackend.hpp"
 #include "platform/ps2/Ps2InputBackend.hpp"
 #include "platform/ps2/rendering/Ps2RenderManager3D.hpp"
 #include "platform/ps2/rendering/Ps2RuntimeMaterial.hpp"
@@ -2416,6 +2418,7 @@ namespace helengine::ps2 {
           EngineOptions(0),
           EngineRuntimeDiagnosticsProvider(0),
           EnginePlatformInfo(0),
+          EngineAudioBackend(0),
           EngineInputBackend(0),
           EngineRenderManager2D(0),
           EngineRenderManager3D(0),
@@ -2505,6 +2508,10 @@ namespace helengine::ps2 {
         }
         BootLog("input bridge ready");
 
+        BootLog("audio bridge init");
+        EngineAudioBackend = new Ps2AudioBackend();
+        BootLog("audio bridge ready");
+
         EngineRenderManager2D = &RenderManager2DBackend;
         EngineRenderManager3D = &RenderManager3DBackend;
         EnginePlatformInfo = new PlatformInfo("ps2", "1.0.0");
@@ -2515,6 +2522,7 @@ namespace helengine::ps2 {
             EngineInputBackend,
             EnginePlatformInfo,
             EngineOptions);
+        EngineCore->SetAudioBackend(EngineAudioBackend);
         BootLog("core initialized");
         if (EnablePackagedPhysics3DRegistration && HasPackagedPhysics3DScenes()) {
             if (EnablePhysicsWarmupTrace) {

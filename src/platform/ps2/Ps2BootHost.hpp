@@ -6,6 +6,7 @@ typedef struct gsGlobal GSGLOBAL;
 
 class Core;
 class CoreInitializationOptions;
+class IAudioBackend;
 class IRuntimeDiagnosticsProvider;
 class Asset;
 class PlatformInfo;
@@ -32,6 +33,7 @@ namespace helengine::ps2 {
         ::CoreInitializationOptions* EngineOptions;
         ::IRuntimeDiagnosticsProvider* EngineRuntimeDiagnosticsProvider;
         ::PlatformInfo* EnginePlatformInfo;
+        ::IAudioBackend* EngineAudioBackend;
         Ps2InputBackend* EngineInputBackend;
         ::RenderManager2D* EngineRenderManager2D;
         ::RenderManager3D* EngineRenderManager3D;
