@@ -138,6 +138,20 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures textured batches use the stable per-batch VIF submission path until aggregate packet rendering is proven safe for larger scenes.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenRenderingTexturedVuBatches_DisablesExperimentalBatchAggregation() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 render manager source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr bool EnableTexturedBatchAggregationDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("constexpr bool EnableTexturedBatchAggregationDiagnostics = true;", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the checked-in PS2 renderer header stays aligned with the root generated-core surface that exposes only cooked material entry points.
     /// </summary>
     [Fact]
@@ -308,7 +322,7 @@ public sealed class Ps2RenderManager3DSourceTests {
         Assert.Contains("if (textured) {\n            gsKit_set_texfilter(gsGlobal, texture->Filter);\n        }", packetBuilderSource, StringComparison.Ordinal);
         Assert.Contains("ResolveGsTextureDimensionExponent(texture->Width)", texturedPacketBuilder, StringComparison.Ordinal);
         Assert.Contains("ResolveGsTextureDimensionExponent(texture->Height)", texturedPacketBuilder, StringComparison.Ordinal);
-        Assert.Contains("GIF_TAG_TRIANGLE_GORAUD_TEXTURED(0)", texturedPacketBuilder, StringComparison.Ordinal);
+        Assert.Contains("GIF_TAG_TRIANGLE_GORAUD_TEXTURED(1)", texturedPacketBuilder, StringComparison.Ordinal);
         Assert.Contains("GIF_TAG_TRIANGLE_GORAUD_TEXTURED_REGS(gsGlobal->PrimContext)", texturedPacketBuilder, StringComparison.Ordinal);
         Assert.Contains("prim.shading = PRIM_SHADE_GOURAUD;", texturedPacketBuilder, StringComparison.Ordinal);
         Assert.DoesNotContain("prim.shading = PRIM_SHADE_FLAT;", texturedPacketBuilder, StringComparison.Ordinal);
@@ -329,6 +343,24 @@ public sealed class Ps2RenderManager3DSourceTests {
         Assert.DoesNotContain("draw_prim_start(", texturedPacketBuilder, StringComparison.Ordinal);
         Assert.DoesNotContain("draw_prim_end(", texturedPacketBuilder, StringComparison.Ordinal);
         Assert.DoesNotContain("GsGlobal,\n                0,\n                0);", renderOpaqueBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures textured opaque proxies use the established CPU/GIF path while the experimental textured VU packet path remains unsafe for scene geometry.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenRenderingTexturedOpaqueBatches_UsesLegacyCpuPath() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 render manager source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int renderOpaqueIndex = source.IndexOf("void Ps2RenderManager3D::RenderOpaqueWithVuPath(", StringComparison.Ordinal);
+        Assert.True(renderOpaqueIndex >= 0, "Expected PS2 render manager VU opaque render path.");
+        string renderOpaqueBody = source.Substring(renderOpaqueIndex, Math.Min(9000, source.Length - renderOpaqueIndex));
+
+        Assert.Contains("constexpr bool EnableLegacyCpuTexturedOpaquePath = true;", source, StringComparison.Ordinal);
+        Assert.Contains("if (EnableLegacyCpuTexturedOpaquePath && batch.Textured) {", renderOpaqueBody, StringComparison.Ordinal);
+        Assert.Contains("DrawOpaqueProxyLegacy(*batch.Proxy, view, projection, viewport, nearPlaneDistance);", renderOpaqueBody, StringComparison.Ordinal);
     }
 
     /// <summary>
