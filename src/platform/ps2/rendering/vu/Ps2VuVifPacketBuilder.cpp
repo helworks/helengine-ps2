@@ -57,8 +57,8 @@ namespace helengine::ps2 {
         constexpr std::uint16_t TexturedMicroProgramAddress = 64u;
         constexpr std::uint64_t UntexturedTriangleRegisterList = static_cast<std::uint64_t>(GIF_REG_RGBAQ) << 0u
             | (static_cast<std::uint64_t>(GIF_REG_XYZ2) << 4u);
-        constexpr std::uint64_t TexturedTriangleRegisterList = static_cast<std::uint64_t>(GIF_REG_RGBAQ)
-            | (static_cast<std::uint64_t>(GIF_REG_UV) << 4u)
+        constexpr std::uint64_t TexturedTriangleRegisterList = static_cast<std::uint64_t>(GIF_REG_ST)
+            | (static_cast<std::uint64_t>(GIF_REG_RGBAQ) << 4u)
             | (static_cast<std::uint64_t>(GIF_REG_XYZ2) << 8u);
         constexpr std::uint32_t TexturedVuDiagnosticLogLimit = 16u;
         constexpr bool EnableTexturedWhiteColorDiagnostics = false;
@@ -338,6 +338,98 @@ namespace helengine::ps2 {
             }
         }
 
+        ::float4 TransformViewPositionToClipPosition(const ::float3& viewPosition, const ::float4x4& projection) {
+            return ::float4(
+                (viewPosition.X * projection.M11) + (viewPosition.Y * projection.M21) + (viewPosition.Z * projection.M31) + projection.M41,
+                (viewPosition.X * projection.M12) + (viewPosition.Y * projection.M22) + (viewPosition.Z * projection.M32) + projection.M42,
+                (viewPosition.X * projection.M13) + (viewPosition.Y * projection.M23) + (viewPosition.Z * projection.M33) + projection.M43,
+                (viewPosition.X * projection.M14) + (viewPosition.Y * projection.M24) + (viewPosition.Z * projection.M34) + projection.M44);
+        }
+
+        float ResolveTexturedFrustumPlaneDistance(const ::float4& clipPosition, std::size_t planeIndex) {
+            switch (planeIndex) {
+                case 0u:
+                    return clipPosition.X + clipPosition.W;
+                case 1u:
+                    return clipPosition.W - clipPosition.X;
+                case 2u:
+                    return clipPosition.Y + clipPosition.W;
+                case 3u:
+                    return clipPosition.W - clipPosition.Y;
+                case 4u:
+                    return clipPosition.Z + clipPosition.W;
+                default:
+                    return clipPosition.W - clipPosition.Z;
+            }
+        }
+
+        bool IsTexturedVertexInsideFrustum(const Ps2VuTexturedClipVertex& vertex, const ::float4x4& projection) {
+            const ::float4 clipPosition = TransformViewPositionToClipPosition(vertex.ViewPosition, projection);
+            for (std::size_t planeIndex = 0u; planeIndex < 6u; planeIndex++) {
+                if (ResolveTexturedFrustumPlaneDistance(clipPosition, planeIndex) < 0.0f) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        void ClipTexturedPolygonAgainstFrustumPlane(
+            const std::vector<Ps2VuTexturedClipVertex>& inputVertices,
+            std::size_t planeIndex,
+            const ::float4x4& projection,
+            std::vector<Ps2VuTexturedClipVertex>& outputVertices) {
+            outputVertices.clear();
+            if (inputVertices.empty()) {
+                return;
+            }
+
+            Ps2VuTexturedClipVertex previous = inputVertices.back();
+            const ::float4 previousClipPosition = TransformViewPositionToClipPosition(previous.ViewPosition, projection);
+            float previousDistance = ResolveTexturedFrustumPlaneDistance(previousClipPosition, planeIndex);
+            bool previousInside = previousDistance >= 0.0f;
+            for (const Ps2VuTexturedClipVertex& current : inputVertices) {
+                const ::float4 currentClipPosition = TransformViewPositionToClipPosition(current.ViewPosition, projection);
+                const float currentDistance = ResolveTexturedFrustumPlaneDistance(currentClipPosition, planeIndex);
+                const bool currentInside = currentDistance >= 0.0f;
+                if (currentInside != previousInside) {
+                    const float denominator = previousDistance - currentDistance;
+                    if (std::abs(denominator) > MinimumNearPlaneEpsilon) {
+                        const float amount = std::clamp(previousDistance / denominator, 0.0f, 1.0f);
+                        outputVertices.push_back(InterpolateTexturedClipVertex(previous, current, amount));
+                    }
+                }
+
+                if (currentInside) {
+                    outputVertices.push_back(current);
+                }
+
+                previous = current;
+                previousDistance = currentDistance;
+                previousInside = currentInside;
+            }
+        }
+
+        void ClipTexturedTriangleAgainstFrustum(
+            const Ps2VuTexturedClipVertex& first,
+            const Ps2VuTexturedClipVertex& second,
+            const Ps2VuTexturedClipVertex& third,
+            const ::float4x4& projection,
+            std::vector<Ps2VuTexturedClipVertex>& clippedVertices) {
+            std::vector<Ps2VuTexturedClipVertex> workingVertices = { first, second, third };
+            std::vector<Ps2VuTexturedClipVertex> nextVertices;
+            nextVertices.reserve(9u);
+            for (std::size_t planeIndex = 0u; planeIndex < 6u; planeIndex++) {
+                ClipTexturedPolygonAgainstFrustumPlane(workingVertices, planeIndex, projection, nextVertices);
+                workingVertices.swap(nextVertices);
+                if (workingVertices.empty()) {
+                    break;
+                }
+            }
+
+            clippedVertices = workingVertices;
+        }
+
         bool IsTexturedVertexInsideNearPlane(const ::float3& viewPosition, float nearPlaneDistance) {
             return viewPosition.Z <= -nearPlaneDistance;
         }
@@ -538,16 +630,44 @@ namespace helengine::ps2 {
             }
         }
 
-        ::float2 ResolveGsTextureCoordinate(const ::float2& normalizedTexCoord, int textureWidth, int textureHeight) {
-            return ::float2(
-                normalizedTexCoord.X * static_cast<float>(textureWidth),
-                normalizedTexCoord.Y * static_cast<float>(textureHeight));
+        ::float2 ResolveGsTextureCoordinate(const ::float2& normalizedTexCoord) {
+            return normalizedTexCoord;
         }
 
-        std::uint64_t BuildGsUvRegister(const ::float2& gsTexCoord) {
-            const long u = std::clamp(std::lround(static_cast<double>(gsTexCoord.X) * 16.0), 0l, 16383l);
-            const long v = std::clamp(std::lround(static_cast<double>(gsTexCoord.Y) * 16.0), 0l, 16383l);
-            return GS_SETREG_UV(static_cast<std::uint32_t>(u), static_cast<std::uint32_t>(v));
+        std::uint32_t EncodeFloatBits(float value) {
+            std::uint32_t bits = 0u;
+            std::memcpy(&bits, &value, sizeof(bits));
+            return bits;
+        }
+
+        std::uint64_t BuildGsStqRegister(const ::float2& gsTexCoord, float q) {
+            const float perspectiveCorrectS = gsTexCoord.X * q;
+            const float perspectiveCorrectT = gsTexCoord.Y * q;
+            return GS_SETREG_STQ(EncodeFloatBits(perspectiveCorrectS), EncodeFloatBits(perspectiveCorrectT));
+        }
+
+        std::uint64_t BuildGsRgbaqRegisterWithQ(std::uint64_t rgbaqRegister, float q) {
+            return (rgbaqRegister & 0xFFFFFFFFull) | (static_cast<std::uint64_t>(EncodeFloatBits(q)) << 32u);
+        }
+
+        float ResolvePerspectiveCorrectQ(const ::float3& viewPosition) {
+            const float viewDepth = std::max(-viewPosition.Z, MinimumClipW);
+            return 1.0f / viewDepth;
+        }
+
+        std::uint64_t BuildTexturedTriangleStqRegisterList(int context) {
+            return (static_cast<std::uint64_t>(GS_TEX0_1 + context) << 0u)
+                | (static_cast<std::uint64_t>(GS_PRIM) << 4u)
+                | (static_cast<std::uint64_t>(GIF_REG_ST) << 8u)
+                | (static_cast<std::uint64_t>(GIF_REG_RGBAQ) << 12u)
+                | (static_cast<std::uint64_t>(GIF_REG_XYZ2) << 16u)
+                | (static_cast<std::uint64_t>(GIF_REG_ST) << 20u)
+                | (static_cast<std::uint64_t>(GIF_REG_RGBAQ) << 24u)
+                | (static_cast<std::uint64_t>(GIF_REG_XYZ2) << 28u)
+                | (static_cast<std::uint64_t>(GIF_REG_ST) << 32u)
+                | (static_cast<std::uint64_t>(GIF_REG_RGBAQ) << 36u)
+                | (static_cast<std::uint64_t>(GIF_REG_XYZ2) << 40u)
+                | (static_cast<std::uint64_t>(GIF_NOP) << 44u);
         }
 
         std::uint8_t ApplyIntensityToChannel(std::uint8_t channel, std::uint8_t intensity) {
@@ -681,16 +801,22 @@ namespace helengine::ps2 {
             prim.fogging = 0;
             prim.blending = 0;
             prim.antialiasing = 0;
-            prim.mapping_type = PRIM_MAP_UV;
+            prim.mapping_type = PRIM_MAP_ST;
             prim.colorfix = PRIM_UNFIXED;
             const std::uint64_t texturedTriangleGifTag = GIF_TAG_TRIANGLE_GORAUD_TEXTURED(1);
-            const std::uint64_t texturedTriangleGifRegisters = GIF_TAG_TRIANGLE_GORAUD_TEXTURED_REGS(gsGlobal->PrimContext);
-            const ::float2 screenTexCoordA = ResolveGsTextureCoordinate(vertexA.TexCoord, textureWidth, textureHeight);
-            const ::float2 screenTexCoordB = ResolveGsTextureCoordinate(vertexB.TexCoord, textureWidth, textureHeight);
-            const ::float2 screenTexCoordC = ResolveGsTextureCoordinate(vertexC.TexCoord, textureWidth, textureHeight);
-            const std::uint64_t uvRegisterA = BuildGsUvRegister(screenTexCoordA);
-            const std::uint64_t uvRegisterB = BuildGsUvRegister(screenTexCoordB);
-            const std::uint64_t uvRegisterC = BuildGsUvRegister(screenTexCoordC);
+            const std::uint64_t texturedTriangleGifRegisters = BuildTexturedTriangleStqRegisterList(gsGlobal->PrimContext);
+            const ::float2 screenTexCoordA = ResolveGsTextureCoordinate(vertexA.TexCoord);
+            const ::float2 screenTexCoordB = ResolveGsTextureCoordinate(vertexB.TexCoord);
+            const ::float2 screenTexCoordC = ResolveGsTextureCoordinate(vertexC.TexCoord);
+            const float qA = ResolvePerspectiveCorrectQ(vertexA.ViewPosition);
+            const float qB = ResolvePerspectiveCorrectQ(vertexB.ViewPosition);
+            const float qC = ResolvePerspectiveCorrectQ(vertexC.ViewPosition);
+            const std::uint64_t stRegisterA = BuildGsStqRegister(screenTexCoordA, qA);
+            const std::uint64_t stRegisterB = BuildGsStqRegister(screenTexCoordB, qB);
+            const std::uint64_t stRegisterC = BuildGsStqRegister(screenTexCoordC, qC);
+            const std::uint64_t colorRegisterA = BuildGsRgbaqRegisterWithQ(triangleColor, qA);
+            const std::uint64_t colorRegisterB = BuildGsRgbaqRegisterWithQ(triangleColor, qB);
+            const std::uint64_t colorRegisterC = BuildGsRgbaqRegisterWithQ(triangleColor, qC);
             std::array<std::uint64_t, TexturedTrianglePacketWordCount> packetWords {};
             std::size_t packetWordIndex = 0u;
             packetWords[packetWordIndex++] = GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1);
@@ -739,17 +865,17 @@ namespace helengine::ps2 {
                 gsGlobal->PrimFogEnable,
                 gsGlobal->PrimAlphaEnable,
                 gsGlobal->PrimAAEnable,
-                1,
+                prim.mapping_type,
                 gsGlobal->PrimContext,
                 0);
-            packetWords[packetWordIndex++] = triangleColor;
-            packetWords[packetWordIndex++] = uvRegisterA;
+            packetWords[packetWordIndex++] = stRegisterA;
+            packetWords[packetWordIndex++] = colorRegisterA;
             packetWords[packetWordIndex++] = positionARegister;
-            packetWords[packetWordIndex++] = triangleColor;
-            packetWords[packetWordIndex++] = uvRegisterB;
+            packetWords[packetWordIndex++] = stRegisterB;
+            packetWords[packetWordIndex++] = colorRegisterB;
             packetWords[packetWordIndex++] = positionBRegister;
-            packetWords[packetWordIndex++] = triangleColor;
-            packetWords[packetWordIndex++] = uvRegisterC;
+            packetWords[packetWordIndex++] = stRegisterC;
+            packetWords[packetWordIndex++] = colorRegisterC;
             packetWords[packetWordIndex++] = positionCRegister;
             return packetWords;
         }
@@ -1492,7 +1618,10 @@ namespace helengine::ps2 {
                 const Ps2VuTexturedClipVertex texturedVertexA { viewPositionA, sourceTexCoordA };
                 const Ps2VuTexturedClipVertex texturedVertexB { viewPositionB, sourceTexCoordB };
                 const Ps2VuTexturedClipVertex texturedVertexC { viewPositionC, sourceTexCoordC };
-                if (texturedVertexAInside && texturedVertexBInside && texturedVertexCInside) {
+                if (texturedVertexAInside && texturedVertexBInside && texturedVertexCInside
+                    && IsTexturedVertexInsideFrustum(texturedVertexA, projection)
+                    && IsTexturedVertexInsideFrustum(texturedVertexB, projection)
+                    && IsTexturedVertexInsideFrustum(texturedVertexC, projection)) {
                     float screenAX = 0.0f;
                     float screenAY = 0.0f;
                     float screenAZ = 0.0f;
@@ -1590,7 +1719,7 @@ namespace helengine::ps2 {
 
                     continue;
                 } else {
-                    ClipTexturedTriangleAgainstNearPlane(texturedVertexA, texturedVertexB, texturedVertexC, nearPlaneDistance, clippedTexturedVertices);
+                    ClipTexturedTriangleAgainstFrustum(texturedVertexA, texturedVertexB, texturedVertexC, projection, clippedTexturedVertices);
                 }
 
                 const std::size_t clippedVertexCount = clippedTexturedVertices.size();

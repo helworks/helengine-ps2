@@ -44,6 +44,40 @@ public sealed class Ps2VuTexturedPathSourceTests {
     }
 
     /// <summary>
+    /// Ensures textured VU packets use STQ interpolation so the GS performs perspective-correct mapping.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingTexturedTriangles_UsesPerspectiveCorrectStqMapping() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 VU packet builder source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int texturedBuilderStart = source.IndexOf("BuildTexturedTriangleGifPacketBytes", StringComparison.Ordinal);
+        int texturedBuilderEnd = source.IndexOf("Ps2VuVifPacketBuilder::~Ps2VuVifPacketBuilder()", texturedBuilderStart, StringComparison.Ordinal);
+
+        Assert.True(texturedBuilderStart >= 0, "Expected textured GIF packet builder.");
+        Assert.True(texturedBuilderEnd > texturedBuilderStart, "Expected textured GIF packet builder body boundary.");
+        string texturedBuilder = source.Substring(texturedBuilderStart, texturedBuilderEnd - texturedBuilderStart);
+
+        Assert.Contains("PRIM_MAP_ST", texturedBuilder, StringComparison.Ordinal);
+        Assert.Contains("prim.mapping = 1", texturedBuilder, StringComparison.Ordinal);
+        Assert.Contains("prim.mapping_type,", texturedBuilder, StringComparison.Ordinal);
+        Assert.Contains("BuildTexturedTriangleStqRegisterList", texturedBuilder, StringComparison.Ordinal);
+        Assert.Contains("BuildGsStqRegister", texturedBuilder, StringComparison.Ordinal);
+        Assert.Contains("BuildGsRgbaqRegisterWithQ", texturedBuilder, StringComparison.Ordinal);
+        Assert.Contains("const ::float2 screenTexCoordA = vertexA.TexCoord", texturedBuilder, StringComparison.Ordinal);
+        Assert.DoesNotContain("PRIM_MAP_UV", texturedBuilder, StringComparison.Ordinal);
+        Assert.DoesNotContain("GIF_REG_UV", texturedBuilder, StringComparison.Ordinal);
+        Assert.Contains("GIF_REG_ST", source, StringComparison.Ordinal);
+        Assert.Contains("GS_SETREG_STQ", source, StringComparison.Ordinal);
+        Assert.Contains("GS_SETREG_RGBAQ", source, StringComparison.Ordinal);
+        Assert.Contains("std::max(-viewPosition.Z", source, StringComparison.Ordinal);
+        Assert.Contains("ClipTexturedTriangleAgainstFrustum", source, StringComparison.Ordinal);
+        Assert.Contains("clipPosition.X + clipPosition.W", source, StringComparison.Ordinal);
+        Assert.Contains("clipPosition.W - clipPosition.X", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Resolves the PS2 repository root from the executing test binary directory.
     /// </summary>
     static string GetRepositoryRootPath() {
