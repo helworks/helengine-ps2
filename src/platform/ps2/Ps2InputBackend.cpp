@@ -36,6 +36,7 @@ namespace helengine::ps2 {
         padInit(0);
         IsPadAvailable = padPortOpen(Port, Slot, PadBuffer) != 0;
         if (IsPadAvailable) {
+            padSetMainMode(Port, Slot, PAD_MMODE_DUALSHOCK, PAD_MMODE_LOCK);
             Refresh();
         }
 
@@ -86,6 +87,8 @@ namespace helengine::ps2 {
         snapshot.R3 = (padData & PAD_R3) != 0;
         snapshot.Start = (padData & PAD_START) != 0;
         snapshot.Select = (padData & PAD_SELECT) != 0;
+        snapshot.LeftStickX = static_cast<int16_t>((static_cast<int32_t>(buttons.ljoy_h) - 128) * 256);
+        snapshot.LeftStickY = static_cast<int16_t>(-(static_cast<int32_t>(buttons.ljoy_v) - 128) * 256);
         return snapshot;
     }
 
@@ -114,6 +117,8 @@ namespace helengine::ps2 {
         gamepad.SetButtonDown(InputGamepadButton::Select, CurrentButtons.Select);
         gamepad.set_LeftTrigger(CurrentButtons.L2 ? 32767 : 0);
         gamepad.set_RightTrigger(CurrentButtons.R2 ? 32767 : 0);
+        gamepad.set_LeftStickX(CurrentButtons.LeftStickX);
+        gamepad.set_LeftStickY(CurrentButtons.LeftStickY);
         return gamepad;
     }
 

@@ -42,6 +42,12 @@ namespace helengine::ps2 {
         VuPackedModel = nullptr;
     }
 
+    void Ps2RuntimeModel::Dispose() {
+        delete VuPackedModel;
+        VuPackedModel = nullptr;
+        ::RuntimeModel::Dispose();
+    }
+
     void Ps2RuntimeModel::LoadFromCooked(::Ps2ModelAsset* modelAsset) {
         if (modelAsset == nullptr) {
             throw std::invalid_argument("PS2 cooked model data is required.");

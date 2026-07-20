@@ -7,6 +7,22 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2NativeBuildInputsTests {
     /// <summary>
+    /// Ensures the PS2 DualShock analog axes are normalized into the shared gamepad state used by menu navigation.
+    /// </summary>
+    [Fact]
+    public void Ps2_input_backend_maps_dualshock_left_stick_axes() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string mapperHeader = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2PadInputMapper.hpp"));
+        string inputSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2InputBackend.cpp"));
+
+        Assert.Contains("int16_t LeftStickX = 0;", mapperHeader, StringComparison.Ordinal);
+        Assert.Contains("int16_t LeftStickY = 0;", mapperHeader, StringComparison.Ordinal);
+        Assert.Contains("padSetMainMode(Port, Slot, PAD_MMODE_DUALSHOCK, PAD_MMODE_LOCK);", inputSource, StringComparison.Ordinal);
+        Assert.Contains("gamepad.set_LeftStickX(CurrentButtons.LeftStickX);", inputSource, StringComparison.Ordinal);
+        Assert.Contains("gamepad.set_LeftStickY(CurrentButtons.LeftStickY);", inputSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 native runtime exposes one custom file-system bridge that maps rooted cooked logical paths onto the generated disc-layout manifest before delegating to file-stream reads.
     /// </summary>
     [Fact]

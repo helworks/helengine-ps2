@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using System.Text;
+using helengine.baseplatform.Builders;
 
 namespace helengine.ps2.builder;
 
@@ -330,7 +330,7 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
     /// <param name="fileName">Executable name to start.</param>
     /// <param name="arguments">Arguments passed to the executable.</param>
     /// <param name="workingDirectory">Current working directory for the child process.</param>
-    /// <param name="cancellationToken">Cancellation token used to stop the wait loop cooperatively.</param>
+    /// <param name="cancellationToken">Cancellation token used to stop the native process.</param>
     static void RunProcess(
         string fileName,
         IReadOnlyList<string> arguments,
@@ -349,55 +349,10 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             startInfo.ArgumentList.Add(arguments[index]);
         }
 
-        using Process process = Process.Start(startInfo) ?? throw new InvalidOperationException($"Failed to start '{fileName}'.");
-        StringBuilder standardOutputBuilder = new();
-        StringBuilder standardErrorBuilder = new();
-        TaskCompletionSource<bool> standardOutputCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        TaskCompletionSource<bool> standardErrorCompletionSource = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        process.OutputDataReceived += (_, eventArgs) => {
-            if (eventArgs.Data == null) {
-                standardOutputCompletionSource.TrySetResult(true);
-                return;
-            }
-
-            standardOutputBuilder.AppendLine(eventArgs.Data);
-        };
-        process.ErrorDataReceived += (_, eventArgs) => {
-            if (eventArgs.Data == null) {
-                standardErrorCompletionSource.TrySetResult(true);
-                return;
-            }
-
-            standardErrorBuilder.AppendLine(eventArgs.Data);
-        };
-
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-
-        try {
-            while (!process.HasExited) {
-                cancellationToken.ThrowIfCancellationRequested();
-                process.WaitForExit(100);
-            }
-        } catch {
-            try {
-                if (!process.HasExited) {
-                    process.Kill(entireProcessTree: true);
-                }
-            } catch {
-            }
-
-            throw;
-        }
-
-        process.WaitForExit();
-        Task.WaitAll(standardOutputCompletionSource.Task, standardErrorCompletionSource.Task);
-        string standardOutput = standardOutputBuilder.ToString();
-        string standardError = standardErrorBuilder.ToString();
-        if (process.ExitCode != 0) {
+        NativeProcessRunResult result = new NativeProcessRunner().Run(startInfo, cancellationToken);
+        if (result.ExitCode != 0) {
             throw new InvalidOperationException(
-                $"Process '{fileName}' exited with code {process.ExitCode}.{Environment.NewLine}{standardOutput}{Environment.NewLine}{standardError}");
+                $"Process '{fileName}' exited with code {result.ExitCode}.{Environment.NewLine}{result.StandardOutput}{Environment.NewLine}{result.StandardError}");
         }
     }
 }

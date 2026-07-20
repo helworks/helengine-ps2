@@ -16,6 +16,8 @@ namespace helengine::ps2 {
     public:
         Ps2RuntimeModel();
 
+        void Dispose() override;
+
         void LoadFromCooked(::Ps2ModelAsset* modelAsset);
         void LoadFromRaw(::ModelAsset* modelAsset);
         void LoadFromRawWithoutPackedMesh(::ModelAsset* modelAsset);

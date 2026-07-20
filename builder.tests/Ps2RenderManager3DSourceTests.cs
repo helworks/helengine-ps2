@@ -88,6 +88,28 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures PS2 runtime model disposal releases the packed VU model owned by each cooked model instance.
+    /// </summary>
+    [Fact]
+    public void Ps2RuntimeModel_WhenDisposed_ReleasesPackedVuModelOwnership() {
+        string headerPath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RuntimeModel.hpp");
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RuntimeModel.cpp");
+        Assert.True(File.Exists(headerPath), $"Expected PS2 runtime model header at '{headerPath}'.");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 runtime model source at '{sourcePath}'.");
+
+        string header = File.ReadAllText(headerPath);
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("void Dispose() override;", header, StringComparison.Ordinal);
+        int disposeIndex = source.IndexOf("void Ps2RuntimeModel::Dispose()", StringComparison.Ordinal);
+        Assert.True(disposeIndex >= 0, "Expected PS2 runtime model disposal implementation.");
+        string disposeMethod = source.Substring(disposeIndex, Math.Min(500, source.Length - disposeIndex));
+        Assert.Contains("delete VuPackedModel;", disposeMethod, StringComparison.Ordinal);
+        Assert.Contains("VuPackedModel = nullptr;", disposeMethod, StringComparison.Ordinal);
+        Assert.Contains("::RuntimeModel::Dispose();", disposeMethod, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 renderer deserializes PS2-native cooked materials instead of routing them through the generic asset serializer.
     /// </summary>
     [Fact]

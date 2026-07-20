@@ -23,6 +23,8 @@ namespace helengine::ps2 {
         bool R3 = false;
         bool Start = false;
         bool Select = false;
+        int16_t LeftStickX = 0;
+        int16_t LeftStickY = 0;
     };
 
     inline bool WasButtonJustPressed(bool current, bool previous) {
@@ -39,7 +41,7 @@ namespace helengine::ps2 {
             keys.push_back(::Keys::Space);
         }
         if (buttons.Circle) {
-            keys.push_back(::Keys::Enter);
+            keys.push_back(::Keys::Escape);
         }
         if (buttons.Square) {
             keys.push_back(::Keys::Escape);
