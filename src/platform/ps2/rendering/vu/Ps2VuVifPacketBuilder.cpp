@@ -650,9 +650,13 @@ namespace helengine::ps2 {
             return (rgbaqRegister & 0xFFFFFFFFull) | (static_cast<std::uint64_t>(EncodeFloatBits(q)) << 32u);
         }
 
-        float ResolvePerspectiveCorrectQ(const ::float3& viewPosition) {
-            const float viewDepth = std::max(-viewPosition.Z, MinimumClipW);
-            return 1.0f / viewDepth;
+        float ResolvePerspectiveCorrectQ(const ::float3& viewPosition, const ::float4x4& projection) {
+            const ::float4 clipPosition = TransformViewPositionToClipPosition(viewPosition, projection);
+            if (!std::isfinite(clipPosition.W) || clipPosition.W <= MinimumClipW) {
+                throw std::runtime_error("PS2 VU textured perspective mapping requires a finite positive clip-space W.");
+            }
+
+            return 1.0f / clipPosition.W;
         }
 
         std::uint64_t BuildTexturedTriangleStqRegisterList(int context) {
@@ -766,6 +770,7 @@ namespace helengine::ps2 {
 
         std::array<std::uint64_t, TexturedTrianglePacketWordCount> BuildTexturedTriangleGifPacketBytes(
             GSGLOBAL* gsGlobal,
+            const ::float4x4& projection,
             const GSTEXTURE* texture,
             int textureWidth,
             int textureHeight,
@@ -808,9 +813,9 @@ namespace helengine::ps2 {
             const ::float2 screenTexCoordA = ResolveGsTextureCoordinate(vertexA.TexCoord);
             const ::float2 screenTexCoordB = ResolveGsTextureCoordinate(vertexB.TexCoord);
             const ::float2 screenTexCoordC = ResolveGsTextureCoordinate(vertexC.TexCoord);
-            const float qA = ResolvePerspectiveCorrectQ(vertexA.ViewPosition);
-            const float qB = ResolvePerspectiveCorrectQ(vertexB.ViewPosition);
-            const float qC = ResolvePerspectiveCorrectQ(vertexC.ViewPosition);
+            const float qA = ResolvePerspectiveCorrectQ(vertexA.ViewPosition, projection);
+            const float qB = ResolvePerspectiveCorrectQ(vertexB.ViewPosition, projection);
+            const float qC = ResolvePerspectiveCorrectQ(vertexC.ViewPosition, projection);
             const std::uint64_t stRegisterA = BuildGsStqRegister(screenTexCoordA, qA);
             const std::uint64_t stRegisterB = BuildGsStqRegister(screenTexCoordB, qB);
             const std::uint64_t stRegisterC = BuildGsStqRegister(screenTexCoordC, qC);
@@ -1237,6 +1242,7 @@ namespace helengine::ps2 {
                     texturedTrianglePackets.push_back(
                         BuildTexturedTriangleGifPacketBytes(
                             gsGlobal,
+                            projection,
                             texture,
                             textureWidth,
                             textureHeight,
@@ -1659,6 +1665,7 @@ namespace helengine::ps2 {
                     texturedTrianglePackets.push_back(
                         BuildTexturedTriangleGifPacketBytes(
                             gsGlobal,
+                            projection,
                             texture,
                             textureWidth,
                             textureHeight,
@@ -1765,6 +1772,7 @@ namespace helengine::ps2 {
                     texturedTrianglePackets.push_back(
                         BuildTexturedTriangleGifPacketBytes(
                             gsGlobal,
+                            projection,
                             texture,
                             textureWidth,
                             textureHeight,

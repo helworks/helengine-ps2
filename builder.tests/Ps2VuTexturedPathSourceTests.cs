@@ -71,7 +71,8 @@ public sealed class Ps2VuTexturedPathSourceTests {
         Assert.Contains("GIF_REG_ST", source, StringComparison.Ordinal);
         Assert.Contains("GS_SETREG_STQ", source, StringComparison.Ordinal);
         Assert.Contains("GS_SETREG_RGBAQ", source, StringComparison.Ordinal);
-        Assert.Contains("std::max(-viewPosition.Z", source, StringComparison.Ordinal);
+        Assert.Contains("TransformViewPositionToClipPosition(viewPosition, projection)", source, StringComparison.Ordinal);
+        Assert.Contains("1.0f / clipPosition.W", source, StringComparison.Ordinal);
         Assert.Contains("ClipTexturedTriangleAgainstFrustum", source, StringComparison.Ordinal);
         Assert.Contains("clipPosition.X + clipPosition.W", source, StringComparison.Ordinal);
         Assert.Contains("clipPosition.W - clipPosition.X", source, StringComparison.Ordinal);

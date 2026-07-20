@@ -315,7 +315,7 @@ public sealed class Ps2RenderManager3DSourceTests {
         Assert.Contains("GsGlobal,\n                batchTexture,\n                batchTextureWidth,\n                batchTextureHeight);", renderOpaqueBody, StringComparison.Ordinal);
         Assert.DoesNotContain("gsKit_TexManager_bind(GsGlobal, batchTexture);", renderOpaqueBody, StringComparison.Ordinal);
 
-        Assert.Contains("BuildTexturedTriangleGifPacketBytes(\n            GSGLOBAL* gsGlobal,\n            const GSTEXTURE* texture,", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("BuildTexturedTriangleGifPacketBytes(\n            GSGLOBAL* gsGlobal,\n            const ::float4x4& projection,\n            const GSTEXTURE* texture,", packetBuilderSource, StringComparison.Ordinal);
         int texturedPacketIndex = packetBuilderSource.IndexOf("BuildTexturedTriangleGifPacketBytes(", StringComparison.Ordinal);
         Assert.True(texturedPacketIndex >= 0, "Expected textured GIF packet builder helper.");
         string texturedPacketBuilder = packetBuilderSource.Substring(texturedPacketIndex, Math.Min(3200, packetBuilderSource.Length - texturedPacketIndex));
