@@ -165,8 +165,8 @@ $(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.cpp
 
 $(BUILD_DIR)/%.o: $(SOURCE_DIR)/%.irx-em Makefile
 	@mkdir -p $(dir $@)
-	@irx_path=$$(head -1 $<); \
-		irx_symbol=$$(sed -n '2p' $<); \
+	@irx_path=$$(head -1 $< | tr -d '\r'); \
+		irx_symbol=$$(sed -n '2p' $< | tr -d '\r'); \
 		echo ".section .rodata" > $@.s; \
 		echo ".align 4" >> $@.s; \
 		echo ".global $$irx_symbol" >> $@.s; \
