@@ -115,7 +115,6 @@ namespace helengine::ps2 {
         constexpr bool EnableLightingOnlyDiagnostics = false;
         constexpr bool EnableSingleProxyDiagnostics = false;
         constexpr bool EnableLegacyCpuOpaquePathDiagnostics = false;
-        constexpr bool EnableLegacyCpuTexturedOpaquePath = true;
         constexpr std::size_t SingleProxyDiagnosticIndex = 1;
         constexpr float HdrGlowScale = 1.08f;
         constexpr float HdrGlowScaleVariance = 0.08f;
@@ -1056,12 +1055,6 @@ namespace helengine::ps2 {
                     + " texturePath=" + (batch.Material != nullptr && batch.Material->HasTextureRelativePath() ? batch.Material->GetTextureRelativePath() : std::string("none"))
                     + " textureResolved=" + std::to_string(batchTexture != nullptr ? 1 : 0)
                     + " textureSize=" + std::to_string(batchTextureWidth) + "x" + std::to_string(batchTextureHeight));
-            }
-
-            if (EnableLegacyCpuTexturedOpaquePath && batch.Textured) {
-                dma_channel_wait(DMA_CHANNEL_VIF1, 0);
-                DrawOpaqueProxyLegacy(*batch.Proxy, view, projection, viewport, nearPlaneDistance);
-                continue;
             }
 
             if (EnableTexturedBatchAggregationDiagnostics

@@ -346,10 +346,10 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
-    /// Ensures textured opaque proxies use the established CPU/GIF path while the experimental textured VU packet path remains unsafe for scene geometry.
+    /// Ensures textured opaque proxies use the validated per-object VU packet path by default.
     /// </summary>
     [Fact]
-    public void Ps2RenderManager3D_WhenRenderingTexturedOpaqueBatches_UsesLegacyCpuPath() {
+    public void Ps2RenderManager3D_WhenRenderingTexturedOpaqueBatches_UsesVuPathByDefault() {
         string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
         Assert.True(File.Exists(sourcePath), $"Expected PS2 render manager source at '{sourcePath}'.");
 
@@ -358,9 +358,9 @@ public sealed class Ps2RenderManager3DSourceTests {
         Assert.True(renderOpaqueIndex >= 0, "Expected PS2 render manager VU opaque render path.");
         string renderOpaqueBody = source.Substring(renderOpaqueIndex, Math.Min(9000, source.Length - renderOpaqueIndex));
 
-        Assert.Contains("constexpr bool EnableLegacyCpuTexturedOpaquePath = true;", source, StringComparison.Ordinal);
-        Assert.Contains("if (EnableLegacyCpuTexturedOpaquePath && batch.Textured) {", renderOpaqueBody, StringComparison.Ordinal);
-        Assert.Contains("DrawOpaqueProxyLegacy(*batch.Proxy, view, projection, viewport, nearPlaneDistance);", renderOpaqueBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("constexpr bool EnableLegacyCpuTexturedOpaquePath = true;", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (EnableLegacyCpuTexturedOpaquePath && batch.Textured) {", renderOpaqueBody, StringComparison.Ordinal);
+        Assert.Contains("VuVifPacketBuilder.AddOpaqueBatch(", renderOpaqueBody, StringComparison.Ordinal);
     }
 
     /// <summary>

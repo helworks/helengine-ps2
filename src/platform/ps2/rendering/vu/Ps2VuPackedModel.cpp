@@ -1,6 +1,7 @@
 #include "platform/ps2/rendering/vu/Ps2VuPackedModel.hpp"
 
 #include <cstring>
+#include <string>
 #include <stdexcept>
 
 namespace helengine::ps2 {
@@ -28,10 +29,32 @@ namespace helengine::ps2 {
         PositionBlockOffsetQwords = ReadUInt32(8);
         NormalBlockOffsetQwords = ReadUInt32(12);
         TexCoordBlockOffsetQwords = ReadUInt32(16);
+        if ((TriangleVertexCount % 3u) != 0u) {
+            throw std::invalid_argument("Packed PS2 mesh triangle vertex count must be divisible by three.");
+        }
+        if (PositionBlockOffsetQwords >= NormalBlockOffsetQwords
+            || NormalBlockOffsetQwords >= TexCoordBlockOffsetQwords) {
+            throw std::invalid_argument("Packed PS2 mesh stream offsets must be ordered position, normal, then texture coordinates.");
+        }
+        ValidateBlockRange(PositionBlockOffsetQwords, "position");
+        ValidateBlockRange(NormalBlockOffsetQwords, "normal");
+        ValidateBlockRange(TexCoordBlockOffsetQwords, "texture coordinate");
     }
 
     std::uint32_t Ps2VuPackedModel::GetTriangleVertexCount() const {
         return TriangleVertexCount;
+    }
+
+    void Ps2VuPackedModel::ValidateBlockRange(std::uint32_t blockOffsetQwords, const char* blockName) const {
+        if (blockName == nullptr) {
+            throw std::invalid_argument("Packed PS2 mesh block name is required.");
+        }
+
+        const std::size_t payloadQwordCount = PackedBytes.size() / 16u;
+        const std::size_t blockEndQword = static_cast<std::size_t>(blockOffsetQwords) + static_cast<std::size_t>(TriangleVertexCount);
+        if (static_cast<std::size_t>(blockOffsetQwords) >= payloadQwordCount || blockEndQword > payloadQwordCount) {
+            throw std::out_of_range(std::string("Packed PS2 mesh ") + blockName + " block exceeded the embedded payload.");
+        }
     }
 
     ::float3 Ps2VuPackedModel::GetPosition(std::uint32_t vertexIndex) const {

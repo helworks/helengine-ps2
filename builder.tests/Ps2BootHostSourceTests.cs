@@ -7,6 +7,19 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2BootHostSourceTests {
     /// <summary>
+    /// Ensures the renderer probe build boots directly into the standalone cooked-asset scene.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenBuildingRendererProbe_OverridesStartupSceneToProbe() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr const char* StartupSceneDiagnosticOverrideId = \"scenes/rendering/ps2_vu_renderer_probe.helen\";", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the boot host continues into startup-scene loading after compact disc probes instead of stopping at a temporary diagnostic halt.
     /// </summary>
     [Fact]

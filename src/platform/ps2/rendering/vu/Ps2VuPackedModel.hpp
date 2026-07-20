@@ -21,6 +21,8 @@ namespace helengine::ps2 {
         const std::vector<std::uint8_t>& GetPackedBytes() const;
 
     private:
+        void ValidateBlockRange(std::uint32_t blockOffsetQwords, const char* blockName) const;
+
         std::uint32_t ReadUInt32(std::size_t offset) const;
 
         std::vector<std::uint8_t> PackedBytes;
