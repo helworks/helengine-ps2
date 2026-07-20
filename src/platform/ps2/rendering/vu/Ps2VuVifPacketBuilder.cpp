@@ -1609,9 +1609,6 @@ namespace helengine::ps2 {
                 const ::float3 viewPositionA = TransformPosition(positionA, worldViewMatrix);
                 const ::float3 viewPositionB = TransformPosition(positionB, worldViewMatrix);
                 const ::float3 viewPositionC = TransformPosition(positionC, worldViewMatrix);
-                const bool texturedVertexAInside = IsTexturedVertexInsideNearPlane(viewPositionA, nearPlaneDistance);
-                const bool texturedVertexBInside = IsTexturedVertexInsideNearPlane(viewPositionB, nearPlaneDistance);
-                const bool texturedVertexCInside = IsTexturedVertexInsideNearPlane(viewPositionC, nearPlaneDistance);
                 const ::float2 sourceTexCoordA = runtimeTexCoords != nullptr && sourceIndexA < runtimeTexCoords->size()
                     ? (*runtimeTexCoords)[sourceIndexA]
                     : ::float2(packedTexCoordWords[positionWordIndexA + 0u], packedTexCoordWords[positionWordIndexA + 1u]);
@@ -1624,10 +1621,12 @@ namespace helengine::ps2 {
                 const Ps2VuTexturedClipVertex texturedVertexA { viewPositionA, sourceTexCoordA };
                 const Ps2VuTexturedClipVertex texturedVertexB { viewPositionB, sourceTexCoordB };
                 const Ps2VuTexturedClipVertex texturedVertexC { viewPositionC, sourceTexCoordC };
-                if (texturedVertexAInside && texturedVertexBInside && texturedVertexCInside
-                    && IsTexturedVertexInsideFrustum(texturedVertexA, projection)
-                    && IsTexturedVertexInsideFrustum(texturedVertexB, projection)
-                    && IsTexturedVertexInsideFrustum(texturedVertexC, projection)) {
+                const bool texturedVertexAInsideFrustum = IsTexturedVertexInsideFrustum(texturedVertexA, projection);
+                const bool texturedVertexBInsideFrustum = IsTexturedVertexInsideFrustum(texturedVertexB, projection);
+                const bool texturedVertexCInsideFrustum = IsTexturedVertexInsideFrustum(texturedVertexC, projection);
+                if (texturedVertexAInsideFrustum
+                    && texturedVertexBInsideFrustum
+                    && texturedVertexCInsideFrustum) {
                     float screenAX = 0.0f;
                     float screenAY = 0.0f;
                     float screenAZ = 0.0f;
@@ -1712,13 +1711,6 @@ namespace helengine::ps2 {
                     }
 
                     SubmittedTriangleCount++;
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        const std::clock_t triangleEmitEndTicks = std::clock();
-                        LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
-                    }
-
-                    continue;
-                } else if (!texturedVertexAInside && !texturedVertexBInside && !texturedVertexCInside) {
                     if (EnableVuPerTriangleTimingDiagnostics) {
                         const std::clock_t triangleEmitEndTicks = std::clock();
                         LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);

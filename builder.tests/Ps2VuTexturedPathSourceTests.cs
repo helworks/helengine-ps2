@@ -74,6 +74,7 @@ public sealed class Ps2VuTexturedPathSourceTests {
         Assert.Contains("TransformViewPositionToClipPosition(viewPosition, projection)", source, StringComparison.Ordinal);
         Assert.Contains("1.0f / clipPosition.W", source, StringComparison.Ordinal);
         Assert.Contains("ClipTexturedTriangleAgainstFrustum", source, StringComparison.Ordinal);
+        Assert.Contains("const bool texturedVertexAInsideFrustum", source, StringComparison.Ordinal);
         Assert.Contains("clipPosition.X + clipPosition.W", source, StringComparison.Ordinal);
         Assert.Contains("clipPosition.W - clipPosition.X", source, StringComparison.Ordinal);
     }
