@@ -155,7 +155,7 @@ namespace {
     constexpr bool EnablePackagedPhysics3DRegistration = true;
     constexpr bool EnablePhysicsWarmupTrace = true;
     constexpr UpdatePhaseDiagnosticMode ActiveUpdatePhaseDiagnosticMode = UpdatePhaseDiagnosticMode::Full;
-    constexpr const char* StartupSceneDiagnosticOverrideId = "scenes/rendering/ps2_vu_renderer_probe.helen";
+    constexpr const char* StartupSceneDiagnosticOverrideId = "ps2_vu_renderer_probe";
     constexpr bool EnableStartupSceneLoadTimingDiagnostic = true;
     constexpr bool EnableStartupScenePreRenderHalt = false;
     constexpr const char* BootLogHostFilePath = "host:ps2_bootlog.txt";

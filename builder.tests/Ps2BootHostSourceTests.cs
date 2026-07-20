@@ -16,7 +16,7 @@ public sealed class Ps2BootHostSourceTests {
 
         string source = File.ReadAllText(sourcePath);
 
-        Assert.Contains("constexpr const char* StartupSceneDiagnosticOverrideId = \"scenes/rendering/ps2_vu_renderer_probe.helen\";", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr const char* StartupSceneDiagnosticOverrideId = \"ps2_vu_renderer_probe\";", source, StringComparison.Ordinal);
     }
 
     /// <summary>
