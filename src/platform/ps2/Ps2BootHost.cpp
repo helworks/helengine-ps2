@@ -950,6 +950,9 @@ namespace {
         AppendBootLogToHostFile(message);
         if (EnableOnScreenBootLog) {
             PresentBootLogHistoryToDebugConsole();
+            if (ActiveGsGlobal != nullptr) {
+                gsKit_sync_flip(ActiveGsGlobal);
+            }
         }
     }
 

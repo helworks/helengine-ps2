@@ -97,6 +97,7 @@ public sealed class Ps2BootHostSourceTests {
 
         Assert.Contains("bool EnableOnScreenBootLog = false;", source, StringComparison.Ordinal);
         Assert.Contains("if (EnableOnScreenBootLog) {", source, StringComparison.Ordinal);
+        Assert.Contains("gsKit_sync_flip(ActiveGsGlobal);", source, StringComparison.Ordinal);
         Assert.Contains("PresentBootLogHistoryToDebugConsole();", source, StringComparison.Ordinal);
         Assert.Contains("EnableOnScreenBootLog = true;", source, StringComparison.Ordinal);
         Assert.Contains("EnableOnScreenBootLog = false;", source, StringComparison.Ordinal);
