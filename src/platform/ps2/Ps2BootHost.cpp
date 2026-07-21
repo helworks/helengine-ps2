@@ -182,6 +182,7 @@ namespace {
     constexpr float CubeTriangle2dVertexB2Y = 115.843239f;
     constexpr float CubeTriangle3dDiagnosticDepth = 1.0f;
     bool DebugConsoleReady = false;
+    bool EnableOnScreenBootLog = false;
     bool CubeDiagnosticsShown = false;
     bool CubeRuntimeDiagnosticsCompleted = false;
     bool CubeRuntimeDiagnosticWatchActive = false;
@@ -947,6 +948,9 @@ namespace {
         std::printf("[helengine-ps2] %s\n", message);
         std::fflush(stdout);
         AppendBootLogToHostFile(message);
+        if (EnableOnScreenBootLog) {
+            PresentBootLogHistoryToDebugConsole();
+        }
     }
 
     void HostLogOnly(const std::string& message) {
@@ -2460,6 +2464,7 @@ namespace helengine::ps2 {
                 }
             }
 
+            EnableOnScreenBootLog = false;
             PresentBootFrame();
             return 0;
         } catch (Exception* exception) {
@@ -2582,6 +2587,8 @@ namespace helengine::ps2 {
             static_cast<int32_t>(GsGlobal->Height));
         gsKit_mode_switch(GsGlobal, GS_ONESHOT);
         BootLog("graphics ready");
+        EnableOnScreenBootLog = true;
+        PresentBootLogHistoryToDebugConsole();
         return true;
     }
 

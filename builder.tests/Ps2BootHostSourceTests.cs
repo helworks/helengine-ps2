@@ -80,6 +80,35 @@ public sealed class Ps2BootHostSourceTests {
     }
 
     /// <summary>
+    /// Ensures OPL boot diagnostics refresh the retained on-screen log during startup and stop before normal frame presentation begins.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenOnScreenBootLogIsEnabled_RefreshesDuringBootAndDisablesBeforeFrameLoop() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int bootLogMethodIndex = source.IndexOf("void BootLog(const char* message)", StringComparison.Ordinal);
+        int graphicsReadyIndex = source.IndexOf("BootLog(\"graphics ready\");", StringComparison.Ordinal);
+        int enableOnScreenBootLogIndex = source.IndexOf("EnableOnScreenBootLog = true;", StringComparison.Ordinal);
+        int startupSceneLoadIndex = source.IndexOf("BootLog(std::string(\"startup scene load begin \") + Ps2BootVersionStamp);", StringComparison.Ordinal);
+        int disableOnScreenBootLogIndex = source.IndexOf("EnableOnScreenBootLog = false;", StringComparison.Ordinal);
+        int presentBootFrameIndex = source.IndexOf("PresentBootFrame();", startupSceneLoadIndex, StringComparison.Ordinal);
+
+        Assert.Contains("bool EnableOnScreenBootLog = false;", source, StringComparison.Ordinal);
+        Assert.Contains("if (EnableOnScreenBootLog) {", source, StringComparison.Ordinal);
+        Assert.Contains("PresentBootLogHistoryToDebugConsole();", source, StringComparison.Ordinal);
+        Assert.Contains("EnableOnScreenBootLog = true;", source, StringComparison.Ordinal);
+        Assert.Contains("EnableOnScreenBootLog = false;", source, StringComparison.Ordinal);
+        Assert.True(bootLogMethodIndex >= 0, "Expected the boot-log implementation.");
+        Assert.True(graphicsReadyIndex > bootLogMethodIndex, "Expected on-screen boot logging to begin after the boot-log implementation.");
+        Assert.True(enableOnScreenBootLogIndex > graphicsReadyIndex, "Expected on-screen boot logging to be enabled after graphics initialization.");
+        Assert.True(startupSceneLoadIndex > enableOnScreenBootLogIndex, "Expected on-screen boot logging to be enabled before startup-scene loading.");
+        Assert.True(disableOnScreenBootLogIndex > startupSceneLoadIndex, "Expected on-screen boot logging to remain active through startup-scene loading.");
+        Assert.True(presentBootFrameIndex > disableOnScreenBootLogIndex, "Expected on-screen boot logging to be disabled before normal frame presentation.");
+    }
+
+    /// <summary>
     /// Ensures normal runtime initialization no longer emits unconditional compact-disc probe spam and startup-scene runtime exceptions route through the shared boot-log helper.
     /// </summary>
     [Fact]
