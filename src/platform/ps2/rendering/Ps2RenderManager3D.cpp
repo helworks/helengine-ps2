@@ -235,6 +235,9 @@ namespace helengine::ps2 {
             ::float2 TexCoordA;
             ::float2 TexCoordB;
             ::float2 TexCoordC;
+            ::float3 ViewPositionA;
+            ::float3 ViewPositionB;
+            ::float3 ViewPositionC;
             std::uint64_t ColorA;
             std::uint64_t ColorB;
             std::uint64_t ColorC;
@@ -353,6 +356,27 @@ namespace helengine::ps2 {
             return ::float2(
                 normalizedTexCoord.X * static_cast<float>(texture->Width),
                 normalizedTexCoord.Y * static_cast<float>(texture->Height));
+        }
+
+        GSPRIMSTQPOINT BuildPerspectiveTextureVertex(
+            float screenX,
+            float screenY,
+            float screenZ,
+            const ::float3& viewPosition,
+            const ::float2& textureCoordinate,
+            std::uint64_t color) {
+            GSPRIMSTQPOINT vertex {};
+            vertex.xyz2.xyz.x = static_cast<std::uint16_t>((2048.0f + screenX) * 16.0f);
+            vertex.xyz2.xyz.y = static_cast<std::uint16_t>((2048.0f + screenY) * 16.0f);
+            vertex.xyz2.xyz.z = static_cast<std::uint32_t>(std::clamp(screenZ * 16777215.0f, 0.0f, 16777215.0f));
+
+            const float positiveViewDepth = std::max(-viewPosition.Z, 0.0001f);
+            const float q = 1.0f / positiveViewDepth;
+            vertex.stq.st.s = textureCoordinate.X * q;
+            vertex.stq.st.t = textureCoordinate.Y * q;
+            vertex.rgbaq.color.rgbaq = color;
+            vertex.rgbaq.color.q = q;
+            return vertex;
         }
 
         std::uint8_t InterpolateComponent(std::uint8_t start, std::uint8_t end, float amount) {
@@ -572,13 +596,16 @@ namespace helengine::ps2 {
                     const ::float2 glowTexCoordA = ResolveGsTextureCoordinate(triangle.TexCoordA, triangle.Texture);
                     const ::float2 glowTexCoordB = ResolveGsTextureCoordinate(triangle.TexCoordB, triangle.Texture);
                     const ::float2 glowTexCoordC = ResolveGsTextureCoordinate(triangle.TexCoordC, triangle.Texture);
-                    gsKit_prim_triangle_goraud_texture_3d(
+                    GSPRIMSTQPOINT texturedVertices[3] = {
+                        BuildPerspectiveTextureVertex(glowAX, glowAY, glowAZ, triangle.ViewPositionA, glowTexCoordA, glowColorA),
+                        BuildPerspectiveTextureVertex(glowBX, glowBY, glowBZ, triangle.ViewPositionB, glowTexCoordB, glowColorB),
+                        BuildPerspectiveTextureVertex(glowCX, glowCY, glowCZ, triangle.ViewPositionC, glowTexCoordC, glowColorC)
+                    };
+                    gsKit_prim_list_triangle_goraud_texture_stq_3d(
                         gsGlobal,
                         triangle.Texture,
-                        glowAX, glowAY, glowAZ, glowTexCoordA.X, glowTexCoordA.Y,
-                        glowBX, glowBY, glowBZ, glowTexCoordB.X, glowTexCoordB.Y,
-                        glowCX, glowCY, glowCZ, glowTexCoordC.X, glowTexCoordC.Y,
-                        glowColorA, glowColorB, glowColorC);
+                        3,
+                        texturedVertices);
                 } else {
                     gsKit_prim_triangle_gouraud_3d(
                         gsGlobal,
@@ -1677,13 +1704,16 @@ namespace helengine::ps2 {
                     const ::float2 screenTexCoordA = ResolveGsTextureCoordinate(clippedA.TexCoord, texture);
                     const ::float2 screenTexCoordB = ResolveGsTextureCoordinate(clippedB.TexCoord, texture);
                     const ::float2 screenTexCoordC = ResolveGsTextureCoordinate(clippedC.TexCoord, texture);
-                    gsKit_prim_triangle_goraud_texture_3d(
+                    GSPRIMSTQPOINT texturedVertices[3] = {
+                        BuildPerspectiveTextureVertex(screenAX, screenAY, screenAZ, clippedA.ViewPosition, screenTexCoordA, clippedColorA),
+                        BuildPerspectiveTextureVertex(screenBX, screenBY, screenBZ, clippedB.ViewPosition, screenTexCoordB, clippedColorB),
+                        BuildPerspectiveTextureVertex(screenCX, screenCY, screenCZ, clippedC.ViewPosition, screenTexCoordC, clippedColorC)
+                    };
+                    gsKit_prim_list_triangle_goraud_texture_stq_3d(
                         GsGlobal,
                         texture,
-                        screenAX, screenAY, screenAZ, screenTexCoordA.X, screenTexCoordA.Y,
-                        screenBX, screenBY, screenBZ, screenTexCoordB.X, screenTexCoordB.Y,
-                        screenCX, screenCY, screenCZ, screenTexCoordC.X, screenTexCoordC.Y,
-                        clippedColorA, clippedColorB, clippedColorC);
+                        3,
+                        texturedVertices);
                 } else {
                     gsKit_prim_triangle_gouraud_3d(
                         GsGlobal,
@@ -1708,6 +1738,9 @@ namespace helengine::ps2 {
                     glowTriangle.TexCoordA = clippedA.TexCoord;
                     glowTriangle.TexCoordB = clippedB.TexCoord;
                     glowTriangle.TexCoordC = clippedC.TexCoord;
+                    glowTriangle.ViewPositionA = clippedA.ViewPosition;
+                    glowTriangle.ViewPositionB = clippedB.ViewPosition;
+                    glowTriangle.ViewPositionC = clippedC.ViewPosition;
                     glowTriangle.ColorA = BoostHdrColor(clippedColorA, glowStrength);
                     glowTriangle.ColorB = BoostHdrColor(clippedColorB, glowStrength);
                     glowTriangle.ColorC = BoostHdrColor(clippedColorC, glowStrength);
