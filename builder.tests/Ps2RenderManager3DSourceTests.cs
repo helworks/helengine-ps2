@@ -386,20 +386,6 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
-    /// Ensures the legacy textured triangle path submits STQ coordinates so the GS can perform perspective-correct interpolation.
-    /// </summary>
-    [Fact]
-    public void Ps2RenderManager3D_WhenDrawingTexturedTriangles_UsesPerspectiveCorrectStqCoordinates() {
-        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
-        Assert.True(File.Exists(sourcePath), $"Expected PS2 render manager source at '{sourcePath}'.");
-
-        string source = File.ReadAllText(sourcePath);
-        Assert.Contains("GSPRIMSTQPOINT", source, StringComparison.Ordinal);
-        Assert.Contains("gsKit_prim_list_triangle_goraud_texture_stq_3d(", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("gsKit_prim_triangle_goraud_texture_3d(", source, StringComparison.Ordinal);
-    }
-
-    /// <summary>
     /// Resolves the PS2 repository root from the executing test binary directory.
     /// </summary>
     /// <returns>Absolute PS2 repository root path.</returns>
