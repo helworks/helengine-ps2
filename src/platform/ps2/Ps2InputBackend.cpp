@@ -1,5 +1,6 @@
 #include "platform/ps2/Ps2InputBackend.hpp"
 
+#include <cstdlib>
 #include <loadfile.h>
 #include <sifrpc.h>
 
@@ -14,6 +15,7 @@ namespace helengine::ps2 {
           Port(0),
           Slot(0),
           IsPadAvailable(false),
+          AnalogAvailable(false),
           ShowGreenFrame(false),
           CurrentButtons(),
           PreviousButtons(),
@@ -67,7 +69,7 @@ namespace helengine::ps2 {
         return ShowGreenFrame;
     }
 
-    Ps2PadButtons Ps2InputBackend::DecodeButtons(const padButtonStatus& buttons) {
+    Ps2PadButtons Ps2InputBackend::DecodeButtons(const padButtonStatus& buttons, bool analogAvailable) {
         uint16_t padData = static_cast<uint16_t>(0xffff ^ buttons.btns);
 
         Ps2PadButtons snapshot;
@@ -87,9 +89,23 @@ namespace helengine::ps2 {
         snapshot.R3 = (padData & PAD_R3) != 0;
         snapshot.Start = (padData & PAD_START) != 0;
         snapshot.Select = (padData & PAD_SELECT) != 0;
-        snapshot.LeftStickX = static_cast<int16_t>((static_cast<int32_t>(buttons.ljoy_h) - 128) * 256);
-        snapshot.LeftStickY = static_cast<int16_t>(-(static_cast<int32_t>(buttons.ljoy_v) - 128) * 256);
+        if (analogAvailable) {
+            snapshot.LeftStickX = NormalizeAnalogAxis(buttons.ljoy_h);
+            snapshot.LeftStickY = NormalizeAnalogAxis(buttons.ljoy_v);
+        }
         return snapshot;
+    }
+
+    int16_t Ps2InputBackend::NormalizeAnalogAxis(unsigned char value) {
+        constexpr int32_t AnalogCenter = 128;
+        constexpr int32_t AnalogScale = 256;
+        constexpr int32_t AnalogDeadzone = 12;
+        int32_t centeredValue = static_cast<int32_t>(value) - AnalogCenter;
+        if (std::abs(centeredValue) <= AnalogDeadzone) {
+            return 0;
+        }
+
+        return static_cast<int16_t>(centeredValue * AnalogScale);
     }
 
     InputGamepadState Ps2InputBackend::CaptureGamepadState() const {
@@ -139,8 +155,10 @@ namespace helengine::ps2 {
             return;
         }
 
+        int padType = padInfoMode(Port, Slot, PAD_MODECURID, 0);
+        AnalogAvailable = padType == PAD_TYPE_DUALSHOCK || padType == PAD_TYPE_ANALOG;
         PreviousButtons = CurrentButtons;
-        CurrentButtons = DecodeButtons(buttons);
+        CurrentButtons = DecodeButtons(buttons, AnalogAvailable);
         if (ShouldToggleBootColor(CurrentButtons, PreviousButtons)) {
             ShowGreenFrame = !ShowGreenFrame;
         }

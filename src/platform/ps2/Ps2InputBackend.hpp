@@ -19,7 +19,15 @@ namespace helengine::ps2 {
         bool ShouldShowGreenFrame() const;
 
     private:
-        static Ps2PadButtons DecodeButtons(const padButtonStatus& buttons);
+        /// <summary>
+        /// Converts the controller packet into shared button and analog-stick state while treating unavailable analog data as centered.
+        /// </summary>
+        static Ps2PadButtons DecodeButtons(const padButtonStatus& buttons, bool analogAvailable);
+
+        /// <summary>
+        /// Converts one unsigned PS2 stick axis into a centered signed axis and suppresses small calibration noise.
+        /// </summary>
+        static int16_t NormalizeAnalogAxis(unsigned char value);
 
         InputGamepadState CaptureGamepadState() const;
 
@@ -32,6 +40,7 @@ namespace helengine::ps2 {
         int Port;
         int Slot;
         bool IsPadAvailable;
+        bool AnalogAvailable;
         bool ShowGreenFrame;
         Ps2PadButtons CurrentButtons;
         Ps2PadButtons PreviousButtons;
