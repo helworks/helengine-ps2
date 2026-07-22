@@ -397,6 +397,9 @@ public sealed class Ps2RenderManager3DSourceTests {
 
         Assert.Contains("GSPRIMSTQPOINT ResolvePerspectiveTextureVertex(", source, StringComparison.Ordinal);
         Assert.Contains("vertex.stq = vertex_to_STQ(normalizedTexCoord.X * q, normalizedTexCoord.Y * q);", source, StringComparison.Ordinal);
+        Assert.Contains("const float gsDepth = 1.0f - screenZ;", source, StringComparison.Ordinal);
+        Assert.Contains("const std::uint32_t gsZ = static_cast<std::uint32_t>(gsDepth * static_cast<float>(MaximumGsDepth));", source, StringComparison.Ordinal);
+        Assert.Contains("vertex.xyz2 = vertex_to_XYZ2(gsGlobal, screenX, screenY, static_cast<int>(gsZ));", source, StringComparison.Ordinal);
         Assert.Contains("gsKit_prim_list_triangle_goraud_texture_stq_3d(", source, StringComparison.Ordinal);
     }
 

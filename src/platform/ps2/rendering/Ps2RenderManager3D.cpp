@@ -130,6 +130,7 @@ namespace helengine::ps2 {
         constexpr float CameraFieldOfViewRadians = 0.785398185f;
         constexpr float MinimumClipW = 0.0001f;
         constexpr float MinimumNearPlaneEpsilon = 0.00001f;
+        constexpr std::uint32_t MaximumGsDepth = 1u << 23;
         constexpr std::uint8_t AlphaTestCutoff = 0x80;
         constexpr bool EnableVuDispatchBypassDiagnostics = false;
         constexpr bool EnableVuDirectGifDispatchDiagnostics = false;
@@ -372,10 +373,12 @@ namespace helengine::ps2 {
             float clipW,
             std::uint64_t color) {
             const float q = 1.0f / clipW;
+            const float gsDepth = 1.0f - screenZ;
+            const std::uint32_t gsZ = static_cast<std::uint32_t>(gsDepth * static_cast<float>(MaximumGsDepth));
             GSPRIMSTQPOINT vertex;
             vertex.rgbaq = rgba_to_RGBAQ(static_cast<std::uint32_t>(color), q);
             vertex.stq = vertex_to_STQ(normalizedTexCoord.X * q, normalizedTexCoord.Y * q);
-            vertex.xyz2 = vertex_to_XYZ2(gsGlobal, screenX, screenY, static_cast<int>(screenZ));
+            vertex.xyz2 = vertex_to_XYZ2(gsGlobal, screenX, screenY, static_cast<int>(gsZ));
             return vertex;
         }
 
