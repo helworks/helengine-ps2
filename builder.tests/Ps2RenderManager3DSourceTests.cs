@@ -364,6 +364,21 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures the PS2 host records the existing GIF drain boundary in the renderer metrics and displays unambiguous timing labels.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenCollectingFrameTiming_RecordsGifDrainInRendererMetrics() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("RenderManager3DBackend.SetLastGifDrainMilliseconds(", source, StringComparison.Ordinal);
+        Assert.Contains("GetLastPerformanceMetrics()", source, StringComparison.Ordinal);
+        Assert.Contains("Gif ", source, StringComparison.Ordinal);
+        Assert.Contains("Vif ", source, StringComparison.Ordinal);
+        Assert.Contains("Leg ", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures unlit PS2 materials preserve their authored base color instead of collapsing every cube to the same diagnostic gray.
     /// </summary>
     [Fact]
@@ -454,7 +469,7 @@ public sealed class Ps2RenderManager3DSourceTests {
 
         Assert.Contains("constexpr bool EnableLegacyCpuTexturedOpaquePath = true;", source, StringComparison.Ordinal);
         Assert.Contains("if (EnableLegacyCpuTexturedOpaquePath && batch.Textured) {", renderOpaqueBody, StringComparison.Ordinal);
-        Assert.Contains("DrawOpaqueProxyLegacy(*batch.Proxy, view, projection, viewport, nearPlaneDistance);", renderOpaqueBody, StringComparison.Ordinal);
+        Assert.Contains("DrawOpaqueProxyLegacyTimed(*batch.Proxy, view, projection, viewport, nearPlaneDistance);", renderOpaqueBody, StringComparison.Ordinal);
     }
 
     /// <summary>
