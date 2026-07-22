@@ -3036,7 +3036,7 @@ namespace helengine::ps2 {
                                 } else if (currentText.rfind("Render FPS:", 0) == 0
                                     || currentText.rfind("Rdr", 0) == 0
                                     || currentText.rfind("Drw", 0) == 0) {
-                                    textDrawable->set_Text(FrameTimingOverlayLine2);
+                                    textDrawable->set_Text(FrameTimingOverlayDetailLine);
                                 }
                             }
                         }

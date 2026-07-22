@@ -379,6 +379,18 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures the two-row PS2 FPS overlay uses its second visible row for packet timing detail instead of publishing detail into unsupported hidden rows.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenPresentingPacketTimings_ReusesTheSecondVisibleFpsRow() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("textDrawable->set_Text(FrameTimingOverlayDetailLine);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("textDrawable->set_Text(FrameTimingOverlayLine2);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures unlit PS2 materials preserve their authored base color instead of collapsing every cube to the same diagnostic gray.
     /// </summary>
     [Fact]
