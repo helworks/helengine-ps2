@@ -1168,6 +1168,24 @@ private:
     }
 
     /// <summary>
+    /// Ensures a VIF packet remains renderer-owned until VIF1 has completed its DMA read.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenPacketIsSubmitted_TransfersPacketOwnershipToRendererSlot() {
+        string root = ResolveRepositoryRoot();
+        string builderHeader = File.ReadAllText(Path.Combine(root, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.hpp"));
+        string builderSource = File.ReadAllText(Path.Combine(root, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        string managerHeader = File.ReadAllText(Path.Combine(root, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.hpp"));
+        string managerSource = File.ReadAllText(Path.Combine(root, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp"));
+
+        Assert.Contains("packet2_t* ReleasePacket();", builderHeader, StringComparison.Ordinal);
+        Assert.Contains("packet2_t* Ps2VuVifPacketBuilder::ReleasePacket()", builderSource, StringComparison.Ordinal);
+        Assert.Contains("packet2_t* VuPacketSlots[2] = { nullptr, nullptr };", managerHeader, StringComparison.Ordinal);
+        Assert.Contains("void Ps2RenderManager3D::ReleaseVuPacketSlot", managerSource, StringComparison.Ordinal);
+        Assert.Contains("VuVifPacketBuilder.ReleasePacket()", managerSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Resolves the repository root path from the current test binary location.
     /// </summary>
     /// <returns>Absolute repository root path.</returns>

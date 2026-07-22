@@ -35,6 +35,7 @@ namespace helengine::ps2 {
     class Ps2RenderManager3D final : public ::RenderManager3D {
     public:
         Ps2RenderManager3D();
+        ~Ps2RenderManager3D();
 
         ::RuntimeMaterial* BuildMaterialFromCooked(::PlatformMaterialAsset* materialAsset) override;
         ::RuntimeMaterial* BuildMaterialFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) override;
@@ -94,6 +95,8 @@ namespace helengine::ps2 {
         ::RuntimeMaterial* BuildMaterialFromCooked(::Ps2MaterialAsset* materialAsset);
         void RenderOpaqueWithVuPath(const Ps2FramePlan& plan, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
         void PublishPerformanceOverlayMetrics() const;
+        void ReleaseVuPacketSlot(std::size_t slotIndex);
+        void WaitForVif1BeforePacketReuse();
         ::float4x4 BuildWorldMatrix(const Ps2RenderProxy& proxy) const;
         void DrawOpaqueProxyLegacy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
         void DrawOpaqueProxyLegacyTimed(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
@@ -150,6 +153,8 @@ namespace helengine::ps2 {
         Ps2VuProgramRegistry VuProgramRegistry;
         Ps2VuVifPacketBuilder VuVifPacketBuilder;
         Ps2VuGifStateEncoder VuGifStateEncoder;
+        packet2_t* VuPacketSlots[2] = { nullptr, nullptr };
+        std::size_t ActiveVuPacketSlotIndex = 0u;
         bool UseLegacyCpuOpaquePath;
         bool HdrEnabled;
         GSGLOBAL* GsGlobal;

@@ -1989,6 +1989,12 @@ namespace helengine::ps2 {
         return Packet;
     }
 
+    packet2_t* Ps2VuVifPacketBuilder::ReleasePacket() {
+        packet2_t* packet = Packet;
+        Packet = nullptr;
+        return packet;
+    }
+
     std::size_t Ps2VuVifPacketBuilder::GetPacketByteCount() const {
         if (Packet == nullptr) {
             return 0;
