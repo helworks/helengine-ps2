@@ -220,6 +220,11 @@ namespace {
     double FrameTimingVuWaitMilliseconds = 0.0;
     double FrameTimingVuSubmitMilliseconds = 0.0;
     double FrameTimingVuPacketEncodeMilliseconds = 0.0;
+    double FrameTimingGifDrainMilliseconds = 0.0;
+    double FrameTimingLegacyOpaqueMilliseconds = 0.0;
+    double FrameTimingLegacyOpaqueTriangleCount = 0.0;
+    double FrameTimingVifPacketByteCount = 0.0;
+    double FrameTimingCompatibleUntexturedGroupCount = 0.0;
     int FrameTimingFrameCount = 0;
     bool FrameTimingSampleCompleted = false;
     bool FrameTimingOverlayPending = false;
@@ -689,18 +694,24 @@ namespace {
             return;
         }
 
-        FrameTimingProxySyncMilliseconds += renderManager3DBackend.GetLastProxySyncMilliseconds();
-        FrameTimingFramePlanMilliseconds += renderManager3DBackend.GetLastFramePlanMilliseconds();
-        FrameTimingVuBatchBuildMilliseconds += renderManager3DBackend.GetLastVuBatchBuildMilliseconds();
-        FrameTimingVuBatchDispatchCount += static_cast<double>(renderManager3DBackend.GetLastVuBatchDispatchCount());
+        const helengine::ps2::Ps2RenderPerformanceMetrics& metrics = renderManager3DBackend.GetLastPerformanceMetrics();
+        FrameTimingProxySyncMilliseconds += metrics.ProxySyncMilliseconds;
+        FrameTimingFramePlanMilliseconds += metrics.FramePlanMilliseconds;
+        FrameTimingVuBatchBuildMilliseconds += metrics.VuBatchBuildMilliseconds;
+        FrameTimingVuBatchDispatchCount += static_cast<double>(metrics.VifPacketCount);
         FrameTimingVuTrianglePrepMilliseconds += renderManager3DBackend.GetLastVuTrianglePrepMilliseconds();
         FrameTimingVuTriangleEmitMilliseconds += renderManager3DBackend.GetLastVuTriangleEmitMilliseconds();
         FrameTimingVuTriangleLightingMilliseconds += renderManager3DBackend.GetLastVuTriangleLightingMilliseconds();
         FrameTimingVuTrianglePayloadFillMilliseconds += renderManager3DBackend.GetLastVuTrianglePayloadFillMilliseconds();
         FrameTimingVuPacketAssemblyMilliseconds += renderManager3DBackend.GetLastVuPacketAssemblyMilliseconds();
-        FrameTimingVuWaitMilliseconds += renderManager3DBackend.GetLastVuWaitMilliseconds();
-        FrameTimingVuSubmitMilliseconds += renderManager3DBackend.GetLastVuSubmitMilliseconds();
-        FrameTimingVuPacketEncodeMilliseconds += renderManager3DBackend.GetLastVuPacketEncodeMilliseconds();
+        FrameTimingVuWaitMilliseconds += metrics.VifReuseWaitMilliseconds;
+        FrameTimingVuSubmitMilliseconds += metrics.VifSubmitMilliseconds;
+        FrameTimingVuPacketEncodeMilliseconds += metrics.PacketEncodeMilliseconds;
+        FrameTimingGifDrainMilliseconds += metrics.GifDrainMilliseconds;
+        FrameTimingLegacyOpaqueMilliseconds += metrics.LegacyOpaqueMilliseconds;
+        FrameTimingLegacyOpaqueTriangleCount += static_cast<double>(metrics.LegacyOpaqueTriangleCount);
+        FrameTimingVifPacketByteCount += static_cast<double>(metrics.VifPacketByteCount);
+        FrameTimingCompatibleUntexturedGroupCount += static_cast<double>(metrics.CompatibleUntexturedGroupCount);
     }
 
     void RecordFrameTimingSample(
@@ -745,6 +756,11 @@ namespace {
         const double averageVuWaitMilliseconds = FrameTimingVuWaitMilliseconds / sampledFrameCount;
         const double averageVuSubmitMilliseconds = FrameTimingVuSubmitMilliseconds / sampledFrameCount;
         const double averageVuPacketEncodeMilliseconds = FrameTimingVuPacketEncodeMilliseconds / sampledFrameCount;
+        const double averageGifDrainMilliseconds = FrameTimingGifDrainMilliseconds / sampledFrameCount;
+        const double averageLegacyOpaqueMilliseconds = FrameTimingLegacyOpaqueMilliseconds / sampledFrameCount;
+        const double averageLegacyOpaqueTriangleCount = FrameTimingLegacyOpaqueTriangleCount / sampledFrameCount;
+        const double averageVifPacketByteCount = FrameTimingVifPacketByteCount / sampledFrameCount;
+        const double averageCompatibleUntexturedGroupCount = FrameTimingCompatibleUntexturedGroupCount / sampledFrameCount;
         const double averageSetMilliseconds = averageProxySyncMilliseconds
             + averageFramePlanMilliseconds
             + averageVuBatchBuildMilliseconds
@@ -793,6 +809,16 @@ namespace {
             + std::to_string(averageVuWaitMilliseconds)
             + " subMs="
             + std::to_string(averageVuSubmitMilliseconds)
+            + " gifMs="
+            + std::to_string(averageGifDrainMilliseconds)
+            + " legMs="
+            + std::to_string(averageLegacyOpaqueMilliseconds)
+            + " legTri="
+            + std::to_string(averageLegacyOpaqueTriangleCount)
+            + " pktBytes="
+            + std::to_string(averageVifPacketByteCount)
+            + " grp="
+            + std::to_string(averageCompatibleUntexturedGroupCount)
             + " disp="
             + std::to_string(averageVuBatchDispatchCount)
             + " fps="
@@ -816,25 +842,23 @@ namespace {
         FrameTimingOverlayDetailLine =
             std::string("Enc ")
             + FormatOverlayMilliseconds(averageVuPacketEncodeMilliseconds)
-            + " Prep "
-            + FormatOverlayMilliseconds(averageVuTrianglePrepMilliseconds)
-            + " Emit "
-            + FormatOverlayMilliseconds(averageVuTriangleEmitMilliseconds)
-            + " Asm "
-            + FormatOverlayMilliseconds(averageVuPacketAssemblyMilliseconds);
-        FrameTimingOverlayAdditionalText =
-            std::string("Lgt ")
-            + FormatOverlayMilliseconds(averageVuTriangleLightingMilliseconds)
-            + " Tpl "
-            + FormatOverlayMilliseconds(averageVuTrianglePayloadFillMilliseconds)
-            + " Wt "
+            + " Vif "
             + FormatOverlayMilliseconds(averageVuWaitMilliseconds)
             + " Sub "
             + FormatOverlayMilliseconds(averageVuSubmitMilliseconds)
-            + " Hit "
-            + std::to_string(renderManager3DBackend.GetLastSubmittedTriangleCount())
-            + " Disp "
-            + FormatOverlayMilliseconds(averageVuBatchDispatchCount);
+            + " Gif "
+            + FormatOverlayMilliseconds(averageGifDrainMilliseconds);
+        FrameTimingOverlayAdditionalText =
+            std::string("Leg ")
+            + FormatOverlayMilliseconds(averageLegacyOpaqueMilliseconds)
+            + " Tri "
+            + std::to_string(static_cast<int>(averageLegacyOpaqueTriangleCount))
+            + " Pkt "
+            + FormatOverlayMilliseconds(averageVuBatchDispatchCount)
+            + " Bytes "
+            + std::to_string(static_cast<int>(averageVifPacketByteCount))
+            + " Grp "
+            + FormatOverlayMilliseconds(averageCompatibleUntexturedGroupCount);
         FrameTimingOverlayPending = true;
         FrameTimingOverlayPresented = false;
         FrameTimingSampleCompleted = true;
@@ -856,6 +880,11 @@ namespace {
         FrameTimingVuWaitMilliseconds = 0.0;
         FrameTimingVuSubmitMilliseconds = 0.0;
         FrameTimingVuPacketEncodeMilliseconds = 0.0;
+        FrameTimingGifDrainMilliseconds = 0.0;
+        FrameTimingLegacyOpaqueMilliseconds = 0.0;
+        FrameTimingLegacyOpaqueTriangleCount = 0.0;
+        FrameTimingVifPacketByteCount = 0.0;
+        FrameTimingCompatibleUntexturedGroupCount = 0.0;
         FrameTimingFrameCount = 0;
     }
 
@@ -2910,6 +2939,8 @@ namespace helengine::ps2 {
                         BootLog("cube frame checkpoint: after dma_channel_wait(DMA_CHANNEL_GIF)");
                     }
                     frameGifWaitEndTicks = std::clock();
+                    RenderManager3DBackend.SetLastGifDrainMilliseconds(
+                        ResolveMillisecondsFromClockTicks(frameDraw3dEndTicks, frameGifWaitEndTicks));
 
                     if (EnableCubeRuntimeDiagnostics
                         && !CubeDiagnosticsShown
