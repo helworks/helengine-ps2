@@ -761,11 +761,12 @@ namespace helengine::ps2 {
             LastVuPacketEncodeMilliseconds(0.0),
             LastVuTriangleSetupMilliseconds(0.0),
             LastVuPacketAssemblyMilliseconds(0.0),
-            LastVuTrianglePrepMilliseconds(0.0),
-            LastVuTriangleEmitMilliseconds(0.0),
-            LastVuTriangleLightingMilliseconds(0.0),
-            LastVuTrianglePayloadFillMilliseconds(0.0),
-            LastResolvedViewport(),
+          LastVuTrianglePrepMilliseconds(0.0),
+          LastVuTriangleEmitMilliseconds(0.0),
+          LastVuTriangleLightingMilliseconds(0.0),
+          LastVuTrianglePayloadFillMilliseconds(0.0),
+          LastPerformanceMetrics(),
+          LastResolvedViewport(),
           LastSubmittedScreenBounds(),
           LastSubmittedTriangleBoundsA(),
           LastSubmittedTriangleBoundsB(),
@@ -963,6 +964,7 @@ namespace helengine::ps2 {
         LastVuTriangleEmitMilliseconds = 0.0;
         LastVuTriangleLightingMilliseconds = 0.0;
         LastVuTrianglePayloadFillMilliseconds = 0.0;
+        LastPerformanceMetrics = Ps2RenderPerformanceMetrics {};
         LastResolvedViewport = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastSubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastSubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -1042,11 +1044,13 @@ namespace helengine::ps2 {
         }
         const std::clock_t proxySyncEndTicks = std::clock();
         LastProxySyncMilliseconds = ResolveMillisecondsFromClockTicks(proxySyncStartTicks, proxySyncEndTicks);
+        LastPerformanceMetrics.ProxySyncMilliseconds = ResolveMillisecondsFromClockTicks(proxySyncStartTicks, proxySyncEndTicks);
         LastProxyCount = Proxies.size();
         const std::clock_t framePlanStartTicks = std::clock();
         Ps2FramePlan plan = FramePlanner.Build(Proxies);
         const std::clock_t framePlanEndTicks = std::clock();
         LastFramePlanMilliseconds = ResolveMillisecondsFromClockTicks(framePlanStartTicks, framePlanEndTicks);
+        LastPerformanceMetrics.FramePlanMilliseconds = ResolveMillisecondsFromClockTicks(framePlanStartTicks, framePlanEndTicks);
         LastOpaqueWorldCount = plan.OpaqueWorld.size();
         LastOpaqueDynamicCount = plan.OpaqueDynamic.size();
         LastAlphaWorldCount = plan.AlphaWorld.size();
@@ -1070,13 +1074,13 @@ namespace helengine::ps2 {
             if (UseLegacyCpuOpaquePath) {
                 for (const Ps2RenderProxy* proxy : plan.OpaqueWorld) {
                     if (proxy != nullptr) {
-                        DrawOpaqueProxyLegacy(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                        DrawOpaqueProxyLegacyTimed(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
                     }
                 }
 
                 for (const Ps2RenderProxy* proxy : plan.OpaqueDynamic) {
                     if (proxy != nullptr) {
-                        DrawOpaqueProxyLegacy(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                        DrawOpaqueProxyLegacyTimed(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
                     }
                 }
             } else {
@@ -1135,6 +1139,7 @@ namespace helengine::ps2 {
         std::vector<Ps2VuOpaqueBatch> batches = VuOpaqueBatchBuilder.Build(plan);
         const std::clock_t vuBatchBuildEndTicks = std::clock();
         LastVuBatchBuildMilliseconds = ResolveMillisecondsFromClockTicks(vuBatchBuildStartTicks, vuBatchBuildEndTicks);
+        LastPerformanceMetrics.VuBatchBuildMilliseconds = ResolveMillisecondsFromClockTicks(vuBatchBuildStartTicks, vuBatchBuildEndTicks);
         LastVuWaitMilliseconds = 0.0;
         LastVuSubmitMilliseconds = 0.0;
         ::float3 lightDirection = DefaultForward;
@@ -1186,7 +1191,7 @@ namespace helengine::ps2 {
 
             if (EnableLegacyCpuTexturedOpaquePath && batch.Textured) {
                 dma_channel_wait(DMA_CHANNEL_VIF1, 0);
-                DrawOpaqueProxyLegacy(*batch.Proxy, view, projection, viewport, nearPlaneDistance);
+                DrawOpaqueProxyLegacyTimed(*batch.Proxy, view, projection, viewport, nearPlaneDistance);
                 continue;
             }
 
@@ -1226,6 +1231,7 @@ namespace helengine::ps2 {
             packet2_t* packet = VuVifPacketBuilder.GetPacket();
             const std::clock_t vuPacketEncodeEndTicks = std::clock();
             LastVuPacketEncodeMilliseconds += ResolveMillisecondsFromClockTicks(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);
+            LastPerformanceMetrics.PacketEncodeMilliseconds += ResolveMillisecondsFromClockTicks(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);
             LastVuTriangleSetupMilliseconds += VuVifPacketBuilder.GetLastTriangleSetupMilliseconds();
             LastVuPacketAssemblyMilliseconds += VuVifPacketBuilder.GetLastPacketAssemblyMilliseconds();
             LastVuTrianglePrepMilliseconds += VuVifPacketBuilder.GetLastTrianglePrepMilliseconds();
@@ -1319,6 +1325,7 @@ namespace helengine::ps2 {
                 LastVuPacketPhase = 202;
                 const std::clock_t vuSubmitEndTicks = std::clock();
                 LastVuSubmitMilliseconds += ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);
+                LastPerformanceMetrics.VifSubmitMilliseconds += ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);
                 LastVuPacketPhase = 203;
                 LastVuBatchDispatchCount += 1u;
                 if (batch.Textured) {
@@ -1366,6 +1373,7 @@ namespace helengine::ps2 {
         packet2_t* packet = VuVifPacketBuilder.GetPacket();
         const std::clock_t vuPacketEncodeEndTicks = std::clock();
         LastVuPacketEncodeMilliseconds += ResolveMillisecondsFromClockTicks(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);
+        LastPerformanceMetrics.PacketEncodeMilliseconds += ResolveMillisecondsFromClockTicks(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);
         LastVuTriangleSetupMilliseconds += VuVifPacketBuilder.GetLastTriangleSetupMilliseconds();
         LastVuPacketAssemblyMilliseconds += VuVifPacketBuilder.GetLastPacketAssemblyMilliseconds();
         LastVuTrianglePrepMilliseconds += VuVifPacketBuilder.GetLastTrianglePrepMilliseconds();
@@ -1436,6 +1444,7 @@ namespace helengine::ps2 {
         LastVuPacketPhase = 202;
         const std::clock_t vuSubmitEndTicks = std::clock();
         LastVuSubmitMilliseconds += ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);
+        LastPerformanceMetrics.VifSubmitMilliseconds += ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);
         LastVuPacketPhase = 203;
         LastVuBatchDispatchCount += 1u;
     }
@@ -1581,6 +1590,18 @@ namespace helengine::ps2 {
 
     double Ps2RenderManager3D::GetLastVuTrianglePayloadFillMilliseconds() const {
         return LastVuTrianglePayloadFillMilliseconds;
+    }
+
+    const Ps2RenderPerformanceMetrics& Ps2RenderManager3D::GetLastPerformanceMetrics() const {
+        return LastPerformanceMetrics;
+    }
+
+    void Ps2RenderManager3D::SetLastGifDrainMilliseconds(double milliseconds) {
+        if (milliseconds < 0.0) {
+            throw std::invalid_argument("PS2 GIF drain duration cannot be negative.");
+        }
+
+        LastPerformanceMetrics.GifDrainMilliseconds = milliseconds;
     }
 
     bool Ps2RenderManager3D::IsUsingLegacyCpuOpaquePath() const {
@@ -1894,6 +1915,19 @@ namespace helengine::ps2 {
 
     void Ps2RenderManager3D::DrawOpaqueProxyLegacy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {
         DrawOpaqueProxy(proxy, view, projection, viewport, nearPlaneDistance);
+    }
+
+    void Ps2RenderManager3D::DrawOpaqueProxyLegacyTimed(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {
+        const std::clock_t startTicks = std::clock();
+        DrawOpaqueProxyLegacy(proxy, view, projection, viewport, nearPlaneDistance);
+        const std::clock_t endTicks = std::clock();
+        LastPerformanceMetrics.LegacyOpaqueMilliseconds += ResolveMillisecondsFromClockTicks(startTicks, endTicks);
+
+        const Ps2RuntimeModel* model = proxy.GetModel();
+        const Ps2VuPackedModel* packedModel = model == nullptr ? nullptr : model->GetVuPackedModel();
+        if (packedModel != nullptr) {
+            LastPerformanceMetrics.LegacyOpaqueTriangleCount += packedModel->GetTriangleVertexCount() / 3u;
+        }
     }
 
     void Ps2RenderManager3D::DrawAlphaProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {

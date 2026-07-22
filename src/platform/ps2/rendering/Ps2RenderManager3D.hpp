@@ -6,6 +6,7 @@
 
 #include "RenderManager3D.hpp"
 #include "platform/ps2/rendering/Ps2FramePlanner.hpp"
+#include "platform/ps2/rendering/Ps2RenderPerformanceMetrics.hpp"
 #include "platform/ps2/rendering/Ps2RenderProxy.hpp"
 #include "platform/ps2/rendering/vu/Ps2VuOpaqueBatchBuilder.hpp"
 #include "platform/ps2/rendering/vu/Ps2VuProgramRegistry.hpp"
@@ -75,6 +76,8 @@ namespace helengine::ps2 {
         double GetLastVuTriangleEmitMilliseconds() const;
         double GetLastVuTriangleLightingMilliseconds() const;
         double GetLastVuTrianglePayloadFillMilliseconds() const;
+        const Ps2RenderPerformanceMetrics& GetLastPerformanceMetrics() const;
+        void SetLastGifDrainMilliseconds(double milliseconds);
         bool IsUsingLegacyCpuOpaquePath() const;
         ::float4 GetLastResolvedViewport() const;
         ::float4 GetLastSubmittedScreenBounds() const;
@@ -93,6 +96,7 @@ namespace helengine::ps2 {
         void PublishPerformanceOverlayMetrics() const;
         ::float4x4 BuildWorldMatrix(const Ps2RenderProxy& proxy) const;
         void DrawOpaqueProxyLegacy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
+        void DrawOpaqueProxyLegacyTimed(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
         void DrawOpaqueProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
         void DrawAlphaProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
         void DrawSoftwareDepthPass(
@@ -180,6 +184,7 @@ namespace helengine::ps2 {
         double LastVuTriangleEmitMilliseconds;
         double LastVuTriangleLightingMilliseconds;
         double LastVuTrianglePayloadFillMilliseconds;
+        Ps2RenderPerformanceMetrics LastPerformanceMetrics;
         ::float4 LastResolvedViewport;
         ::float4 LastSubmittedScreenBounds;
         ::float4 LastSubmittedTriangleBoundsA;
