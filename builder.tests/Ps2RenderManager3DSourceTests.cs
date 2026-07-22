@@ -292,6 +292,78 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures the PS2 renderer stores its latest performance sample in one record shared by runtime diagnostics consumers.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenPublishingPerformanceData_UsesDedicatedMetricsRecord() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string metricsPath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderPerformanceMetrics.hpp");
+
+        Assert.True(File.Exists(metricsPath));
+        Assert.Contains("const Ps2RenderPerformanceMetrics& GetLastPerformanceMetrics() const;", File.ReadAllText(headerPath), StringComparison.Ordinal);
+        Assert.Contains("Ps2RenderPerformanceMetrics LastPerformanceMetrics;", File.ReadAllText(headerPath), StringComparison.Ordinal);
+
+        string metrics = File.ReadAllText(metricsPath);
+        Assert.Contains("double VifReuseWaitMilliseconds = 0.0;", metrics, StringComparison.Ordinal);
+        Assert.Contains("double GifDrainMilliseconds = 0.0;", metrics, StringComparison.Ordinal);
+        Assert.Contains("double LegacyOpaqueMilliseconds = 0.0;", metrics, StringComparison.Ordinal);
+        Assert.Contains("std::size_t CompatibleUntexturedGroupCount = 0u;", metrics, StringComparison.Ordinal);
+
+        string source = File.ReadAllText(sourcePath);
+        Assert.Contains("const Ps2RenderPerformanceMetrics& Ps2RenderManager3D::GetLastPerformanceMetrics() const", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures renderer timing boundaries populate the shared metrics record during every frame.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenDrawingFrame_PopulatesDedicatedMetricsRecord() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("LastPerformanceMetrics = Ps2RenderPerformanceMetrics {};", source, StringComparison.Ordinal);
+        Assert.Contains("LastPerformanceMetrics.ProxySyncMilliseconds = ResolveMillisecondsFromClockTicks(proxySyncStartTicks, proxySyncEndTicks);", source, StringComparison.Ordinal);
+        Assert.Contains("LastPerformanceMetrics.FramePlanMilliseconds = ResolveMillisecondsFromClockTicks(framePlanStartTicks, framePlanEndTicks);", source, StringComparison.Ordinal);
+        Assert.Contains("LastPerformanceMetrics.VuBatchBuildMilliseconds = ResolveMillisecondsFromClockTicks(vuBatchBuildStartTicks, vuBatchBuildEndTicks);", source, StringComparison.Ordinal);
+        Assert.Contains("LastPerformanceMetrics.PacketEncodeMilliseconds += ResolveMillisecondsFromClockTicks(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);", source, StringComparison.Ordinal);
+        Assert.Contains("LastPerformanceMetrics.VifSubmitMilliseconds += ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the host can report the required GIF drain boundary without accepting invalid elapsed durations.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenRecordingGifDrain_RejectsNegativeDuration() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string header = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.hpp"));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp"));
+
+        Assert.Contains("void SetLastGifDrainMilliseconds(double milliseconds);", header, StringComparison.Ordinal);
+        Assert.Contains("void Ps2RenderManager3D::SetLastGifDrainMilliseconds(double milliseconds)", source, StringComparison.Ordinal);
+        Assert.Contains("if (milliseconds < 0.0) {", source, StringComparison.Ordinal);
+        Assert.Contains("throw std::invalid_argument(\"PS2 GIF drain duration cannot be negative.\");", source, StringComparison.Ordinal);
+        Assert.Contains("LastPerformanceMetrics.GifDrainMilliseconds = milliseconds;", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures supported opaque work that falls back to the CPU renderer is visible in the performance record.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenUsingLegacyOpaqueRoute_RecordsElapsedTimeAndTriangles() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string header = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.hpp"));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp"));
+
+        Assert.Contains("void DrawOpaqueProxyLegacyTimed(", header, StringComparison.Ordinal);
+        Assert.Contains("void Ps2RenderManager3D::DrawOpaqueProxyLegacyTimed(", source, StringComparison.Ordinal);
+        Assert.Contains("LastPerformanceMetrics.LegacyOpaqueMilliseconds += ResolveMillisecondsFromClockTicks", source, StringComparison.Ordinal);
+        Assert.Contains("LastPerformanceMetrics.LegacyOpaqueTriangleCount += packedModel->GetTriangleVertexCount() / 3u;", source, StringComparison.Ordinal);
+        Assert.Contains("DrawOpaqueProxyLegacyTimed(*batch.Proxy, view, projection, viewport, nearPlaneDistance);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures unlit PS2 materials preserve their authored base color instead of collapsing every cube to the same diagnostic gray.
     /// </summary>
     [Fact]
