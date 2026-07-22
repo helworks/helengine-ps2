@@ -2758,7 +2758,7 @@ public class Ps2PlatformAssetBuilderTests {
         Directory.CreateDirectory(Path.GetDirectoryName(textureSourcePath)!);
         File.WriteAllBytes(textureSourcePath, [1, 2, 3, 4]);
 
-        ContentManager contentManager = new(projectRoot);
+        ContentManager contentManager = new(new HostFileSystemContentStreamSource(projectRoot));
         AssetImportManager assetImportManager = new(projectRoot, contentManager);
         assetImportManager.CurrentPlatformId = platformId;
         assetImportManager.RegisterTextureImporter(new TextureImporterRegistration("test-texture", new SinglePixelTextureImporter(), [extension]));
