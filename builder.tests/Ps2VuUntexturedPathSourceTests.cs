@@ -63,6 +63,24 @@ public sealed class Ps2VuUntexturedPathSourceTests {
     }
 
     /// <summary>
+    /// Ensures untextured triangles that cross the camera near plane are clipped before the VU program divides their clip-space positions by W.
+    /// </summary>
+    [Fact]
+    public void UntexturedVuPath_ClipsTrianglesCrossingTheCameraNearPlane() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string vifSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+
+        Assert.Contains("struct Ps2VuUntexturedClipVertex final", vifSource, StringComparison.Ordinal);
+        Assert.Contains("void ClipUntexturedTriangleAgainstNearPlane(", vifSource, StringComparison.Ordinal);
+        Assert.Contains("enum class Ps2VuScreenFrustumPlane", vifSource, StringComparison.Ordinal);
+        Assert.Contains("void ClipUntexturedTriangleAgainstScreenFrustum(", vifSource, StringComparison.Ordinal);
+        Assert.Contains("const ::float3 viewPositionA = TransformPosition(positionA, worldViewMatrix);", vifSource, StringComparison.Ordinal);
+        Assert.Contains("ClipUntexturedTriangleAgainstScreenFrustum(untexturedVertexA, untexturedVertexB, untexturedVertexC, nearPlaneDistance, projection, clippedUntexturedVertices);", vifSource, StringComparison.Ordinal);
+        Assert.Contains("PopulateUntexturedSharedState(projection, viewport, clippedSharedStateTemplate);", vifSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("// - no CPU near-plane clipping", vifSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the untextured setup builder leaves expensive projected submitted-bounds diagnostics disabled by default so normal runtime frames do not pay for debug-only screen-space work.
     /// </summary>
     [Fact]
@@ -182,9 +200,12 @@ public sealed class Ps2VuUntexturedPathSourceTests {
         Assert.Contains("struct Ps2VuGifTemplateCacheEntry final", vifSource, StringComparison.Ordinal);
         Assert.Contains("std::vector<Ps2VuGifTemplateCacheEntry> gifTemplateCache;", vifSource, StringComparison.Ordinal);
         Assert.Contains("Ps2VuUntexturedSharedState sharedStateTemplate {};", vifSource, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuUntexturedSharedState clippedSharedStateTemplate {};", vifSource, StringComparison.Ordinal);
         Assert.Contains("PopulateUntexturedSharedState(world, view, projection, viewport, sharedStateTemplate);", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("PopulateUntexturedSharedState(projection, viewport, clippedSharedStateTemplate);", untexturedBranch, StringComparison.Ordinal);
         Assert.Contains("CopyCachedTriangleGifPacketTemplate(batch, flatColor, gsGlobal, gifTemplateCache, payload.TriangleRecord);", untexturedBranch, StringComparison.Ordinal);
-        Assert.Contains("std::memcpy(&payload.SharedState, &sharedStateTemplate, sizeof(sharedStateTemplate));", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("const Ps2VuUntexturedSharedState& emittedSharedState = triangleCrossesFrustumBoundary ? clippedSharedStateTemplate : sharedStateTemplate;", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("std::memcpy(&payload.SharedState, &emittedSharedState, sizeof(emittedSharedState));", untexturedBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("PopulateUntexturedSharedState(world, view, projection, viewport, payload.SharedState);", untexturedBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("PopulateTriangleGifPacketTemplate(batch, flatColor, gsGlobal, payload.TriangleRecord);", untexturedBranch, StringComparison.Ordinal);
     }

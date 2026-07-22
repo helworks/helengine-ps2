@@ -575,10 +575,10 @@ public:
     }
 
     /// <summary>
-    /// Verifies that the opaque untextured VU packet builder does not use CPU near-plane clipping or CPU front-face rejection in the untextured VU path.
+    /// Verifies that the opaque untextured VU packet builder clips triangles at the CPU near plane and leaves front-face rejection to the VU path.
     /// </summary>
     [Fact]
-    public void Ps2VuVifPacketBuilder_WhenBuildingOpaqueUntexturedPath_ShouldNotUseCpuTriangleRejectionMarkers() {
+    public void Ps2VuVifPacketBuilder_WhenBuildingOpaqueUntexturedPath_ShouldClipNearPlaneWithoutCpuFaceCulling() {
         string repositoryRootPath = ResolveRepositoryRoot();
         string builderPath = Path.Combine(
             repositoryRootPath,
@@ -595,7 +595,7 @@ public:
             "} else if (!textured) {",
             "} else {");
 
-        Assert.DoesNotContain("ClipTriangleAgainstNearPlane(", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("ClipUntexturedTriangleAgainstScreenFrustum(", untexturedBranch, StringComparison.Ordinal);
         Assert.DoesNotContain("IsFrontFacingTriangle(", untexturedBranch, StringComparison.Ordinal);
     }
 

@@ -404,6 +404,24 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures large textured triangles are clipped to every screen frustum plane before their projected coordinates are packed into the PS2 GS vertex registers.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenClippingTexturedTriangles_ClipsTheScreenFrustumBeforeGsPacking() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("enum class Ps2ScreenFrustumPlane", source, StringComparison.Ordinal);
+        Assert.Contains("void ClipPolygonAgainstScreenFrustumPlane(", source, StringComparison.Ordinal);
+        Assert.Contains("void ClipTriangleAgainstScreenFrustum(", source, StringComparison.Ordinal);
+        Assert.Contains("Ps2ScreenFrustumPlane::Left", source, StringComparison.Ordinal);
+        Assert.Contains("Ps2ScreenFrustumPlane::Right", source, StringComparison.Ordinal);
+        Assert.Contains("Ps2ScreenFrustumPlane::Bottom", source, StringComparison.Ordinal);
+        Assert.Contains("Ps2ScreenFrustumPlane::Top", source, StringComparison.Ordinal);
+        Assert.Contains("ClipTriangleAgainstScreenFrustum(vertexA, vertexB, vertexC, nearPlaneDistance, projection, clippedVertices);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Resolves the PS2 repository root from the executing test binary directory.
     /// </summary>
     /// <returns>Absolute PS2 repository root path.</returns>

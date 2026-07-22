@@ -224,6 +224,13 @@ namespace helengine::ps2 {
             std::uint8_t Alpha;
         };
 
+        enum class Ps2ScreenFrustumPlane {
+            Left,
+            Right,
+            Bottom,
+            Top
+        };
+
         struct Ps2HdrGlowTriangle {
             float ScreenAX;
             float ScreenAY;
@@ -425,6 +432,98 @@ namespace helengine::ps2 {
                 previous = current;
                 previousInside = currentInside;
             }
+        }
+
+        float ResolveScreenFrustumPlaneDistance(
+            const Ps2ClipVertex& vertex,
+            const ::float4x4& projection,
+            Ps2ScreenFrustumPlane plane) {
+            const float clipX = (vertex.ViewPosition.X * projection.M11)
+                + (vertex.ViewPosition.Y * projection.M21)
+                + (vertex.ViewPosition.Z * projection.M31)
+                + projection.M41;
+            const float clipY = (vertex.ViewPosition.X * projection.M12)
+                + (vertex.ViewPosition.Y * projection.M22)
+                + (vertex.ViewPosition.Z * projection.M32)
+                + projection.M42;
+            const float clipW = (vertex.ViewPosition.X * projection.M14)
+                + (vertex.ViewPosition.Y * projection.M24)
+                + (vertex.ViewPosition.Z * projection.M34)
+                + projection.M44;
+
+            if (plane == Ps2ScreenFrustumPlane::Left) {
+                return clipX + clipW;
+            } else if (plane == Ps2ScreenFrustumPlane::Right) {
+                return clipW - clipX;
+            } else if (plane == Ps2ScreenFrustumPlane::Bottom) {
+                return clipY + clipW;
+            }
+
+            return clipW - clipY;
+        }
+
+        void ClipPolygonAgainstScreenFrustumPlane(
+            const std::vector<Ps2ClipVertex>& inputVertices,
+            const ::float4x4& projection,
+            Ps2ScreenFrustumPlane plane,
+            std::vector<Ps2ClipVertex>& outputVertices) {
+            outputVertices.clear();
+            if (inputVertices.empty()) {
+                return;
+            }
+
+            Ps2ClipVertex previous = inputVertices.back();
+            float previousDistance = ResolveScreenFrustumPlaneDistance(previous, projection, plane);
+            bool previousInside = previousDistance >= 0.0f;
+            for (const Ps2ClipVertex& current : inputVertices) {
+                const float currentDistance = ResolveScreenFrustumPlaneDistance(current, projection, plane);
+                const bool currentInside = currentDistance >= 0.0f;
+                if (currentInside != previousInside) {
+                    const float denominator = currentDistance - previousDistance;
+                    if (std::abs(denominator) > MinimumNearPlaneEpsilon) {
+                        const float amount = -previousDistance / denominator;
+                        outputVertices.push_back(InterpolateClipVertex(previous, current, amount));
+                    }
+                }
+
+                if (currentInside) {
+                    outputVertices.push_back(current);
+                }
+
+                previous = current;
+                previousDistance = currentDistance;
+                previousInside = currentInside;
+            }
+        }
+
+        void ClipTriangleAgainstScreenFrustum(
+            const Ps2ClipVertex& first,
+            const Ps2ClipVertex& second,
+            const Ps2ClipVertex& third,
+            float nearPlaneDistance,
+            const ::float4x4& projection,
+            std::vector<Ps2ClipVertex>& clippedVertices) {
+            std::vector<Ps2ClipVertex> inputVertices;
+            inputVertices.reserve(8u);
+            ClipTriangleAgainstNearPlane(first, second, third, nearPlaneDistance, inputVertices);
+
+            std::vector<Ps2ClipVertex> outputVertices;
+            outputVertices.reserve(8u);
+            const Ps2ScreenFrustumPlane planes[] = {
+                Ps2ScreenFrustumPlane::Left,
+                Ps2ScreenFrustumPlane::Right,
+                Ps2ScreenFrustumPlane::Bottom,
+                Ps2ScreenFrustumPlane::Top
+            };
+            for (Ps2ScreenFrustumPlane plane : planes) {
+                ClipPolygonAgainstScreenFrustumPlane(inputVertices, projection, plane, outputVertices);
+                inputVertices.swap(outputVertices);
+                if (inputVertices.empty()) {
+                    break;
+                }
+            }
+
+            clippedVertices.swap(inputVertices);
         }
 
         int ResolveGsPixelStorageMode(::Ps2TexturePixelStorageMode mode) {
@@ -1622,7 +1721,7 @@ namespace helengine::ps2 {
             Ps2ClipVertex vertexC = CreateClipVertex(viewPositionC, texCoords.size() > indexC ? texCoords[indexC] : ::float2(0.0f, 0.0f), colorC);
 
             std::vector<Ps2ClipVertex> clippedVertices;
-            ClipTriangleAgainstNearPlane(vertexA, vertexB, vertexC, nearPlaneDistance, clippedVertices);
+            ClipTriangleAgainstScreenFrustum(vertexA, vertexB, vertexC, nearPlaneDistance, projection, clippedVertices);
             if (clippedVertices.size() < 3) {
                 LastClipRejectCount++;
                 continue;

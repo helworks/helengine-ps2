@@ -117,6 +117,17 @@ namespace helengine::ps2 {
             ::float2 TexCoord = ::float2(0.0f, 0.0f);
         };
 
+        struct Ps2VuUntexturedClipVertex final {
+            ::float3 ViewPosition = ::float3::get_Zero();
+        };
+
+        enum class Ps2VuScreenFrustumPlane {
+            Left,
+            Right,
+            Bottom,
+            Top
+        };
+
         struct Ps2VuFlatColor final {
             std::uint8_t Red = 0xFF;
             std::uint8_t Green = 0xFF;
@@ -180,6 +191,21 @@ namespace helengine::ps2 {
         }
 
         void PopulateUntexturedSharedState(
+            const ::float4x4& worldViewProjection,
+            const ::float4& viewport,
+            Ps2VuUntexturedSharedState& sharedState) {
+            CopyMatrixWords(worldViewProjection, sharedState.WorldViewProjectionMatrix);
+            sharedState.GsScale[0] = viewport.Z * 0.5f;
+            sharedState.GsScale[1] = viewport.W * -0.5f;
+            sharedState.GsScale[2] = -4194304.0f;
+            sharedState.GsScale[3] = 0.0f;
+            sharedState.GsOffset[0] = 2048.0f + viewport.X + (viewport.Z * 0.5f);
+            sharedState.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
+            sharedState.GsOffset[2] = 4194304.0f;
+            sharedState.GsOffset[3] = 0.0f;
+        }
+
+        void PopulateUntexturedSharedState(
             const ::float4x4& world,
             const ::float4x4& view,
             const ::float4x4& projection,
@@ -192,15 +218,7 @@ namespace helengine::ps2 {
             ::float4x4 worldViewProjectionMatrix;
             ::float4x4::Multiply__ref0_ref1_out2(worldCopy, viewCopy, worldViewMatrix);
             ::float4x4::Multiply__ref0_ref1_out2(worldViewMatrix, projectionCopy, worldViewProjectionMatrix);
-            CopyMatrixWords(worldViewProjectionMatrix, sharedState.WorldViewProjectionMatrix);
-            sharedState.GsScale[0] = viewport.Z * 0.5f;
-            sharedState.GsScale[1] = viewport.W * -0.5f;
-            sharedState.GsScale[2] = -4194304.0f;
-            sharedState.GsScale[3] = 0.0f;
-            sharedState.GsOffset[0] = 2048.0f + viewport.X + (viewport.Z * 0.5f);
-            sharedState.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
-            sharedState.GsOffset[2] = 4194304.0f;
-            sharedState.GsOffset[3] = 0.0f;
+            PopulateUntexturedSharedState(worldViewProjectionMatrix, viewport, sharedState);
         }
 
         std::uint32_t ResolveFlatColorKey(const Ps2VuFlatColor& flatColor) {
@@ -338,8 +356,159 @@ namespace helengine::ps2 {
             }
         }
 
+        Ps2VuUntexturedClipVertex InterpolateUntexturedClipVertex(
+            const Ps2VuUntexturedClipVertex& start,
+            const Ps2VuUntexturedClipVertex& end,
+            float amount) {
+            Ps2VuUntexturedClipVertex vertex;
+            vertex.ViewPosition = InterpolateViewPosition(start.ViewPosition, end.ViewPosition, amount);
+            return vertex;
+        }
+
+        void ClipUntexturedTriangleAgainstNearPlane(
+            const Ps2VuUntexturedClipVertex& first,
+            const Ps2VuUntexturedClipVertex& second,
+            const Ps2VuUntexturedClipVertex& third,
+            float nearPlaneDistance,
+            std::vector<Ps2VuUntexturedClipVertex>& clippedVertices) {
+            clippedVertices.clear();
+
+            const float nearPlaneZ = -nearPlaneDistance;
+            Ps2VuUntexturedClipVertex previous = third;
+            bool previousInside = previous.ViewPosition.Z <= nearPlaneZ;
+            const Ps2VuUntexturedClipVertex vertices[3] = { first, second, third };
+
+            for (const Ps2VuUntexturedClipVertex& current : vertices) {
+                const bool currentInside = current.ViewPosition.Z <= nearPlaneZ;
+                if (currentInside != previousInside) {
+                    const float denominator = current.ViewPosition.Z - previous.ViewPosition.Z;
+                    if (std::abs(denominator) > MinimumNearPlaneEpsilon) {
+                        const float amount = (nearPlaneZ - previous.ViewPosition.Z) / denominator;
+                        clippedVertices.push_back(InterpolateUntexturedClipVertex(previous, current, amount));
+                    }
+                }
+
+                if (currentInside) {
+                    clippedVertices.push_back(current);
+                }
+
+                previous = current;
+                previousInside = currentInside;
+            }
+        }
+
         bool IsTexturedVertexInsideNearPlane(const ::float3& viewPosition, float nearPlaneDistance) {
             return viewPosition.Z <= -nearPlaneDistance;
+        }
+
+        bool IsUntexturedVertexInsideNearPlane(const ::float3& viewPosition, float nearPlaneDistance) {
+            return viewPosition.Z <= -nearPlaneDistance;
+        }
+
+        float ResolveUntexturedScreenFrustumPlaneDistance(
+            const Ps2VuUntexturedClipVertex& vertex,
+            const ::float4x4& projection,
+            Ps2VuScreenFrustumPlane plane) {
+            const float clipX = (vertex.ViewPosition.X * projection.M11)
+                + (vertex.ViewPosition.Y * projection.M21)
+                + (vertex.ViewPosition.Z * projection.M31)
+                + projection.M41;
+            const float clipY = (vertex.ViewPosition.X * projection.M12)
+                + (vertex.ViewPosition.Y * projection.M22)
+                + (vertex.ViewPosition.Z * projection.M32)
+                + projection.M42;
+            const float clipW = (vertex.ViewPosition.X * projection.M14)
+                + (vertex.ViewPosition.Y * projection.M24)
+                + (vertex.ViewPosition.Z * projection.M34)
+                + projection.M44;
+
+            if (plane == Ps2VuScreenFrustumPlane::Left) {
+                return clipX + clipW;
+            } else if (plane == Ps2VuScreenFrustumPlane::Right) {
+                return clipW - clipX;
+            } else if (plane == Ps2VuScreenFrustumPlane::Bottom) {
+                return clipY + clipW;
+            }
+
+            return clipW - clipY;
+        }
+
+        void ClipUntexturedPolygonAgainstScreenFrustumPlane(
+            const std::vector<Ps2VuUntexturedClipVertex>& inputVertices,
+            const ::float4x4& projection,
+            Ps2VuScreenFrustumPlane plane,
+            std::vector<Ps2VuUntexturedClipVertex>& outputVertices) {
+            outputVertices.clear();
+            if (inputVertices.empty()) {
+                return;
+            }
+
+            Ps2VuUntexturedClipVertex previous = inputVertices.back();
+            float previousDistance = ResolveUntexturedScreenFrustumPlaneDistance(previous, projection, plane);
+            bool previousInside = previousDistance >= 0.0f;
+            for (const Ps2VuUntexturedClipVertex& current : inputVertices) {
+                const float currentDistance = ResolveUntexturedScreenFrustumPlaneDistance(current, projection, plane);
+                const bool currentInside = currentDistance >= 0.0f;
+                if (currentInside != previousInside) {
+                    const float denominator = currentDistance - previousDistance;
+                    if (std::abs(denominator) > MinimumNearPlaneEpsilon) {
+                        const float amount = -previousDistance / denominator;
+                        outputVertices.push_back(InterpolateUntexturedClipVertex(previous, current, amount));
+                    }
+                }
+
+                if (currentInside) {
+                    outputVertices.push_back(current);
+                }
+
+                previous = current;
+                previousDistance = currentDistance;
+                previousInside = currentInside;
+            }
+        }
+
+        bool IsUntexturedVertexInsideScreenFrustum(
+            const Ps2VuUntexturedClipVertex& vertex,
+            float nearPlaneDistance,
+            const ::float4x4& projection) {
+            if (!IsUntexturedVertexInsideNearPlane(vertex.ViewPosition, nearPlaneDistance)) {
+                return false;
+            }
+
+            return ResolveUntexturedScreenFrustumPlaneDistance(vertex, projection, Ps2VuScreenFrustumPlane::Left) >= 0.0f
+                && ResolveUntexturedScreenFrustumPlaneDistance(vertex, projection, Ps2VuScreenFrustumPlane::Right) >= 0.0f
+                && ResolveUntexturedScreenFrustumPlaneDistance(vertex, projection, Ps2VuScreenFrustumPlane::Bottom) >= 0.0f
+                && ResolveUntexturedScreenFrustumPlaneDistance(vertex, projection, Ps2VuScreenFrustumPlane::Top) >= 0.0f;
+        }
+
+        void ClipUntexturedTriangleAgainstScreenFrustum(
+            const Ps2VuUntexturedClipVertex& first,
+            const Ps2VuUntexturedClipVertex& second,
+            const Ps2VuUntexturedClipVertex& third,
+            float nearPlaneDistance,
+            const ::float4x4& projection,
+            std::vector<Ps2VuUntexturedClipVertex>& clippedVertices) {
+            std::vector<Ps2VuUntexturedClipVertex> inputVertices;
+            inputVertices.reserve(8u);
+            ClipUntexturedTriangleAgainstNearPlane(first, second, third, nearPlaneDistance, inputVertices);
+
+            std::vector<Ps2VuUntexturedClipVertex> outputVertices;
+            outputVertices.reserve(8u);
+            const Ps2VuScreenFrustumPlane planes[] = {
+                Ps2VuScreenFrustumPlane::Left,
+                Ps2VuScreenFrustumPlane::Right,
+                Ps2VuScreenFrustumPlane::Bottom,
+                Ps2VuScreenFrustumPlane::Top
+            };
+            for (Ps2VuScreenFrustumPlane plane : planes) {
+                ClipUntexturedPolygonAgainstScreenFrustumPlane(inputVertices, projection, plane, outputVertices);
+                inputVertices.swap(outputVertices);
+                if (inputVertices.empty()) {
+                    break;
+                }
+            }
+
+            clippedVertices.swap(inputVertices);
         }
 
         bool IsFrontFacingTriangle(float screenAX, float screenAY, float screenBX, float screenBY, float screenCX, float screenCY) {
@@ -791,9 +960,9 @@ namespace helengine::ps2 {
         }
 
         // Opaque VU path invariant:
-        // - no CPU near-plane clipping
-        // - no CPU projection to XYZ2
-        // - no CPU screen-space front-face rejection
+        // - view-frustum crossings are clipped in view space before VU perspective division
+        // - no CPU projection to XYZ2 for untextured triangles
+        // - no CPU screen-space front-face rejection for untextured triangles
         std::uint32_t triangleVertexCount = batch.Model->GetTriangleVertexCount();
         if (triangleVertexCount == 0) {
             return;
@@ -819,6 +988,8 @@ namespace helengine::ps2 {
         std::vector<Ps2VuGifTemplateCacheEntry> gifTemplateCache;
         gifTemplateCache.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);
         Ps2VuUntexturedSharedState sharedStateTemplate {};
+        Ps2VuUntexturedSharedState clippedSharedStateTemplate {};
+        ::float4x4 worldViewMatrix;
         std::vector<std::array<std::uint64_t, TexturedTrianglePacketWordCount>> texturedTrianglePackets;
         texturedTrianglePackets.reserve(static_cast<std::size_t>(triangleVertexCount) / 3u);
         const std::clock_t triangleSetupStartTicks = std::clock();
@@ -856,8 +1027,14 @@ namespace helengine::ps2 {
             const float* packedPositionWords = reinterpret_cast<const float*>(batch.Model->GetPositionBlockBytes());
             const float* packedNormalWords = reinterpret_cast<const float*>(batch.Model->GetNormalBlockBytes());
             PopulateUntexturedSharedState(world, view, projection, viewport, sharedStateTemplate);
+            PopulateUntexturedSharedState(projection, viewport, clippedSharedStateTemplate);
+            ::float4x4 worldCopy = world;
+            ::float4x4 viewCopy = view;
+            ::float4x4::Multiply__ref0_ref1_out2(worldCopy, viewCopy, worldViewMatrix);
             Ps2VuLightingConstants lightingConstants {};
             PopulateLightingConstants(*batch.Material, lightingConstants);
+            std::vector<Ps2VuUntexturedClipVertex> clippedUntexturedVertices;
+            clippedUntexturedVertices.reserve(4u);
             std::clock_t accumulatedTriangleLightingTicks = 0;
             std::clock_t accumulatedTrianglePayloadFillTicks = 0;
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
@@ -887,6 +1064,40 @@ namespace helengine::ps2 {
                 const ::float3 worldFaceNormal = NormalizeOrFallback(
                     TransformPosition(::float4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f), world),
                     ::float3(0.0f, 0.0f, -1.0f));
+                const ::float3 packedPositionA(
+                    packedPositionWords[positionWordIndexA + 0u],
+                    packedPositionWords[positionWordIndexA + 1u],
+                    packedPositionWords[positionWordIndexA + 2u]);
+                const ::float3 packedPositionB(
+                    packedPositionWords[positionWordIndexB + 0u],
+                    packedPositionWords[positionWordIndexB + 1u],
+                    packedPositionWords[positionWordIndexB + 2u]);
+                const ::float3 packedPositionC(
+                    packedPositionWords[positionWordIndexC + 0u],
+                    packedPositionWords[positionWordIndexC + 1u],
+                    packedPositionWords[positionWordIndexC + 2u]);
+                const ::float4 positionA(packedPositionA.X, packedPositionA.Y, packedPositionA.Z, 1.0f);
+                const ::float4 positionB(packedPositionB.X, packedPositionB.Y, packedPositionB.Z, 1.0f);
+                const ::float4 positionC(packedPositionC.X, packedPositionC.Y, packedPositionC.Z, 1.0f);
+                const ::float3 viewPositionA = TransformPosition(positionA, worldViewMatrix);
+                const ::float3 viewPositionB = TransformPosition(positionB, worldViewMatrix);
+                const ::float3 viewPositionC = TransformPosition(positionC, worldViewMatrix);
+                const Ps2VuUntexturedClipVertex untexturedVertexA { viewPositionA };
+                const Ps2VuUntexturedClipVertex untexturedVertexB { viewPositionB };
+                const Ps2VuUntexturedClipVertex untexturedVertexC { viewPositionC };
+                const bool untexturedVertexAInside = IsUntexturedVertexInsideScreenFrustum(untexturedVertexA, nearPlaneDistance, projection);
+                const bool untexturedVertexBInside = IsUntexturedVertexInsideScreenFrustum(untexturedVertexB, nearPlaneDistance, projection);
+                const bool untexturedVertexCInside = IsUntexturedVertexInsideScreenFrustum(untexturedVertexC, nearPlaneDistance, projection);
+                const bool triangleCrossesFrustumBoundary = !(untexturedVertexAInside && untexturedVertexBInside && untexturedVertexCInside);
+                if (!triangleCrossesFrustumBoundary) {
+                    clippedUntexturedVertices.clear();
+                } else {
+                    ClipUntexturedTriangleAgainstScreenFrustum(untexturedVertexA, untexturedVertexB, untexturedVertexC, nearPlaneDistance, projection, clippedUntexturedVertices);
+                }
+
+                if (triangleCrossesFrustumBoundary && clippedUntexturedVertices.size() < 3u) {
+                    continue;
+                }
                 const std::clock_t trianglePrepEndTicks = std::clock();
                 LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
 
@@ -903,25 +1114,32 @@ namespace helengine::ps2 {
                 accumulatedTriangleLightingTicks += (triangleLightingEndTicks - triangleLightingStartTicks);
 
                 const std::clock_t trianglePayloadFillStartTicks = std::clock();
-                Ps2VuUntexturedTrianglePayload payload {};
-                CopyCachedTriangleGifPacketTemplate(batch, flatColor, gsGlobal, gifTemplateCache, payload.TriangleRecord);
-                std::memcpy(&payload.SharedState, &sharedStateTemplate, sizeof(sharedStateTemplate));
-                payload.TriangleRecord.SourceTriangle.PositionA[0] = packedPositionWords[positionWordIndexA + 0u];
-                payload.TriangleRecord.SourceTriangle.PositionA[1] = packedPositionWords[positionWordIndexA + 1u];
-                payload.TriangleRecord.SourceTriangle.PositionA[2] = packedPositionWords[positionWordIndexA + 2u];
-                payload.TriangleRecord.SourceTriangle.PositionA[3] = 1.0f;
-                payload.TriangleRecord.SourceTriangle.PositionB[0] = packedPositionWords[positionWordIndexB + 0u];
-                payload.TriangleRecord.SourceTriangle.PositionB[1] = packedPositionWords[positionWordIndexB + 1u];
-                payload.TriangleRecord.SourceTriangle.PositionB[2] = packedPositionWords[positionWordIndexB + 2u];
-                payload.TriangleRecord.SourceTriangle.PositionB[3] = 1.0f;
-                payload.TriangleRecord.SourceTriangle.PositionC[0] = packedPositionWords[positionWordIndexC + 0u];
-                payload.TriangleRecord.SourceTriangle.PositionC[1] = packedPositionWords[positionWordIndexC + 1u];
-                payload.TriangleRecord.SourceTriangle.PositionC[2] = packedPositionWords[positionWordIndexC + 2u];
-                payload.TriangleRecord.SourceTriangle.PositionC[3] = 1.0f;
-                untexturedTrianglePayloads.push_back(payload);
+                const std::size_t emittedTriangleCount = triangleCrossesFrustumBoundary ? clippedUntexturedVertices.size() - 2u : 1u;
+                for (std::size_t clippedIndex = 0u; clippedIndex < emittedTriangleCount; clippedIndex++) {
+                    const ::float3& emittedPositionA = triangleCrossesFrustumBoundary ? clippedUntexturedVertices[0u].ViewPosition : packedPositionA;
+                    const ::float3& emittedPositionB = triangleCrossesFrustumBoundary ? clippedUntexturedVertices[clippedIndex + 1u].ViewPosition : packedPositionB;
+                    const ::float3& emittedPositionC = triangleCrossesFrustumBoundary ? clippedUntexturedVertices[clippedIndex + 2u].ViewPosition : packedPositionC;
+                    Ps2VuUntexturedTrianglePayload payload {};
+                    CopyCachedTriangleGifPacketTemplate(batch, flatColor, gsGlobal, gifTemplateCache, payload.TriangleRecord);
+                    const Ps2VuUntexturedSharedState& emittedSharedState = triangleCrossesFrustumBoundary ? clippedSharedStateTemplate : sharedStateTemplate;
+                    std::memcpy(&payload.SharedState, &emittedSharedState, sizeof(emittedSharedState));
+                    payload.TriangleRecord.SourceTriangle.PositionA[0] = emittedPositionA.X;
+                    payload.TriangleRecord.SourceTriangle.PositionA[1] = emittedPositionA.Y;
+                    payload.TriangleRecord.SourceTriangle.PositionA[2] = emittedPositionA.Z;
+                    payload.TriangleRecord.SourceTriangle.PositionA[3] = 1.0f;
+                    payload.TriangleRecord.SourceTriangle.PositionB[0] = emittedPositionB.X;
+                    payload.TriangleRecord.SourceTriangle.PositionB[1] = emittedPositionB.Y;
+                    payload.TriangleRecord.SourceTriangle.PositionB[2] = emittedPositionB.Z;
+                    payload.TriangleRecord.SourceTriangle.PositionB[3] = 1.0f;
+                    payload.TriangleRecord.SourceTriangle.PositionC[0] = emittedPositionC.X;
+                    payload.TriangleRecord.SourceTriangle.PositionC[1] = emittedPositionC.Y;
+                    payload.TriangleRecord.SourceTriangle.PositionC[2] = emittedPositionC.Z;
+                    payload.TriangleRecord.SourceTriangle.PositionC[3] = 1.0f;
+                    untexturedTrianglePayloads.push_back(payload);
+                }
                 const std::clock_t trianglePayloadFillEndTicks = std::clock();
                 accumulatedTrianglePayloadFillTicks += (trianglePayloadFillEndTicks - trianglePayloadFillStartTicks);
-                SubmittedTriangleCount++;
+                SubmittedTriangleCount += emittedTriangleCount;
                 const std::clock_t triangleEmitEndTicks = std::clock();
                 LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
                 if (EnableVuSingleDispatchDiagnostic) {
