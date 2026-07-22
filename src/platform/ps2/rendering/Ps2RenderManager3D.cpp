@@ -1218,8 +1218,6 @@ namespace helengine::ps2 {
                 continue;
             }
 
-            WaitForVif1BeforePacketReuse();
-            ReleaseVuPacketSlot(ActiveVuPacketSlotIndex);
             VuGifStateEncoder.EncodeOpaqueState(batch, GsGlobal);
             VuVifPacketBuilder.Reset();
             const std::clock_t vuPacketEncodeStartTicks = std::clock();
@@ -1328,6 +1326,8 @@ namespace helengine::ps2 {
                     packet2_free(gifPacket);
                 }
             } else {
+                WaitForVif1BeforePacketReuse();
+                ReleaseVuPacketSlot(ActiveVuPacketSlotIndex);
                 VuPacketSlots[ActiveVuPacketSlotIndex] = VuVifPacketBuilder.ReleasePacket();
                 packet = VuPacketSlots[ActiveVuPacketSlotIndex];
                 if (packet == nullptr) {

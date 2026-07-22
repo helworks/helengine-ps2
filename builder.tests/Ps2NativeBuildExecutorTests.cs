@@ -1186,6 +1186,27 @@ private:
     }
 
     /// <summary>
+    /// Ensures the EE encodes the next normal opaque VIF packet before waiting for VIF1 to become reusable.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenSubmittingOpaqueVuPacket_WaitsImmediatelyBeforeDmaSubmission() {
+        string root = ResolveRepositoryRoot();
+        string source = File.ReadAllText(Path.Combine(root, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp"));
+        string normalSubmitBranch = ExtractSourceRange(
+            source,
+            "const bool useDirectGifDispatchDiagnostics = EnableVuDirectGifDispatchDiagnostics;",
+            "            (void)viewport;");
+
+        Assert.Contains("WaitForVif1BeforePacketReuse();", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.Contains("ReleaseVuPacketSlot(ActiveVuPacketSlotIndex);", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.Contains("dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);", normalSubmitBranch, StringComparison.Ordinal);
+        Assert.True(
+            normalSubmitBranch.IndexOf("WaitForVif1BeforePacketReuse();", StringComparison.Ordinal)
+                < normalSubmitBranch.IndexOf("dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);", StringComparison.Ordinal),
+            "Expected the VIF1 reuse wait to occur immediately before normal DMA submission.");
+    }
+
+    /// <summary>
     /// Resolves the repository root path from the current test binary location.
     /// </summary>
     /// <returns>Absolute repository root path.</returns>
