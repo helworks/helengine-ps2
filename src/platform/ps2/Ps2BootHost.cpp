@@ -186,6 +186,7 @@ namespace {
     constexpr float CubeTriangle2dVertexB2X = 428.156738f;
     constexpr float CubeTriangle2dVertexB2Y = 115.843239f;
     constexpr float CubeTriangle3dDiagnosticDepth = 1.0f;
+    constexpr const char* FrameTimingOverlayBuildNumber = "B14";
     bool DebugConsoleReady = false;
     bool CubeDiagnosticsShown = false;
     bool CubeRuntimeDiagnosticsCompleted = false;
@@ -824,7 +825,8 @@ namespace {
             + " fps="
             + std::to_string(averageFramesPerSecond));
         FrameTimingOverlayLine1 =
-            std::string("FPS ")
+            std::string(FrameTimingOverlayBuildNumber)
+            + " FPS "
             + FormatOverlayMilliseconds(averageFramesPerSecond)
             + " Set "
             + FormatOverlayMilliseconds(averageSetMilliseconds)
@@ -842,12 +844,12 @@ namespace {
         FrameTimingOverlayDetailLine =
             std::string("Enc ")
             + FormatOverlayMilliseconds(averageVuPacketEncodeMilliseconds)
-            + " Vif "
-            + FormatOverlayMilliseconds(averageVuWaitMilliseconds)
-            + " Sub "
-            + FormatOverlayMilliseconds(averageVuSubmitMilliseconds)
-            + " Gif "
-            + FormatOverlayMilliseconds(averageGifDrainMilliseconds);
+            + " Leg "
+            + FormatOverlayMilliseconds(averageLegacyOpaqueMilliseconds)
+            + " Tri "
+            + std::to_string(static_cast<int>(averageLegacyOpaqueTriangleCount))
+            + " Pkt "
+            + FormatOverlayMilliseconds(averageVuBatchDispatchCount);
         FrameTimingOverlayAdditionalText =
             std::string("Leg ")
             + FormatOverlayMilliseconds(averageLegacyOpaqueMilliseconds)
@@ -3035,7 +3037,8 @@ namespace helengine::ps2 {
                                     textDrawable->set_Text(FrameTimingOverlayLine1);
                                 } else if (currentText.rfind("Render FPS:", 0) == 0
                                     || currentText.rfind("Rdr", 0) == 0
-                                    || currentText.rfind("Drw", 0) == 0) {
+                                    || currentText.rfind("Drw", 0) == 0
+                                    || currentText.rfind("Enc", 0) == 0) {
                                     textDrawable->set_Text(FrameTimingOverlayDetailLine);
                                 }
                             }

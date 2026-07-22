@@ -1168,6 +1168,23 @@ private:
     }
 
     /// <summary>
+    /// Ensures consecutive compatible untextured batches are encoded into bounded aggregate VIF packets instead of rebuilding one packet per batch.
+    /// </summary>
+    [Fact]
+    public void Ps2Renderer_WhenOpaqueUntexturedBatchesShareMaterial_AggregatesOneBoundedVifPacket() {
+        string root = ResolveRepositoryRoot();
+        string builderHeader = File.ReadAllText(Path.Combine(root, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.hpp"));
+        string builderSource = File.ReadAllText(Path.Combine(root, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        string managerSource = File.ReadAllText(Path.Combine(root, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp"));
+
+        Assert.Contains("std::size_t AddOpaqueUntexturedBatches(", builderHeader, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::uint16_t MaximumOpaqueUntexturedPacketQwords", builderSource, StringComparison.Ordinal);
+        Assert.Contains("BuildCompatibleUntexturedGroups", managerSource, StringComparison.Ordinal);
+        Assert.Contains("LastPerformanceMetrics.CompatibleUntexturedGroupCount", managerSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("VuVifPacketBuilder.Reset();\n            const std::clock_t vuPacketEncodeStartTicks", managerSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures a VIF packet remains renderer-owned until VIF1 has completed its DMA read.
     /// </summary>
     [Fact]

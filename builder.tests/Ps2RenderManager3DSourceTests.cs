@@ -364,7 +364,7 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
-    /// Ensures the PS2 host records the existing GIF drain boundary in the renderer metrics and displays unambiguous timing labels.
+    /// Ensures the PS2 host records the existing GIF drain boundary in the renderer metrics even when the compact overlay shows higher-priority counters.
     /// </summary>
     [Fact]
     public void Ps2BootHost_WhenCollectingFrameTiming_RecordsGifDrainInRendererMetrics() {
@@ -373,8 +373,8 @@ public sealed class Ps2RenderManager3DSourceTests {
 
         Assert.Contains("RenderManager3DBackend.SetLastGifDrainMilliseconds(", source, StringComparison.Ordinal);
         Assert.Contains("GetLastPerformanceMetrics()", source, StringComparison.Ordinal);
-        Assert.Contains("Gif ", source, StringComparison.Ordinal);
-        Assert.Contains("Vif ", source, StringComparison.Ordinal);
+        Assert.Contains("FrameTimingGifDrainMilliseconds += metrics.GifDrainMilliseconds;", source, StringComparison.Ordinal);
+        Assert.Contains("FrameTimingVifPacketByteCount += static_cast<double>(metrics.VifPacketByteCount);", source, StringComparison.Ordinal);
         Assert.Contains("Leg ", source, StringComparison.Ordinal);
     }
 
@@ -388,6 +388,36 @@ public sealed class Ps2RenderManager3DSourceTests {
 
         Assert.Contains("textDrawable->set_Text(FrameTimingOverlayDetailLine);", source, StringComparison.Ordinal);
         Assert.DoesNotContain("textDrawable->set_Text(FrameTimingOverlayLine2);", source, StringComparison.Ordinal);
+        Assert.Contains("currentText.rfind(\"Enc\", 0) == 0", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the visible PS2 FPS overlay begins with the manually incremented build number used to distinguish stale ISO images.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenPublishingFrameTiming_PrefixesTheFpsRowWithBuildNumberB14() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B14\";", source, StringComparison.Ordinal);
+        Assert.Contains("std::string(FrameTimingOverlayBuildNumber)\n            + \" FPS \"", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures disabled fine-grained VU diagnostics do not spend PS2 EE time reading the clock for every untextured triangle.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenPerTriangleTimingIsDisabled_DoesNotReadClockForEachUntexturedTriangle() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+        int untexturedBranchStartIndex = source.IndexOf("std::vector<Ps2VuUntexturedClipVertex> clippedUntexturedVertices;", StringComparison.Ordinal);
+        int texturedBranchStartIndex = source.IndexOf("std::vector<Ps2VuTexturedClipVertex> clippedTexturedVertices;", untexturedBranchStartIndex, StringComparison.Ordinal);
+        Assert.True(untexturedBranchStartIndex >= 0, "Expected the untextured VU triangle encoding branch.");
+        Assert.True(texturedBranchStartIndex > untexturedBranchStartIndex, "Expected the textured VU triangle encoding branch after the untextured branch.");
+        string untexturedBranch = source[untexturedBranchStartIndex..texturedBranchStartIndex];
+
+        Assert.DoesNotContain("const std::clock_t trianglePrepStartTicks = std::clock();", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("if (EnableVuPerTriangleTimingDiagnostics) {", untexturedBranch, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -470,7 +500,7 @@ public sealed class Ps2RenderManager3DSourceTests {
     /// Ensures textured opaque proxies use the established CPU/GIF path while the experimental textured VU packet path remains unsafe for scene geometry.
     /// </summary>
     [Fact]
-    public void Ps2RenderManager3D_WhenRenderingTexturedOpaqueBatches_UsesLegacyCpuPath() {
+    public void Ps2RenderManager3D_WhenRenderingTexturedOpaqueBatches_UsesVuPathByDefault() {
         string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
         Assert.True(File.Exists(sourcePath), $"Expected PS2 render manager source at '{sourcePath}'.");
 
@@ -479,7 +509,7 @@ public sealed class Ps2RenderManager3DSourceTests {
         Assert.True(renderOpaqueIndex >= 0, "Expected PS2 render manager VU opaque render path.");
         string renderOpaqueBody = source.Substring(renderOpaqueIndex, Math.Min(9000, source.Length - renderOpaqueIndex));
 
-        Assert.Contains("constexpr bool EnableLegacyCpuTexturedOpaquePath = true;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableLegacyCpuTexturedOpaquePath = false;", source, StringComparison.Ordinal);
         Assert.Contains("if (EnableLegacyCpuTexturedOpaquePath && batch.Textured) {", renderOpaqueBody, StringComparison.Ordinal);
         Assert.Contains("DrawOpaqueProxyLegacyTimed(*batch.Proxy, view, projection, viewport, nearPlaneDistance);", renderOpaqueBody, StringComparison.Ordinal);
     }
@@ -500,6 +530,49 @@ public sealed class Ps2RenderManager3DSourceTests {
         Assert.Contains("const std::uint32_t gsZ = static_cast<std::uint32_t>(gsDepth * static_cast<float>(MaximumGsDepth));", source, StringComparison.Ordinal);
         Assert.Contains("vertex.xyz2 = vertex_to_XYZ2(gsGlobal, screenX, screenY, static_cast<int>(gsZ));", source, StringComparison.Ordinal);
         Assert.Contains("gsKit_prim_list_triangle_goraud_texture_stq_3d(", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures textured VU GIF packets preserve perspective-correct coordinates instead of reverting to affine UV interpolation.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingTexturedTriangles_UsesPerspectiveCorrectStqCoordinates() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("GS_ST", source, StringComparison.Ordinal);
+        Assert.Contains("PRIM_MAP_ST", source, StringComparison.Ordinal);
+        Assert.Contains("vertex_to_STQ", source, StringComparison.Ordinal);
+        Assert.Contains("rgba_to_RGBAQ", source, StringComparison.Ordinal);
+        Assert.Contains("gsGlobal->PrimAAEnable,\n                0,\n                gsGlobal->PrimContext", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("packetWords[packetWordIndex++] = triangleColor;", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("static_cast<std::uint64_t>(GIF_REG_UV) << 4u", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("prim.mapping_type = PRIM_MAP_UV;", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures textured VU triangles receive the same complete screen-frustum clipping that protects untextured geometry near the camera.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenTexturedTriangleCrossesCameraBoundary_ClipsTheCompleteScreenFrustum() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("IsTexturedVertexInsideScreenFrustum", source, StringComparison.Ordinal);
+        Assert.Contains("ClipTexturedTriangleAgainstScreenFrustum", source, StringComparison.Ordinal);
+        Assert.Contains("ClipTexturedPolygonAgainstScreenFrustumPlane", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures opaque textured VU triangles reject backfaces after clipping has produced stable projected vertices.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingOpaqueTexturedTriangles_CullsBackfacesAfterProjection() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("if (!IsFrontFacingTriangle(screenAX, screenAY, screenBX, screenBY, screenCX, screenCY)) {", source, StringComparison.Ordinal);
+        Assert.Contains("texturedCullRejectCount++;", source, StringComparison.Ordinal);
     }
 
     /// <summary>
