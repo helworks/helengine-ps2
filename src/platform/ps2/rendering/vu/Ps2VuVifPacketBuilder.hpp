@@ -33,6 +33,7 @@ namespace helengine::ps2 {
             const std::vector<int>& textureWidths,
             const std::vector<int>& textureHeights);
         packet2_t* GetPacket() const;
+        packet2_t* ReleasePacket();
         std::size_t GetPacketByteCount() const;
         const std::vector<std::uint8_t>& GetGifPacketBytes() const;
         std::uint32_t GetLastCompletedPhase() const;
