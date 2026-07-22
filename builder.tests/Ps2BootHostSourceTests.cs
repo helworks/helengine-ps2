@@ -399,6 +399,23 @@ public sealed class Ps2BootHostSourceTests {
     }
 
     /// <summary>
+    /// Ensures render-only PS2 builds can compile without generating the optional physics registration header.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenPhysicsRegistrationHeaderIsAbsent_UsesAnOptionalRegistrationInclude() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("#if __has_include(\"Physics3DRuntimeComponentRegistration.hpp\")", source, StringComparison.Ordinal);
+        Assert.Contains("#define HE_PS2_HAS_PHYSICS3D_RUNTIME_REGISTRATION 1", source, StringComparison.Ordinal);
+        Assert.Contains("#define HE_PS2_HAS_PHYSICS3D_RUNTIME_REGISTRATION 0", source, StringComparison.Ordinal);
+        Assert.Contains("#if HE_PS2_HAS_PHYSICS3D_RUNTIME_REGISTRATION", source, StringComparison.Ordinal);
+        Assert.Contains("#endif", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures PS2 debug boot diagnostics consume the shared engine-owned scene-load timing contract instead of defining PS2-specific timing boundaries.
     /// </summary>
     [Fact]

@@ -96,7 +96,12 @@
 #include "RuntimeSceneCatalogEntry.hpp"
 #include "SceneLoadMode.hpp"
 #include "RuntimeTexture.hpp"
+#if __has_include("Physics3DRuntimeComponentRegistration.hpp")
+#define HE_PS2_HAS_PHYSICS3D_RUNTIME_REGISTRATION 1
 #include "Physics3DRuntimeComponentRegistration.hpp"
+#else
+#define HE_PS2_HAS_PHYSICS3D_RUNTIME_REGISTRATION 0
+#endif
 #include "Ps2TextureAsset.hpp"
 #include "system/io/file.hpp"
 #include "system/io/memory-stream.hpp"
@@ -2524,6 +2529,7 @@ namespace helengine::ps2 {
             EngineOptions);
         EngineCore->SetAudioBackend(EngineAudioBackend);
         BootLog("core initialized");
+#if HE_PS2_HAS_PHYSICS3D_RUNTIME_REGISTRATION
         if (EnablePackagedPhysics3DRegistration && HasPackagedPhysics3DScenes()) {
             if (EnablePhysicsWarmupTrace) {
                 HostLogLabeledMemoryDiagnostics("before-physics-register", EngineCore);
@@ -2535,6 +2541,7 @@ namespace helengine::ps2 {
                 HostLogLabeledMemoryDiagnostics("after-physics-register", EngineCore);
             }
         }
+#endif
         return true;
     }
 
