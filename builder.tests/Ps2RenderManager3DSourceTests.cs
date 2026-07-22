@@ -386,6 +386,21 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures the active CPU textured primitive path uses the GS STQ perspective-correction mode rather than affine UV coordinates.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenDrawingOpaqueTexturedTriangles_UsesPerspectiveCorrectStqCoordinates() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 render manager source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("GSPRIMSTQPOINT ResolvePerspectiveTextureVertex(", source, StringComparison.Ordinal);
+        Assert.Contains("vertex.stq = vertex_to_STQ(normalizedTexCoord.X * q, normalizedTexCoord.Y * q);", source, StringComparison.Ordinal);
+        Assert.Contains("gsKit_prim_list_triangle_goraud_texture_stq_3d(", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Resolves the PS2 repository root from the executing test binary directory.
     /// </summary>
     /// <returns>Absolute PS2 repository root path.</returns>

@@ -17,6 +17,7 @@
 #include <debug.h>
 #include <draw.h>
 #include <gsKit.h>
+#include <gsInline.h>
 #include <packet2.h>
 
 #include "ContentManager.hpp"
@@ -353,6 +354,29 @@ namespace helengine::ps2 {
             return ::float2(
                 normalizedTexCoord.X * static_cast<float>(texture->Width),
                 normalizedTexCoord.Y * static_cast<float>(texture->Height));
+        }
+
+        float ResolveProjectionClipW(const ::float3& viewPosition, const ::float4x4& projection) {
+            return (viewPosition.X * projection.M14)
+                + (viewPosition.Y * projection.M24)
+                + (viewPosition.Z * projection.M34)
+                + projection.M44;
+        }
+
+        GSPRIMSTQPOINT ResolvePerspectiveTextureVertex(
+            const GSGLOBAL* gsGlobal,
+            float screenX,
+            float screenY,
+            float screenZ,
+            const ::float2& normalizedTexCoord,
+            float clipW,
+            std::uint64_t color) {
+            const float q = 1.0f / clipW;
+            GSPRIMSTQPOINT vertex;
+            vertex.rgbaq = rgba_to_RGBAQ(static_cast<std::uint32_t>(color), q);
+            vertex.stq = vertex_to_STQ(normalizedTexCoord.X * q, normalizedTexCoord.Y * q);
+            vertex.xyz2 = vertex_to_XYZ2(gsGlobal, screenX, screenY, static_cast<int>(screenZ));
+            return vertex;
         }
 
         std::uint8_t InterpolateComponent(std::uint8_t start, std::uint8_t end, float amount) {
@@ -1674,16 +1698,33 @@ namespace helengine::ps2 {
                 LastSubmittedTriangleCount++;
 
                 if (useTexture) {
-                    const ::float2 screenTexCoordA = ResolveGsTextureCoordinate(clippedA.TexCoord, texture);
-                    const ::float2 screenTexCoordB = ResolveGsTextureCoordinate(clippedB.TexCoord, texture);
-                    const ::float2 screenTexCoordC = ResolveGsTextureCoordinate(clippedC.TexCoord, texture);
-                    gsKit_prim_triangle_goraud_texture_3d(
-                        GsGlobal,
-                        texture,
-                        screenAX, screenAY, screenAZ, screenTexCoordA.X, screenTexCoordA.Y,
-                        screenBX, screenBY, screenBZ, screenTexCoordB.X, screenTexCoordB.Y,
-                        screenCX, screenCY, screenCZ, screenTexCoordC.X, screenTexCoordC.Y,
-                        clippedColorA, clippedColorB, clippedColorC);
+                    const GSPRIMSTQPOINT texturedVertices[] = {
+                        ResolvePerspectiveTextureVertex(
+                            GsGlobal,
+                            screenAX,
+                            screenAY,
+                            screenAZ,
+                            clippedA.TexCoord,
+                            ResolveProjectionClipW(clippedA.ViewPosition, projection),
+                            clippedColorA),
+                        ResolvePerspectiveTextureVertex(
+                            GsGlobal,
+                            screenBX,
+                            screenBY,
+                            screenBZ,
+                            clippedB.TexCoord,
+                            ResolveProjectionClipW(clippedB.ViewPosition, projection),
+                            clippedColorB),
+                        ResolvePerspectiveTextureVertex(
+                            GsGlobal,
+                            screenCX,
+                            screenCY,
+                            screenCZ,
+                            clippedC.TexCoord,
+                            ResolveProjectionClipW(clippedC.ViewPosition, projection),
+                            clippedColorC)
+                    };
+                    gsKit_prim_list_triangle_goraud_texture_stq_3d(GsGlobal, texture, 3, texturedVertices);
                 } else {
                     gsKit_prim_triangle_gouraud_3d(
                         GsGlobal,
