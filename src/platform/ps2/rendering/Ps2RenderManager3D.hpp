@@ -98,6 +98,7 @@ namespace helengine::ps2 {
         void ReleaseVuPacketSlot(std::size_t slotIndex);
         void WaitForVif1BeforePacketReuse();
         ::float4x4 BuildWorldMatrix(const Ps2RenderProxy& proxy) const;
+        bool CanUseTexturedVuFastPath(const Ps2VuOpaqueBatch& batch, const ::float4x4& world, const ::float4x4& view, const ::float4x4& projection, float nearPlaneDistance) const;
         void DrawOpaqueProxyLegacy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
         void DrawOpaqueProxyLegacyTimed(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
         void DrawOpaqueProxy(const Ps2RenderProxy& proxy, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);

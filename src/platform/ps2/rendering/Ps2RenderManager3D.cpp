@@ -1302,13 +1302,13 @@ namespace helengine::ps2 {
         LastVuRejectedMissingMaterialCount = VuOpaqueBatchBuilder.GetLastRejectedMissingMaterialCount();
         LastVuRejectedMissingModelCount = VuOpaqueBatchBuilder.GetLastRejectedMissingModelCount();
         LastVuRejectedMissingPackedModelCount = VuOpaqueBatchBuilder.GetLastRejectedMissingPackedModelCount();
-        std::vector<Ps2VuOpaqueBatchSlice> texturedBatches;
+        std::vector<Ps2VuOpaqueBatchSlice> cpuFallbackTexturedBatches;
         std::vector<::float4x4> texturedWorlds;
         std::vector<GSTEXTURE*> texturedTextures;
         std::vector<int> texturedTextureWidths;
         std::vector<int> texturedTextureHeights;
         std::vector<Ps2VuOpaqueBatch> runtimeWhiteTexturedBatches;
-        texturedBatches.reserve(batches.size());
+        cpuFallbackTexturedBatches.reserve(batches.size());
         texturedWorlds.reserve(batches.size());
         texturedTextures.reserve(batches.size());
         texturedTextureWidths.reserve(batches.size());
@@ -1356,7 +1356,8 @@ namespace helengine::ps2 {
                     + " hasTexturePath=" + std::to_string(batch.Material != nullptr && batch.Material->HasTextureRelativePath() ? 1 : 0)
                     + " texturePath=" + (batch.Material != nullptr && batch.Material->HasTextureRelativePath() ? batch.Material->GetTextureRelativePath() : std::string("none"))
                     + " textureResolved=" + std::to_string(batchTexture != nullptr ? 1 : 0)
-                    + " textureSize=" + std::to_string(batchTextureWidth) + "x" + std::to_string(batchTextureHeight));
+                    + " textureSize=" + std::to_string(batchTextureWidth) + "x" + std::to_string(batchTextureHeight)
+                    + " vuFastPathEligible=" + std::to_string(CanUseTexturedVuFastPath(batch, world, view, projection, nearPlaneDistance) ? 1 : 0));
             }
 
             if (EnableLegacyCpuTexturedOpaquePath && batch.Textured) {
@@ -1382,7 +1383,7 @@ namespace helengine::ps2 {
                     *texturedBatch,
                     MaximumBoundedTexturedAggregateSourceTriangleCount);
                 for (const Ps2VuOpaqueBatchSlice& batchSlice : batchSlices) {
-                    texturedBatches.push_back(batchSlice);
+                    cpuFallbackTexturedBatches.push_back(batchSlice);
                     texturedWorlds.push_back(world);
                     texturedTextures.push_back(batchTexture);
                     texturedTextureWidths.push_back(batchTextureWidth);
@@ -1676,20 +1677,20 @@ namespace helengine::ps2 {
             (void)nearPlaneDistance;
         }
 
-        if (texturedBatches.empty()) {
+        if (cpuFallbackTexturedBatches.empty()) {
             return;
         }
 
         std::size_t firstTexturedBatchIndex = 0u;
-        while (firstTexturedBatchIndex < texturedBatches.size()) {
-            const std::size_t nextTexturedBatchIndex = ResolveBoundedTexturedAggregatePacketEnd(texturedBatches, firstTexturedBatchIndex);
+        while (firstTexturedBatchIndex < cpuFallbackTexturedBatches.size()) {
+            const std::size_t nextTexturedBatchIndex = ResolveBoundedTexturedAggregatePacketEnd(cpuFallbackTexturedBatches, firstTexturedBatchIndex);
             if (nextTexturedBatchIndex <= firstTexturedBatchIndex) {
                 throw std::runtime_error("PS2 textured VU aggregation could not form a non-empty bounded packet slice.");
             }
 
             std::vector<Ps2VuOpaqueBatchSlice> packetTexturedBatches(
-                texturedBatches.begin() + firstTexturedBatchIndex,
-                texturedBatches.begin() + nextTexturedBatchIndex);
+                cpuFallbackTexturedBatches.begin() + firstTexturedBatchIndex,
+                cpuFallbackTexturedBatches.begin() + nextTexturedBatchIndex);
             std::vector<::float4x4> packetTexturedWorlds(
                 texturedWorlds.begin() + firstTexturedBatchIndex,
                 texturedWorlds.begin() + nextTexturedBatchIndex);
@@ -1886,6 +1887,53 @@ namespace helengine::ps2 {
         ::float4x4::Multiply__ref0_ref1_out2(scaleMatrix, rotationMatrix, scaleRotationMatrix);
         ::float4x4::Multiply__ref0_ref1_out2(scaleRotationMatrix, translationMatrix, worldMatrix);
         return worldMatrix;
+    }
+
+    bool Ps2RenderManager3D::CanUseTexturedVuFastPath(
+        const Ps2VuOpaqueBatch& batch,
+        const ::float4x4& world,
+        const ::float4x4& view,
+        const ::float4x4& projection,
+        float nearPlaneDistance) const {
+        if (batch.Proxy == nullptr) {
+            return false;
+        }
+
+        const Ps2RuntimeModel* model = batch.Proxy->GetModel();
+        if (model == nullptr) {
+            return false;
+        }
+
+        ::float4x4 worldView;
+        ::float4x4::Multiply__ref0_ref1_out2(world, view, worldView);
+        const ::float3& boundsMinimum = model->GetBoundsMinimum();
+        const ::float3& boundsMaximum = model->GetBoundsMaximum();
+        const float boundX[] = { boundsMinimum.X, boundsMaximum.X };
+        const float boundY[] = { boundsMinimum.Y, boundsMaximum.Y };
+        const float boundZ[] = { boundsMinimum.Z, boundsMaximum.Z };
+        bool allBoundsInside = true;
+
+        for (std::size_t xIndex = 0u; xIndex < 2u; xIndex++) {
+            for (std::size_t yIndex = 0u; yIndex < 2u; yIndex++) {
+                for (std::size_t zIndex = 0u; zIndex < 2u; zIndex++) {
+                    const ::float3 viewPosition = TransformPosition(::float3(boundX[xIndex], boundY[yIndex], boundZ[zIndex]), worldView);
+                    const float clipX = (viewPosition.X * projection.M11) + (viewPosition.Y * projection.M21) + (viewPosition.Z * projection.M31) + projection.M41;
+                    const float clipY = (viewPosition.X * projection.M12) + (viewPosition.Y * projection.M22) + (viewPosition.Z * projection.M32) + projection.M42;
+                    const float clipW = (viewPosition.X * projection.M14) + (viewPosition.Y * projection.M24) + (viewPosition.Z * projection.M34) + projection.M44;
+                    const bool isInside = viewPosition.Z < -(nearPlaneDistance + MinimumNearPlaneEpsilon)
+                        && clipW > MinimumClipW
+                        && (clipX + clipW) > MinimumNearPlaneEpsilon
+                        && (clipW - clipX) > MinimumNearPlaneEpsilon
+                        && (clipY + clipW) > MinimumNearPlaneEpsilon
+                        && (clipW - clipY) > MinimumNearPlaneEpsilon;
+                    if (!isInside) {
+                        allBoundsInside = false;
+                    }
+                }
+            }
+        }
+
+        return allBoundsInside;
     }
 
     void Ps2RenderManager3D::SetGsGlobal(GSGLOBAL* gsGlobal) {
