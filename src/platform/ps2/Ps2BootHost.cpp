@@ -186,7 +186,7 @@ namespace {
     constexpr float CubeTriangle2dVertexB2X = 428.156738f;
     constexpr float CubeTriangle2dVertexB2Y = 115.843239f;
     constexpr float CubeTriangle3dDiagnosticDepth = 1.0f;
-    constexpr const char* FrameTimingOverlayBuildNumber = "B61";
+    constexpr const char* FrameTimingOverlayBuildNumber = "B62";
     bool DebugConsoleReady = false;
     bool CubeDiagnosticsShown = false;
     bool CubeRuntimeDiagnosticsCompleted = false;
@@ -747,6 +747,7 @@ namespace {
         const double averageDraw2dMilliseconds = (FrameTimingDraw2dSeconds / sampledFrameCount) * 1000.0;
         const double averageDrawMilliseconds = (FrameTimingDrawSeconds / sampledFrameCount) * 1000.0;
         const double averagePresentMilliseconds = (FrameTimingPresentSeconds / sampledFrameCount) * 1000.0;
+        const double averageRenderMilliseconds = averageDraw3dMilliseconds + averageGifWaitMilliseconds;
         const double averageProxySyncMilliseconds = FrameTimingProxySyncMilliseconds / sampledFrameCount;
         const double averageFramePlanMilliseconds = FrameTimingFramePlanMilliseconds / sampledFrameCount;
         const double averageVuBatchBuildMilliseconds = FrameTimingVuBatchBuildMilliseconds / sampledFrameCount;
@@ -845,7 +846,11 @@ namespace {
             + " Prs "
             + FormatOverlayMilliseconds(averagePresentMilliseconds);
         FrameTimingOverlayDetailLine =
-            std::string("Enc ")
+            std::string("Drw ")
+            + FormatOverlayMilliseconds(averageRenderMilliseconds)
+            + " 3D "
+            + FormatOverlayMilliseconds(averageDraw3dMilliseconds)
+            + " Enc "
             + FormatOverlayMilliseconds(averageVuPacketEncodeMilliseconds)
             + " Vif "
             + FormatOverlayMilliseconds(averageVuWaitMilliseconds)
