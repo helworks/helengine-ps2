@@ -414,7 +414,10 @@ public sealed class Ps2RenderManager3DSourceTests {
         Assert.Contains("constexpr const char* StartupSceneDiagnosticOverrideId = \"colored_cube_grid\";", source, StringComparison.Ordinal);
         Assert.Contains("const double averageFrameMilliseconds = averageFramesPerSecond <= 0.0 ? 0.0 : 1000.0 / averageFramesPerSecond;", source, StringComparison.Ordinal);
         Assert.Contains("+ \" ms\"", source, StringComparison.Ordinal);
-        Assert.Contains("FrameTimingOverlayDetailLine =\n            std::string(\"Enc \")", source, StringComparison.Ordinal);
+        Assert.Contains("const double averageRenderMilliseconds = averageDraw3dMilliseconds + averageGifWaitMilliseconds;", source, StringComparison.Ordinal);
+        Assert.Contains("FrameTimingOverlayDetailLine =\n            std::string(\"Drw \")", source, StringComparison.Ordinal);
+        Assert.Contains("+ \" 3D \"", source, StringComparison.Ordinal);
+        Assert.Contains("+ \" Enc \"", source, StringComparison.Ordinal);
         Assert.Contains("+ \" Vif \"", source, StringComparison.Ordinal);
         Assert.Contains("+ \" Gif \"\n            + FormatOverlayMilliseconds(averageGifDrainMilliseconds)", source, StringComparison.Ordinal);
         Assert.Contains("FrameTimingOverlayAdditionalText =\n            std::string(\"Pkt \")", source, StringComparison.Ordinal);
