@@ -1971,8 +1971,10 @@ namespace helengine::ps2 {
             return false;
         }
 
+        ::float4x4 worldCopy = world;
+        ::float4x4 viewCopy = view;
         ::float4x4 worldView;
-        ::float4x4::Multiply__ref0_ref1_out2(world, view, worldView);
+        ::float4x4::Multiply__ref0_ref1_out2(worldCopy, viewCopy, worldView);
         const ::float3& boundsMinimum = model->GetBoundsMinimum();
         const ::float3& boundsMaximum = model->GetBoundsMaximum();
         const float boundX[] = { boundsMinimum.X, boundsMaximum.X };
