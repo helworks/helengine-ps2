@@ -31,6 +31,16 @@ namespace helengine::ps2 {
             const ::float3& lightDirection,
             GSGLOBAL* gsGlobal,
             bool createVifPacket);
+        void AddOpaqueTexturedVuBatches(
+            const std::vector<Ps2VuOpaqueBatchSlice>& batches,
+            const std::vector<::float4x4>& worlds,
+            const ::float4x4& view,
+            const ::float4x4& projection,
+            const ::float4& viewport,
+            GSGLOBAL* gsGlobal,
+            const std::vector<GSTEXTURE*>& textures,
+            const std::vector<int>& textureWidths,
+            const std::vector<int>& textureHeights);
         void AddOpaqueTexturedBatches(
             const std::vector<Ps2VuOpaqueBatchSlice>& batches,
             const std::vector<::float4x4>& worlds,

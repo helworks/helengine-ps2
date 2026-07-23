@@ -53,6 +53,7 @@ namespace helengine::ps2 {
         constexpr std::size_t UntexturedTriangleDirectGifPacketByteCount = UntexturedTriangleDirectGifPacketWordCount * sizeof(std::uint64_t);
         constexpr std::size_t TexturedTrianglePacketWordCount = 22u;
         constexpr std::size_t TexturedTrianglePacketByteCount = TexturedTrianglePacketWordCount * sizeof(std::uint64_t);
+        constexpr std::size_t MaximumTexturedVuSourceTriangleCount = 12u;
         constexpr std::size_t UntexturedTriangleSourceQwordCount = 3u;
         constexpr std::size_t UntexturedTriangleGifPacketQwordOffset = UntexturedTriangleSourceQwordCount;
         constexpr std::size_t UntexturedTriangleRecordQwordCount = UntexturedTriangleGifPacketQwordOffset + TriangleGifPacketTemplateQwordCount;
@@ -180,6 +181,30 @@ namespace helengine::ps2 {
             std::uint8_t Alpha = 0x80;
         };
 
+        /// <summary>
+        /// Supplies one local-space textured triangle to the VU1 perspective transform path.
+        /// </summary>
+        struct alignas(16) Ps2VuTexturedSourceTriangle final {
+            float PositionA[4];
+            float PositionB[4];
+            float PositionC[4];
+            float TexCoordA[4];
+            float TexCoordB[4];
+            float TexCoordC[4];
+        };
+
+        /// <summary>
+        /// Supplies matrix, GS, material, and GIF state shared by one bounded VU1 textured batch.
+        /// </summary>
+        struct alignas(16) Ps2VuTexturedSharedState final {
+            float WorldViewProjectionMatrix[16];
+            float GsScale[4];
+            float GsOffset[4];
+            float FlatColor[4];
+            std::uint32_t TriangleCount[4];
+            Ps2VuGifQword StateTemplate[6];
+        };
+
         struct alignas(16) Ps2VuUntexturedTrianglePayload final {
             Ps2VuUntexturedTriangleRecord TriangleRecord;
             Ps2VuUntexturedSharedState SharedState;
@@ -217,6 +242,8 @@ namespace helengine::ps2 {
         static_assert((sizeof(Ps2VuUntexturedTriangleRecord) % 16u) == 0u);
         static_assert((sizeof(Ps2VuUntexturedSharedState) % 16u) == 0u);
         static_assert((sizeof(Ps2VuUntexturedTrianglePayload) % 16u) == 0u);
+        static_assert((sizeof(Ps2VuTexturedSourceTriangle) % 16u) == 0u);
+        static_assert((sizeof(Ps2VuTexturedSharedState) % 16u) == 0u);
         static_assert((offsetof(Ps2VuUntexturedTriangleRecord, SourceTriangle) / 16u) == 0u);
         static_assert((offsetof(Ps2VuUntexturedTriangleRecord, GifPacketTemplate) / 16u) == UntexturedTriangleGifPacketQwordOffset);
         static_assert((offsetof(Ps2VuUntexturedTrianglePayload, TriangleRecord) / 16u) == 0u);
@@ -2046,6 +2073,155 @@ namespace helengine::ps2 {
         LastPacketAssemblyMilliseconds = ResolveMillisecondsFromClockTicks(packetAssemblyStartTicks, packetAssemblyEndTicks);
         LastCompletedPhase = 11;
         return acceptedBatchCount;
+    }
+
+    void Ps2VuVifPacketBuilder::AddOpaqueTexturedVuBatches(
+        const std::vector<Ps2VuOpaqueBatchSlice>& batches,
+        const std::vector<::float4x4>& worlds,
+        const ::float4x4& view,
+        const ::float4x4& projection,
+        const ::float4& viewport,
+        GSGLOBAL* gsGlobal,
+        const std::vector<GSTEXTURE*>& textures,
+        const std::vector<int>& textureWidths,
+        const std::vector<int>& textureHeights) {
+        if (batches.size() != worlds.size()
+            || batches.size() != textures.size()
+            || batches.size() != textureWidths.size()
+            || batches.size() != textureHeights.size()) {
+            throw std::invalid_argument("PS2 textured VU source packing requires aligned batch, world, and texture inputs.");
+        }
+        if (gsGlobal == nullptr) {
+            throw std::invalid_argument("PS2 textured VU source packing requires a GS global.");
+        }
+        if (batches.empty()) {
+            return;
+        }
+
+        const std::size_t maximumPacketQwordCount = MinimumVifPacketOverheadQwords
+            + (batches.size() * ((sizeof(Ps2VuTexturedSharedState) + (sizeof(Ps2VuTexturedSourceTriangle) * MaximumTexturedVuSourceTriangleCount)) / 16u));
+        if (maximumPacketQwordCount > 0xFFFFu) {
+            throw std::runtime_error("PS2 textured VU source packet exceeds packet2 qword capacity.");
+        }
+
+        std::unique_ptr<packet2_t, decltype(&packet2_free)> packet(CreatePacketOrThrow(static_cast<std::uint16_t>(maximumPacketQwordCount), P2_MODE_CHAIN), &packet2_free);
+        const std::clock_t packetAssemblyStartTicks = std::clock();
+        for (std::size_t batchIndex = 0u; batchIndex < batches.size(); batchIndex++) {
+            const Ps2VuOpaqueBatchSlice& batchSlice = batches[batchIndex];
+            const Ps2VuOpaqueBatch* batch = batchSlice.Batch;
+            GSTEXTURE* texture = textures[batchIndex];
+            const int textureWidth = textureWidths[batchIndex];
+            const int textureHeight = textureHeights[batchIndex];
+            if (batch == nullptr || batch->Model == nullptr || batch->Material == nullptr) {
+                throw std::invalid_argument("PS2 textured VU source packing requires a complete opaque batch.");
+            }
+            if (texture == nullptr || textureWidth <= 0 || textureHeight <= 0) {
+                throw std::invalid_argument("PS2 textured VU source packing requires a resolved texture.");
+            }
+            if (batchSlice.SourceTriangleCount == 0u || batchSlice.SourceTriangleCount > MaximumTexturedVuSourceTriangleCount) {
+                throw std::invalid_argument("PS2 textured VU source packing received an unsupported triangle count.");
+            }
+
+            const std::size_t firstSourceVertex = batchSlice.FirstSourceTriangle * 3u;
+            const std::size_t sourceVertexCount = batchSlice.SourceTriangleCount * 3u;
+            const std::size_t finalSourceVertex = firstSourceVertex + sourceVertexCount;
+            if (finalSourceVertex > batch->Model->GetTriangleVertexCount()) {
+                throw std::out_of_range("PS2 textured VU source packing exceeds packed model triangle data.");
+            }
+
+            const float* packedPositionWords = reinterpret_cast<const float*>(batch->Model->GetPositionBlockBytes());
+            const float* packedTexCoordWords = reinterpret_cast<const float*>(batch->Model->GetTexCoordBlockBytes());
+            if (packedPositionWords == nullptr || packedTexCoordWords == nullptr) {
+                throw std::runtime_error("PS2 textured VU source packing requires packed positions and texture coordinates.");
+            }
+
+            ::float4x4 worldView;
+            ::float4x4 worldViewProjection;
+            ::float4x4::Multiply__ref0_ref1_out2(worlds[batchIndex], view, worldView);
+            ::float4x4::Multiply__ref0_ref1_out2(worldView, projection, worldViewProjection);
+            Ps2VuTexturedSharedState sharedState {};
+            CopyMatrixWords(worldViewProjection, sharedState.WorldViewProjectionMatrix);
+            sharedState.GsScale[0] = viewport.Z * 0.5f;
+            sharedState.GsScale[1] = viewport.W * -0.5f;
+            sharedState.GsScale[2] = -4194304.0f;
+            sharedState.GsScale[3] = 0.0f;
+            sharedState.GsOffset[0] = 2048.0f + viewport.X + (viewport.Z * 0.5f);
+            sharedState.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
+            sharedState.GsOffset[2] = 4194304.0f;
+            sharedState.GsOffset[3] = 0.0f;
+            const std::uint32_t flatColor = GS_SETREG_RGBAQ(
+                batch->Material->GetBaseColorR(),
+                batch->Material->GetBaseColorG(),
+                batch->Material->GetBaseColorB(),
+                batch->Material->GetBaseColorA(),
+                0x00);
+            std::memcpy(&sharedState.FlatColor[0], &flatColor, sizeof(flatColor));
+            sharedState.TriangleCount[0] = static_cast<std::uint32_t>(batchSlice.SourceTriangleCount);
+            sharedState.StateTemplate[0].Low = GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1);
+            sharedState.StateTemplate[0].High = GIF_REG_AD;
+            sharedState.StateTemplate[1].Low = ResolveOpaqueUntexturedTestRegister(gsGlobal);
+            sharedState.StateTemplate[1].High = GS_REG_TEST;
+            sharedState.StateTemplate[2].Low = GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1);
+            sharedState.StateTemplate[2].High = GIF_REG_AD;
+            sharedState.StateTemplate[3].Low = GS_SET_TEX1(0, 0, texture->Filter, texture->Filter, 0, 0, 0);
+            sharedState.StateTemplate[3].High = GS_REG_TEX1;
+            const int textureWidthPower = ResolveGsTextureDimensionExponent(textureWidth);
+            const int textureHeightPower = ResolveGsTextureDimensionExponent(textureHeight);
+            sharedState.StateTemplate[4].Low = texture->VramClut == 0
+                ? GS_SETREG_TEX0(texture->Vram / 256, texture->TBW, texture->PSM, textureWidthPower, textureHeightPower, gsGlobal->PrimAlphaEnable, 0, 0, 0, 0, 0, GS_CLUT_STOREMODE_NOLOAD)
+                : GS_SETREG_TEX0(texture->Vram / 256, texture->TBW, texture->PSM, textureWidthPower, textureHeightPower, gsGlobal->PrimAlphaEnable, 0, texture->VramClut / 256, texture->ClutPSM, texture->ClutStorageMode, 0, GS_CLUT_STOREMODE_LOAD);
+            sharedState.StateTemplate[4].High = GS_SETREG_PRIM(GS_PRIM_PRIM_TRIANGLE, PRIM_SHADE_GOURAUD, 1, gsGlobal->PrimFogEnable, gsGlobal->PrimAlphaEnable, gsGlobal->PrimAAEnable, 0, gsGlobal->PrimContext, 0);
+            sharedState.StateTemplate[5].Low = GIF_TAG_TRIANGLE_GORAUD_TEXTURED(1);
+            sharedState.StateTemplate[5].High = BuildPerspectiveTextureRegisterList(gsGlobal->PrimContext);
+
+            std::vector<Ps2VuTexturedSourceTriangle> sourceTriangles;
+            sourceTriangles.reserve(batchSlice.SourceTriangleCount);
+            for (std::size_t sourceVertex = firstSourceVertex; sourceVertex < finalSourceVertex; sourceVertex += 3u) {
+                const std::size_t positionWordIndexA = sourceVertex * 4u;
+                const std::size_t positionWordIndexB = (sourceVertex + 1u) * 4u;
+                const std::size_t positionWordIndexC = (sourceVertex + 2u) * 4u;
+                Ps2VuTexturedSourceTriangle sourceTriangle {};
+                sourceTriangle.PositionA[0] = packedPositionWords[positionWordIndexA + 0u];
+                sourceTriangle.PositionA[1] = packedPositionWords[positionWordIndexA + 1u];
+                sourceTriangle.PositionA[2] = packedPositionWords[positionWordIndexA + 2u];
+                sourceTriangle.PositionA[3] = 1.0f;
+                sourceTriangle.PositionB[0] = packedPositionWords[positionWordIndexB + 0u];
+                sourceTriangle.PositionB[1] = packedPositionWords[positionWordIndexB + 1u];
+                sourceTriangle.PositionB[2] = packedPositionWords[positionWordIndexB + 2u];
+                sourceTriangle.PositionB[3] = 1.0f;
+                sourceTriangle.PositionC[0] = packedPositionWords[positionWordIndexC + 0u];
+                sourceTriangle.PositionC[1] = packedPositionWords[positionWordIndexC + 1u];
+                sourceTriangle.PositionC[2] = packedPositionWords[positionWordIndexC + 2u];
+                sourceTriangle.PositionC[3] = 1.0f;
+                sourceTriangle.TexCoordA[0] = packedTexCoordWords[positionWordIndexA + 0u];
+                sourceTriangle.TexCoordA[1] = packedTexCoordWords[positionWordIndexA + 1u];
+                sourceTriangle.TexCoordB[0] = packedTexCoordWords[positionWordIndexB + 0u];
+                sourceTriangle.TexCoordB[1] = packedTexCoordWords[positionWordIndexB + 1u];
+                sourceTriangle.TexCoordC[0] = packedTexCoordWords[positionWordIndexC + 0u];
+                sourceTriangle.TexCoordC[1] = packedTexCoordWords[positionWordIndexC + 1u];
+                sourceTriangles.push_back(sourceTriangle);
+            }
+
+            packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
+            std::memcpy(packet.get()->next, &sharedState, sizeof(sharedState));
+            packet2_advance_next(packet.get(), sizeof(sharedState));
+            std::memcpy(packet.get()->next, sourceTriangles.data(), sourceTriangles.size() * sizeof(Ps2VuTexturedSourceTriangle));
+            packet2_advance_next(packet.get(), sourceTriangles.size() * sizeof(Ps2VuTexturedSourceTriangle));
+            packet2_utils_vu_close_unpack(packet.get());
+            packet2_chain_open_cnt(packet.get(), 0, 0, 0);
+            packet2_vif_flush(packet.get(), 0);
+            packet2_vif_mscal(packet.get(), TexturedMicroProgramAddress, 0);
+            packet2_chain_close_tag(packet.get());
+            SubmittedTriangleCount += sourceTriangles.size();
+        }
+
+        packet2_chain_open_end(packet.get(), 0, 0);
+        packet2_vif_nop(packet.get(), 0);
+        packet2_vif_nop(packet.get(), 0);
+        packet2_chain_close_tag(packet.get());
+        Packet = packet.release();
+        LastPacketAssemblyMilliseconds = ResolveMillisecondsFromClockTicks(packetAssemblyStartTicks, std::clock());
+        LastCompletedPhase = 11;
     }
 
     void Ps2VuVifPacketBuilder::AddOpaqueTexturedBatches(

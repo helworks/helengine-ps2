@@ -7,6 +7,27 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2NativeBuildInputsTests {
     /// <summary>
+    /// Ensures the dynamic textured VU1 path receives local mesh source data instead of CPU-projected GIF registers.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_packet_builder_packs_local_source_triangles() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string header = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.hpp"));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+
+        Assert.Contains("void AddOpaqueTexturedVuBatches(", header, StringComparison.Ordinal);
+        Assert.Contains("struct alignas(16) Ps2VuTexturedSourceTriangle", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_utils_vu_open_unpack", source, StringComparison.Ordinal);
+        int methodStartIndex = source.IndexOf("void Ps2VuVifPacketBuilder::AddOpaqueTexturedVuBatches(", StringComparison.Ordinal);
+        int methodEndIndex = source.IndexOf("void Ps2VuVifPacketBuilder::AddOpaqueTexturedBatches(", methodStartIndex, StringComparison.Ordinal);
+        Assert.True(methodStartIndex >= 0, "Expected the dynamic textured VU1 packet builder.");
+        Assert.True(methodEndIndex > methodStartIndex, "Expected the existing CPU textured fallback after the VU1 packet builder.");
+
+        string vuFastPathBody = source.Substring(methodStartIndex, methodEndIndex - methodStartIndex);
+        Assert.DoesNotContain("TryClassifyAndBuildTexturedVertexPositionRegister", vuFastPathBody, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 DualShock analog axes are normalized into the shared gamepad state used by menu navigation.
     /// </summary>
     [Fact]
