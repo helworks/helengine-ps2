@@ -27,7 +27,7 @@
 #include "Core.hpp"
 #include "CoreInitializationOptions.hpp"
 #include "ContentManager.hpp"
-#include "HostFileSystemContentStreamSource.hpp"
+#include "platform/ps2/Ps2DiscContentStreamSource.hpp"
 #include "CameraComponent.hpp"
 #include "Entity.hpp"
 #include "FPSComponent.hpp"
@@ -160,7 +160,7 @@ namespace {
     constexpr bool EnablePackagedPhysics3DRegistration = true;
     constexpr bool EnablePhysicsWarmupTrace = true;
     constexpr UpdatePhaseDiagnosticMode ActiveUpdatePhaseDiagnosticMode = UpdatePhaseDiagnosticMode::Full;
-    constexpr const char* StartupSceneDiagnosticOverrideId = "";
+    constexpr const char* StartupSceneDiagnosticOverrideId = "colored_cube_grid";
     constexpr bool EnableStartupSceneLoadTimingDiagnostic = true;
     constexpr bool EnableStartupScenePreRenderHalt = false;
     constexpr const char* BootLogHostFilePath = "host:ps2_bootlog.txt";
@@ -186,7 +186,7 @@ namespace {
     constexpr float CubeTriangle2dVertexB2X = 428.156738f;
     constexpr float CubeTriangle2dVertexB2Y = 115.843239f;
     constexpr float CubeTriangle3dDiagnosticDepth = 1.0f;
-    constexpr const char* FrameTimingOverlayBuildNumber = "B14";
+    constexpr const char* FrameTimingOverlayBuildNumber = "B61";
     bool DebugConsoleReady = false;
     bool CubeDiagnosticsShown = false;
     bool CubeRuntimeDiagnosticsCompleted = false;
@@ -224,6 +224,7 @@ namespace {
     double FrameTimingGifDrainMilliseconds = 0.0;
     double FrameTimingLegacyOpaqueMilliseconds = 0.0;
     double FrameTimingLegacyOpaqueTriangleCount = 0.0;
+    double FrameTimingSubmittedTriangleCount = 0.0;
     double FrameTimingVifPacketByteCount = 0.0;
     double FrameTimingCompatibleUntexturedGroupCount = 0.0;
     int FrameTimingFrameCount = 0;
@@ -711,6 +712,7 @@ namespace {
         FrameTimingGifDrainMilliseconds += metrics.GifDrainMilliseconds;
         FrameTimingLegacyOpaqueMilliseconds += metrics.LegacyOpaqueMilliseconds;
         FrameTimingLegacyOpaqueTriangleCount += static_cast<double>(metrics.LegacyOpaqueTriangleCount);
+        FrameTimingSubmittedTriangleCount += static_cast<double>(metrics.SubmittedTriangleCount);
         FrameTimingVifPacketByteCount += static_cast<double>(metrics.VifPacketByteCount);
         FrameTimingCompatibleUntexturedGroupCount += static_cast<double>(metrics.CompatibleUntexturedGroupCount);
     }
@@ -760,6 +762,7 @@ namespace {
         const double averageGifDrainMilliseconds = FrameTimingGifDrainMilliseconds / sampledFrameCount;
         const double averageLegacyOpaqueMilliseconds = FrameTimingLegacyOpaqueMilliseconds / sampledFrameCount;
         const double averageLegacyOpaqueTriangleCount = FrameTimingLegacyOpaqueTriangleCount / sampledFrameCount;
+        const double averageSubmittedTriangleCount = FrameTimingSubmittedTriangleCount / sampledFrameCount;
         const double averageVifPacketByteCount = FrameTimingVifPacketByteCount / sampledFrameCount;
         const double averageCompatibleUntexturedGroupCount = FrameTimingCompatibleUntexturedGroupCount / sampledFrameCount;
         const double averageSetMilliseconds = averageProxySyncMilliseconds
@@ -824,43 +827,39 @@ namespace {
             + std::to_string(averageVuBatchDispatchCount)
             + " fps="
             + std::to_string(averageFramesPerSecond));
+        const double averageFrameMilliseconds = averageFramesPerSecond <= 0.0 ? 0.0 : 1000.0 / averageFramesPerSecond;
         FrameTimingOverlayLine1 =
             std::string(FrameTimingOverlayBuildNumber)
-            + " FPS "
+            + " "
             + FormatOverlayMilliseconds(averageFramesPerSecond)
-            + " Set "
-            + FormatOverlayMilliseconds(averageSetMilliseconds)
-            + " Drw "
-            + FormatOverlayMilliseconds(averageDrawMilliseconds);
+            + " FPS "
+            + FormatOverlayMilliseconds(averageFrameMilliseconds)
+            + " ms";
         FrameTimingOverlayLine2 =
             std::string("Drw ")
             + FormatOverlayMilliseconds(averageDrawMilliseconds)
-            + " Sync "
-            + FormatOverlayMilliseconds(averageProxySyncMilliseconds)
-            + " Plan "
-            + FormatOverlayMilliseconds(averageFramePlanMilliseconds)
-            + " Bld "
-            + FormatOverlayMilliseconds(averageVuBatchBuildMilliseconds);
+            + " Set "
+            + FormatOverlayMilliseconds(averageSetMilliseconds)
+            + " Upd "
+            + FormatOverlayMilliseconds(averageUpdateMilliseconds)
+            + " Prs "
+            + FormatOverlayMilliseconds(averagePresentMilliseconds);
         FrameTimingOverlayDetailLine =
             std::string("Enc ")
             + FormatOverlayMilliseconds(averageVuPacketEncodeMilliseconds)
-            + " Leg "
-            + FormatOverlayMilliseconds(averageLegacyOpaqueMilliseconds)
-            + " Tri "
-            + std::to_string(static_cast<int>(averageLegacyOpaqueTriangleCount))
-            + " Pkt "
-            + FormatOverlayMilliseconds(averageVuBatchDispatchCount);
+            + " Vif "
+            + FormatOverlayMilliseconds(averageVuWaitMilliseconds)
+            + " Gif "
+            + FormatOverlayMilliseconds(averageGifDrainMilliseconds);
         FrameTimingOverlayAdditionalText =
-            std::string("Leg ")
-            + FormatOverlayMilliseconds(averageLegacyOpaqueMilliseconds)
-            + " Tri "
-            + std::to_string(static_cast<int>(averageLegacyOpaqueTriangleCount))
-            + " Pkt "
+            std::string("Pkt ")
             + FormatOverlayMilliseconds(averageVuBatchDispatchCount)
-            + " Bytes "
-            + std::to_string(static_cast<int>(averageVifPacketByteCount))
             + " Grp "
-            + FormatOverlayMilliseconds(averageCompatibleUntexturedGroupCount);
+            + FormatOverlayMilliseconds(averageCompatibleUntexturedGroupCount)
+            + " Tri "
+            + std::to_string(static_cast<int>(averageSubmittedTriangleCount))
+            + " B "
+            + std::to_string(static_cast<int>(averageVifPacketByteCount));
         FrameTimingOverlayPending = true;
         FrameTimingOverlayPresented = false;
         FrameTimingSampleCompleted = true;
@@ -885,6 +884,7 @@ namespace {
         FrameTimingGifDrainMilliseconds = 0.0;
         FrameTimingLegacyOpaqueMilliseconds = 0.0;
         FrameTimingLegacyOpaqueTriangleCount = 0.0;
+        FrameTimingSubmittedTriangleCount = 0.0;
         FrameTimingVifPacketByteCount = 0.0;
         FrameTimingCompatibleUntexturedGroupCount = 0.0;
         FrameTimingFrameCount = 0;
@@ -1872,7 +1872,8 @@ namespace {
     class Ps2RenderManager2D final : public RenderManager2D {
     public:
         Ps2RenderManager2D()
-            : CommandListBuilder(new ::RenderCommandListBuilder2D()) {
+            : CommandListBuilder(new ::RenderCommandListBuilder2D()),
+              TexturedQuadAlphaStateActive(false) {
         }
 
         ~Ps2RenderManager2D() override {
@@ -2214,6 +2215,12 @@ namespace {
                 }
             }
 
+            if (TexturedQuadAlphaStateActive) {
+                gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 0, 0, 0, 0), 0);
+                ActiveGsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
+                TexturedQuadAlphaStateActive = false;
+            }
+
             if (EnableDraw2dExecutionDiagnostics && !Draw2dExecutionDiagnosticsCompleted) {
                 Draw2dExecutionDiagnosticsCompleted = true;
             }
@@ -2310,6 +2317,7 @@ namespace {
 
     private:
         ::RenderCommandListBuilder2D* CommandListBuilder;
+        bool TexturedQuadAlphaStateActive;
 
         void DrawSolidQuad(::float4 bounds, const ::byte4& color, const ::float4* clipRect) {
             if (ActiveGsGlobal == 0) {
@@ -2335,6 +2343,7 @@ namespace {
             gsKit_set_test(ActiveGsGlobal, GS_ATEST_OFF);
             gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 0, 0, 0, 0), 0);
             ActiveGsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
+            TexturedQuadAlphaStateActive = false;
             gsKit_prim_sprite(
                 ActiveGsGlobal,
                 bounds.X,
@@ -2403,9 +2412,12 @@ namespace {
             const double sourceWidth = static_cast<double>(sourceRect.Z) * textureWidth;
             const double sourceHeight = static_cast<double>(sourceRect.W) * textureHeight;
             const u64 rgba = ResolveTexturedSpriteRgba(color);
-            gsKit_set_test(ActiveGsGlobal, GS_ATEST_OFF);
-            gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 1, 0, 1, 0), 0);
-            ActiveGsGlobal->PrimAlphaEnable = GS_SETTING_ON;
+            if (!TexturedQuadAlphaStateActive) {
+                gsKit_set_test(ActiveGsGlobal, GS_ATEST_OFF);
+                gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 1, 0, 1, 0), 0);
+                ActiveGsGlobal->PrimAlphaEnable = GS_SETTING_ON;
+                TexturedQuadAlphaStateActive = true;
+            }
             if (EnableDraw2dExecutionDiagnostics && !Draw2dExecutionDiagnosticsCompleted) {
                 BootLog(
                     std::string("draw2d textured submit index=")
@@ -2426,8 +2438,6 @@ namespace {
                 static_cast<float>(sourceY + sourceHeight),
                 0.0f,
                 rgba);
-            gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 0, 0, 0, 0), 0);
-            ActiveGsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
             if (EnableDraw2dExecutionDiagnostics && !Draw2dExecutionDiagnosticsCompleted) {
                 BootLog(
                     std::string("draw2d textured end index=")
@@ -2515,7 +2525,7 @@ namespace helengine::ps2 {
         sceCdDiskReady(0);
         BootLog("cdvd ready");
         EngineOptions = new CoreInitializationOptions();
-        EngineOptions->set_ContentStreamSource(new HostFileSystemContentStreamSource(ResolveApplicationDirectoryPath()));
+        EngineOptions->set_ContentStreamSource(new helengine::ps2::Ps2DiscContentStreamSource());
         EngineOptions->set_UpdateOrderLayers(1);
         EngineOptions->set_RenderOrderLayers3D(1);
         EngineOptions->set_UpdateListInitialCapacity(4);

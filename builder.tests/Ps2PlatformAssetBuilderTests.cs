@@ -2317,7 +2317,6 @@ public class Ps2PlatformAssetBuilderTests {
                 Width = 128,
                 Height = 128
             },
-            LayerMask = 1,
             SourceRect = new float4(0f, 0f, 1f, 1f),
             Size = new int2(320, 180),
             Color = new byte4(255, 255, 255, 255),
@@ -2758,7 +2757,7 @@ public class Ps2PlatformAssetBuilderTests {
         Directory.CreateDirectory(Path.GetDirectoryName(textureSourcePath)!);
         File.WriteAllBytes(textureSourcePath, [1, 2, 3, 4]);
 
-        ContentManager contentManager = new(projectRoot);
+        ContentManager contentManager = new(new HostFileSystemContentStreamSource(projectRoot));
         AssetImportManager assetImportManager = new(projectRoot, contentManager);
         assetImportManager.CurrentPlatformId = platformId;
         assetImportManager.RegisterTextureImporter(new TextureImporterRegistration("test-texture", new SinglePixelTextureImporter(), [extension]));

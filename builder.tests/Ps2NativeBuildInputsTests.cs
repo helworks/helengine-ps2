@@ -44,6 +44,27 @@ public sealed class Ps2NativeBuildInputsTests {
     }
 
     /// <summary>
+    /// Ensures the native boot host receives its mandatory content stream source from the PS2 disc runtime instead of a host-only generated class.
+    /// </summary>
+    [Fact]
+    public void Ps2_boot_host_uses_the_native_disc_content_stream_source() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string makefile = File.ReadAllText(Path.Combine(repositoryRootPath, "Makefile"));
+        string bootHostSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2BootHost.cpp"));
+        string header = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2DiscContentStreamSource.hpp"));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2DiscContentStreamSource.cpp"));
+
+        Assert.Contains("$(SOURCE_DIR)/platform/ps2/Ps2DiscContentStreamSource.cpp", makefile, StringComparison.Ordinal);
+        Assert.Contains("#include \"platform/ps2/Ps2DiscContentStreamSource.hpp\"", bootHostSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("HostFileSystemContentStreamSource", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("class Ps2DiscContentStreamSource final : public ::IContentStreamSource", header, StringComparison.Ordinal);
+        Assert.Contains("::Stream* OpenRead(std::string assetPath) override;", header, StringComparison.Ordinal);
+        Assert.Contains("#include \"system/io/file-stream.hpp\"", source, StringComparison.Ordinal);
+        Assert.Contains("return Ps2DiscFileSystem::OpenRead(assetPath.c_str());", source, StringComparison.Ordinal);
+        Assert.Contains("new helengine::ps2::Ps2DiscContentStreamSource()", bootHostSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 runtime model exposes embedded VU packed geometry loaded directly from the single-file PS2 cooked model asset payload.
     /// </summary>
     [Fact]

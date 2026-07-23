@@ -160,17 +160,17 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
-    /// Ensures textured batches use the stable per-batch VIF submission path until aggregate packet rendering is proven safe for larger scenes.
+    /// Ensures textured batches use bounded aggregate packet rendering so tessellated models cannot exceed a single VU packet.
     /// </summary>
     [Fact]
-    public void Ps2RenderManager3D_WhenRenderingTexturedVuBatches_DisablesExperimentalBatchAggregation() {
+    public void Ps2RenderManager3D_WhenRenderingTexturedVuBatches_EnablesBoundedBatchAggregation() {
         string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
         Assert.True(File.Exists(sourcePath), $"Expected PS2 render manager source at '{sourcePath}'.");
 
         string source = File.ReadAllText(sourcePath);
 
-        Assert.Contains("constexpr bool EnableTexturedBatchAggregationDiagnostics = false;", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("constexpr bool EnableTexturedBatchAggregationDiagnostics = true;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableTexturedBatchAggregation = true;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::size_t MaximumBoundedTexturedAggregateSourceTriangleCount = 2048u;", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -395,12 +395,72 @@ public sealed class Ps2RenderManager3DSourceTests {
     /// Ensures the visible PS2 FPS overlay begins with the manually incremented build number used to distinguish stale ISO images.
     /// </summary>
     [Fact]
-    public void Ps2BootHost_WhenPublishingFrameTiming_PrefixesTheFpsRowWithBuildNumberB14() {
+    public void Ps2BootHost_WhenPublishingFrameTiming_PrefixesTheFpsRowWithBuildNumberB61() {
         string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
         string source = File.ReadAllText(sourcePath);
 
-        Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B14\";", source, StringComparison.Ordinal);
-        Assert.Contains("std::string(FrameTimingOverlayBuildNumber)\n            + \" FPS \"", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B61\";", source, StringComparison.Ordinal);
+        Assert.Contains("std::string(FrameTimingOverlayBuildNumber)\n            + \" \"", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the focused Colored Cubes performance build boots directly into that scene and exposes each packet-stage measurement required for the two-millisecond target.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenProfilingColoredCubes_BootsTheSceneAndPublishesPacketStageMetrics() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr const char* StartupSceneDiagnosticOverrideId = \"colored_cube_grid\";", source, StringComparison.Ordinal);
+        Assert.Contains("const double averageFrameMilliseconds = averageFramesPerSecond <= 0.0 ? 0.0 : 1000.0 / averageFramesPerSecond;", source, StringComparison.Ordinal);
+        Assert.Contains("+ \" ms\"", source, StringComparison.Ordinal);
+        Assert.Contains("FrameTimingOverlayDetailLine =\n            std::string(\"Enc \")", source, StringComparison.Ordinal);
+        Assert.Contains("+ \" Vif \"", source, StringComparison.Ordinal);
+        Assert.Contains("+ \" Gif \"\n            + FormatOverlayMilliseconds(averageGifDrainMilliseconds)", source, StringComparison.Ordinal);
+        Assert.Contains("FrameTimingOverlayAdditionalText =\n            std::string(\"Pkt \")", source, StringComparison.Ordinal);
+        Assert.Contains("+ \" Grp \"", source, StringComparison.Ordinal);
+        Assert.Contains("+ \" Tri \"", source, StringComparison.Ordinal);
+        Assert.Contains("+ \" B \"", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the compact PS2 overlay reports the actual submitted triangle count and payload size for performance diagnosis.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenPresentingPacketTimings_IncludesSubmittedTrianglesAndPacketBytes() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("FrameTimingSubmittedTriangleCount += static_cast<double>(metrics.SubmittedTriangleCount);", source, StringComparison.Ordinal);
+        Assert.Contains("const double averageSubmittedTriangleCount = FrameTimingSubmittedTriangleCount / sampledFrameCount;", source, StringComparison.Ordinal);
+        Assert.Contains("+ \" Tri \"\n            + std::to_string(static_cast<int>(averageSubmittedTriangleCount))", source, StringComparison.Ordinal);
+        Assert.Contains("+ \" B \"\n            + std::to_string(static_cast<int>(averageVifPacketByteCount))", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures consecutive PS2 text glyphs retain their alpha state while solid quads and frame completion restore opaque rendering state.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenDrawingConsecutiveTexturedQuads_BatchesAlphaStateTransitions() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("bool TexturedQuadAlphaStateActive;", source, StringComparison.Ordinal);
+        Assert.Contains("if (!TexturedQuadAlphaStateActive) {", source, StringComparison.Ordinal);
+        Assert.Contains("if (TexturedQuadAlphaStateActive) {", source, StringComparison.Ordinal);
+        Assert.Contains("TexturedQuadAlphaStateActive = false;", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the production build restores the native PS2 framebuffer size after the B21 fill-rate experiment found no performance improvement.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_AfterTheB21FillRateExperiment_RestoresTheNativeFramebufferResolution() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr int Ps2DefaultFramebufferWidth = 640;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr int Ps2DefaultFramebufferHeight = 448;", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -515,6 +575,61 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures the textured opaque VU route aggregates work into source-triangle-bounded packet slices instead of submitting one VIF packet per batch.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenRenderingTexturedOpaqueBatches_UsesBoundedAggregatedVuPackets() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 render manager source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr bool EnableTexturedBatchAggregation = true;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::size_t MaximumBoundedTexturedAggregateSourceTriangleCount = 2048u;", source, StringComparison.Ordinal);
+        Assert.Contains("std::size_t ResolveBoundedTexturedAggregatePacketEnd(", source, StringComparison.Ordinal);
+        Assert.Contains("while (firstTexturedBatchIndex < texturedBatches.size()) {", source, StringComparison.Ordinal);
+        Assert.Contains("std::vector<Ps2VuOpaqueBatchSlice> packetTexturedBatches(", source, StringComparison.Ordinal);
+        Assert.Contains("VuVifPacketBuilder.AddOpaqueTexturedBatches(", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures production textured batches bypass the pass-through VU microprogram and submit their already encoded GIF stream once per bounded packet slice.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenSubmittingTexturedBatches_UsesOneDirectGifDmaSubmissionPerSlice() {
+        string renderManagerPath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string packetBuilderPath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string renderManagerSource = File.ReadAllText(renderManagerPath);
+        string packetBuilderSource = File.ReadAllText(packetBuilderPath);
+
+        Assert.Contains("constexpr bool UseDirectGifTexturedSubmission = true;", renderManagerSource, StringComparison.Ordinal);
+        Assert.Contains("!UseDirectGifTexturedSubmission);", renderManagerSource, StringComparison.Ordinal);
+        Assert.Contains("if (UseDirectGifTexturedSubmission) {", renderManagerSource, StringComparison.Ordinal);
+        Assert.Contains("dma_channel_send_packet2(gifPacket, DMA_CHANNEL_GIF, true);", renderManagerSource, StringComparison.Ordinal);
+        Assert.Contains("bool createVifPacket", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("if (!createVifPacket) {", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("GifPacketBytes.resize(texturedTrianglePackets.size() * TexturedTrianglePacketByteCount);", packetBuilderSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures direct GIF textured submission writes the proven TEST and TEX1 state once for each material batch while retaining every complete triangle GIF payload.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenDirectGifSubmissionIsEnabled_BatchesInvariantStatePerMaterial() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("std::vector<std::uint64_t> directGifPacketWords;", source, StringComparison.Ordinal);
+        Assert.Contains("const std::size_t firstTexturedTrianglePacketIndex = texturedTrianglePackets.size();", source, StringComparison.Ordinal);
+        Assert.Contains("if (!createVifPacket && texturedTrianglePackets.size() > firstTexturedTrianglePacketIndex) {", source, StringComparison.Ordinal);
+        Assert.Contains("directGifPacketWords.insert(directGifPacketWords.end(), firstTrianglePacket.begin(), firstTrianglePacket.begin() + 8u);", source, StringComparison.Ordinal);
+        Assert.Contains("directGifPacketWords.insert(directGifPacketWords.end(), trianglePacket.begin() + 8u, trianglePacket.end());", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("BuildPerspectiveTextureVertexRegisterList", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("directGifPacketWords.push_back(GIF_SET_TAG(3, 1, 0, 0, GIF_FLG_PACKED, 3));", source, StringComparison.Ordinal);
+        Assert.Contains("GifPacketBytes.resize(directGifPacketWords.size() * sizeof(std::uint64_t));", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the active CPU textured primitive path uses the GS STQ perspective-correction mode rather than affine UV coordinates.
     /// </summary>
     [Fact]
@@ -551,6 +666,52 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures fully visible textured vertices classify their frustum membership and pack their GS position from one projection calculation.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingVisibleTexturedTriangles_DoesNotProjectEachVertexTwice() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("bool TryClassifyAndBuildTexturedVertexPositionRegister(", source, StringComparison.Ordinal);
+        Assert.Contains("const bool texturedVertexAProjected = TryClassifyAndBuildTexturedVertexPositionRegister(", source, StringComparison.Ordinal);
+        Assert.Contains("if (texturedVertexAInside && texturedVertexBInside && texturedVertexCInside) {", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (!TryBuildVertexPositionRegister(viewPositionA", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures textured lighting transforms the packed normal stream used by the PS2 renderer without redundantly resolving and normalizing a second copy of each face normal.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenLightingTexturedTriangles_UsesThePackedFaceNormalDirectly() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+        int methodStartIndex = source.IndexOf("void Ps2VuVifPacketBuilder::AddOpaqueTexturedBatches(", StringComparison.Ordinal);
+        int methodEndIndex = source.IndexOf("packet2_t* Ps2VuVifPacketBuilder::GetPacket() const", methodStartIndex, StringComparison.Ordinal);
+        string texturedAggregateEncoder = source.Substring(methodStartIndex, methodEndIndex - methodStartIndex);
+
+        Assert.Contains("TransformPosition(faceNormal4, world)", texturedAggregateEncoder, StringComparison.Ordinal);
+        Assert.DoesNotContain("const ::float3 sourceTriangleNormal", texturedAggregateEncoder, StringComparison.Ordinal);
+        Assert.DoesNotContain("const std::vector<::float3>* runtimeNormals", texturedAggregateEncoder, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the textured aggregate encoder normalizes each face direction only after the world-space transform needed for lighting.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenLightingTexturedTriangles_DoesNotNormalizeFaceNormalsBeforeWorldTransform() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+        int methodStartIndex = source.IndexOf("void Ps2VuVifPacketBuilder::AddOpaqueTexturedBatches(", StringComparison.Ordinal);
+        int methodEndIndex = source.IndexOf("packet2_t* Ps2VuVifPacketBuilder::GetPacket() const", methodStartIndex, StringComparison.Ordinal);
+        string texturedAggregateEncoder = source.Substring(methodStartIndex, methodEndIndex - methodStartIndex);
+
+        Assert.Contains("const ::float3 faceNormal(", texturedAggregateEncoder, StringComparison.Ordinal);
+        Assert.DoesNotContain("const ::float3 faceNormal = NormalizeOrFallback(", texturedAggregateEncoder, StringComparison.Ordinal);
+        Assert.Contains("NormalizeOrFallback(\n                    TransformPosition(faceNormal4, world)", texturedAggregateEncoder, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures textured VU triangles receive the same complete screen-frustum clipping that protects untextured geometry near the camera.
     /// </summary>
     [Fact]
@@ -576,6 +737,29 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures the production textured aggregate encoder does not call the expensive clock function for every triangle while detailed diagnostics are disabled.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenPerTriangleTimingDiagnosticsAreDisabled_DoesNotClockEachTexturedAggregateTriangle() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+        int methodStartIndex = source.IndexOf("void Ps2VuVifPacketBuilder::AddOpaqueTexturedBatches(", StringComparison.Ordinal);
+        int methodEndIndex = source.IndexOf("packet2_t* Ps2VuVifPacketBuilder::GetPacket() const", methodStartIndex, StringComparison.Ordinal);
+
+        Assert.True(methodStartIndex >= 0, "Expected the textured aggregate encoder method.");
+        Assert.True(methodEndIndex > methodStartIndex, "Expected the next VU packet builder method after the textured aggregate encoder.");
+
+        string texturedAggregateEncoder = source.Substring(methodStartIndex, methodEndIndex - methodStartIndex);
+
+        Assert.Contains("constexpr bool EnableVuPerTriangleTimingDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("const std::clock_t trianglePrepStartTicks = std::clock();", texturedAggregateEncoder, StringComparison.Ordinal);
+        Assert.DoesNotContain("const std::clock_t triangleEmitStartTicks = std::clock();", texturedAggregateEncoder, StringComparison.Ordinal);
+        Assert.DoesNotContain("const std::clock_t triangleLightingStartTicks = std::clock();", texturedAggregateEncoder, StringComparison.Ordinal);
+        Assert.DoesNotContain("const std::clock_t trianglePayloadFillStartTicks = std::clock();", texturedAggregateEncoder, StringComparison.Ordinal);
+        Assert.Contains("if (EnableVuPerTriangleTimingDiagnostics) {", texturedAggregateEncoder, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures large textured triangles are clipped to every screen frustum plane before their projected coordinates are packed into the PS2 GS vertex registers.
     /// </summary>
     [Fact]
@@ -591,6 +775,200 @@ public sealed class Ps2RenderManager3DSourceTests {
         Assert.Contains("Ps2ScreenFrustumPlane::Bottom", source, StringComparison.Ordinal);
         Assert.Contains("Ps2ScreenFrustumPlane::Top", source, StringComparison.Ordinal);
         Assert.Contains("ClipTriangleAgainstScreenFrustum(vertexA, vertexB, vertexC, nearPlaneDistance, projection, clippedVertices);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures oversized opaque models are represented by bounded triangle slices instead of being rejected as indivisible VU packet inputs.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenOpaqueModelExceedsPacketCapacity_UsesValidatedTriangleSlices() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string sliceHeaderPath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuOpaqueBatchSlice.hpp");
+        string rendererSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string packetBuilderSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+
+        Assert.True(File.Exists(sliceHeaderPath), $"Expected PS2 opaque triangle slice header at '{sliceHeaderPath}'.");
+
+        string sliceHeader = File.ReadAllText(sliceHeaderPath);
+        string rendererSource = File.ReadAllText(rendererSourcePath);
+        string packetBuilderSource = File.ReadAllText(packetBuilderSourcePath);
+
+        Assert.Contains("struct Ps2VuOpaqueBatchSlice final", sliceHeader, StringComparison.Ordinal);
+        Assert.Contains("std::size_t FirstSourceTriangle", sliceHeader, StringComparison.Ordinal);
+        Assert.Contains("std::size_t SourceTriangleCount", sliceHeader, StringComparison.Ordinal);
+        Assert.Contains("static Ps2VuOpaqueBatchSlice Create", sliceHeader, StringComparison.Ordinal);
+        Assert.Contains("CreateOpaqueBatchSlices", rendererSource, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuOpaqueBatchSlice", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("FirstSourceTriangle * 3u", packetBuilderSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures opaque untextured batches with distinct colors can share one packet whenever their GS alpha state is identical.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenBatchingUntexturedOpaqueMaterials_GroupsCompatibleAlphaModesWithoutRequiringMaterialIdentity() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+        int groupStartIndex = source.IndexOf("std::size_t BuildCompatibleUntexturedGroups(", StringComparison.Ordinal);
+        int groupEndIndex = source.IndexOf("Ps2RenderManager3D::Ps2RenderManager3D(", groupStartIndex, StringComparison.Ordinal);
+
+        Assert.True(groupStartIndex >= 0, "Expected the untextured batch-grouping function.");
+        Assert.True(groupEndIndex > groupStartIndex, "Expected the next renderer member after the untextured batch-grouping function.");
+
+        string untexturedGroupBuilder = source.Substring(groupStartIndex, groupEndIndex - groupStartIndex);
+
+        Assert.Contains("bool AreUntexturedBatchStatesCompatible(", source, StringComparison.Ordinal);
+        Assert.Contains("first.Material->GetAlphaMode() == candidate.Material->GetAlphaMode()", source, StringComparison.Ordinal);
+        Assert.Contains("!AreUntexturedBatchStatesCompatible(*compatibleBatches.front(), candidate)", untexturedGroupBuilder, StringComparison.Ordinal);
+        Assert.DoesNotContain("candidate.Material != material", untexturedGroupBuilder, StringComparison.Ordinal);
+        Assert.Contains("WaitForVif1BeforePacketReuse();\n                    dma_channel_wait(DMA_CHANNEL_GIF, 0);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures untextured packet capacity remains a bounded allocation limit now that direct GIF packets own their final triangle data.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenAggregatingColoredCubes_KeepsTheBoundedVifPacketBudget() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr std::uint16_t MaximumOpaqueUntexturedPacketQwords = 4096u;", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("packet2_vif_flusha", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures direct untextured aggregate submission emits complete GIF triangle records instead of retaining payloads in VU1 memory.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenDirectGifUntexturedSubmissionIsEnabled_EmitsFinalTriangleRegisters() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+        int methodStartIndex = source.IndexOf("std::size_t Ps2VuVifPacketBuilder::AddOpaqueUntexturedBatches(", StringComparison.Ordinal);
+        int methodEndIndex = source.IndexOf("void Ps2VuVifPacketBuilder::AddOpaqueTexturedBatches(", methodStartIndex, StringComparison.Ordinal);
+
+        Assert.True(methodStartIndex >= 0, "Expected the untextured aggregate builder.");
+        Assert.True(methodEndIndex > methodStartIndex, "Expected the textured aggregate builder after the untextured builder.");
+
+        string untexturedDirectGifEncoder = source.Substring(methodStartIndex, methodEndIndex - methodStartIndex);
+        int directGifStartIndex = untexturedDirectGifEncoder.IndexOf("if (!createVifPacket) {", StringComparison.Ordinal);
+        int directGifEndIndex = untexturedDirectGifEncoder.IndexOf("GifPacketBytes.resize(TriangleGifPacketTemplateByteCount);", directGifStartIndex, StringComparison.Ordinal);
+
+        Assert.Contains("bool createVifPacket", source, StringComparison.Ordinal);
+        Assert.True(directGifStartIndex >= 0, "Expected the untextured direct-GIF encoder branch.");
+        Assert.True(directGifEndIndex > directGifStartIndex, "Expected the VIF fallback after the direct-GIF encoder branch.");
+        Assert.Contains("BuildUntexturedTriangleGifPacketBytes(", source, StringComparison.Ordinal);
+        Assert.Contains("GifPacketBytes.resize(untexturedTrianglePackets.size() * UntexturedTriangleDirectGifPacketByteCount);", untexturedDirectGifEncoder, StringComparison.Ordinal);
+        Assert.DoesNotContain("packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);", untexturedDirectGifEncoder.Substring(directGifStartIndex, directGifEndIndex - directGifStartIndex), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures direct GIF triangles preserve the CPU triangle A/B/C winding used by the working direct textured path.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenPatchingDirectGifPositions_PreservesCpuWindingOrder() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+        int helperStartIndex = source.IndexOf("bool BuildUntexturedTriangleGifPacketBytes(", StringComparison.Ordinal);
+        int helperEndIndex = source.IndexOf("::float2 ResolveGsTextureCoordinate", helperStartIndex, StringComparison.Ordinal);
+
+        Assert.True(helperStartIndex >= 0, "Expected the untextured direct-GIF triangle encoder.");
+        Assert.True(helperEndIndex > helperStartIndex, "Expected the next helper after the direct-GIF triangle encoder.");
+
+        string triangleEncoder = source.Substring(helperStartIndex, helperEndIndex - helperStartIndex);
+        Assert.Contains("packetWords[packetWordIndex++] = positionARegister;", triangleEncoder, StringComparison.Ordinal);
+        Assert.Contains("packetWords[packetWordIndex++] = positionBRegister;", triangleEncoder, StringComparison.Ordinal);
+        Assert.Contains("packetWords[packetWordIndex++] = positionCRegister;", triangleEncoder, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures direct GIF submission owns its GS state and register-list payload rather than reusing the VU staging template.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingDirectGifTriangles_UsesExplicitGifRegisterList() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+        int helperStartIndex = source.IndexOf("bool BuildUntexturedTriangleGifPacketBytes(", StringComparison.Ordinal);
+        int helperEndIndex = source.IndexOf("::float2 ResolveGsTextureCoordinate", helperStartIndex, StringComparison.Ordinal);
+
+        Assert.True(helperStartIndex >= 0, "Expected the untextured direct-GIF triangle encoder.");
+        Assert.True(helperEndIndex > helperStartIndex, "Expected the next helper after the direct-GIF triangle encoder.");
+
+        string triangleEncoder = source.Substring(helperStartIndex, helperEndIndex - helperStartIndex);
+        Assert.Contains("UntexturedTriangleDirectGifPacketWordCount", triangleEncoder, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::size_t UntexturedTriangleDirectGifPacketWordCount = 18u;", source, StringComparison.Ordinal);
+        Assert.Contains("GIF_SET_TAG(1, 1, 0, 0, GIF_FLG_REGLIST, 8)", triangleEncoder, StringComparison.Ordinal);
+        Assert.Contains("UntexturedTriangleDirectGifRegisterList", triangleEncoder, StringComparison.Ordinal);
+        Assert.Contains("GS_SETREG_PRIM(", triangleEncoder, StringComparison.Ordinal);
+        Assert.Contains("GS_SETREG_RGBAQ(", triangleEncoder, StringComparison.Ordinal);
+        Assert.Contains("packetWords[packetWordIndex++] = positionARegister;", triangleEncoder, StringComparison.Ordinal);
+        Assert.Contains("packetWords[packetWordIndex++] = positionBRegister;", triangleEncoder, StringComparison.Ordinal);
+        Assert.Contains("packetWords[packetWordIndex++] = positionCRegister;", triangleEncoder, StringComparison.Ordinal);
+        Assert.DoesNotContain("templateQwords", triangleEncoder, StringComparison.Ordinal);
+        Assert.DoesNotContain("GifPacketTemplate", triangleEncoder, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures direct GIF triangle projection receives view-space positions while the VU fallback retains local positions for its WVP transform.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingDirectGifTriangles_UsesViewSpacePositions() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+        int methodStartIndex = source.IndexOf("std::size_t Ps2VuVifPacketBuilder::AddOpaqueUntexturedBatches(", StringComparison.Ordinal);
+        int directGifStartIndex = source.IndexOf("if (!createVifPacket) {", methodStartIndex, StringComparison.Ordinal);
+
+        Assert.True(methodStartIndex >= 0, "Expected the untextured aggregate builder.");
+        Assert.True(directGifStartIndex > methodStartIndex, "Expected the direct-GIF aggregate branch.");
+
+        string untexturedAggregateBuilder = source.Substring(methodStartIndex, directGifStartIndex - methodStartIndex);
+        Assert.Contains("createVifPacket ? packedPositionA : vertexA.ViewPosition", untexturedAggregateBuilder, StringComparison.Ordinal);
+        Assert.Contains("createVifPacket ? packedPositionB : vertexB.ViewPosition", untexturedAggregateBuilder, StringComparison.Ordinal);
+        Assert.Contains("createVifPacket ? packedPositionC : vertexC.ViewPosition", untexturedAggregateBuilder, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures direct-GIF untextured aggregates retain near-plane clipping without using the faulty CPU side-frustum reject path.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEncodingDirectGifUntexturedAggregates_ClipsOnlyTheNearPlane() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+        int methodStartIndex = source.IndexOf("std::size_t Ps2VuVifPacketBuilder::AddOpaqueUntexturedBatches(", StringComparison.Ordinal);
+        int methodEndIndex = source.IndexOf("void Ps2VuVifPacketBuilder::AddOpaqueTexturedBatches(", methodStartIndex, StringComparison.Ordinal);
+
+        Assert.True(methodStartIndex >= 0, "Expected the untextured aggregate builder.");
+        Assert.True(methodEndIndex > methodStartIndex, "Expected the textured aggregate builder after the untextured builder.");
+
+        string untexturedAggregateEncoder = source.Substring(methodStartIndex, methodEndIndex - methodStartIndex);
+        Assert.Contains("ClipUntexturedTriangleAgainstNearPlane(vertexA, vertexB, vertexC, nearPlaneDistance, clippedUntexturedVertices);", untexturedAggregateEncoder, StringComparison.Ordinal);
+        Assert.DoesNotContain("ClipUntexturedTriangleAgainstScreenFrustum(vertexA, vertexB, vertexC, nearPlaneDistance, projection, clippedUntexturedVertices);", untexturedAggregateEncoder, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures direct untextured aggregate submission owns final GIF data and does not use VIF packet slots whose payload lifetime is shorter than VU execution.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenSubmittingUntexturedAggregates_UsesOwnedDirectGifPackets() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+        int routeStartIndex = source.IndexOf("if (!EnableUntexturedAggregatePacketDiagnostics", StringComparison.Ordinal);
+        int routeEndIndex = source.IndexOf("batchIndex = followingBatchIndex - 1u;", routeStartIndex, StringComparison.Ordinal);
+
+        Assert.True(routeStartIndex >= 0, "Expected the untextured aggregate renderer route.");
+        Assert.True(routeEndIndex > routeStartIndex, "Expected the untextured aggregate route completion.");
+
+        string untexturedAggregateRoute = source.Substring(routeStartIndex, routeEndIndex - routeStartIndex);
+        int directGifStartIndex = untexturedAggregateRoute.IndexOf("if (UseDirectGifUntexturedSubmission) {", StringComparison.Ordinal);
+        int directGifEndIndex = untexturedAggregateRoute.IndexOf("} else {\n                        WaitForVif1BeforePacketReuse();", directGifStartIndex, StringComparison.Ordinal);
+
+        Assert.Contains("constexpr bool UseDirectGifUntexturedSubmission = true;", source, StringComparison.Ordinal);
+        Assert.Contains("!UseDirectGifUntexturedSubmission);", untexturedAggregateRoute, StringComparison.Ordinal);
+        Assert.Contains("dma_channel_send_packet2(gifPacket, DMA_CHANNEL_GIF, true);", untexturedAggregateRoute, StringComparison.Ordinal);
+        Assert.True(directGifStartIndex >= 0, "Expected the untextured direct-GIF submit branch.");
+        Assert.True(directGifEndIndex > directGifStartIndex, "Expected the diagnostic VIF fallback after direct GIF submission.");
+        string untexturedDirectGifSubmit = untexturedAggregateRoute.Substring(directGifStartIndex, directGifEndIndex - directGifStartIndex);
+        Assert.DoesNotContain("VuPacketSlots[ActiveVuPacketSlotIndex] = VuVifPacketBuilder.ReleasePacket();", untexturedDirectGifSubmit, StringComparison.Ordinal);
+        Assert.DoesNotContain("dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);", untexturedDirectGifSubmit, StringComparison.Ordinal);
     }
 
     /// <summary>
