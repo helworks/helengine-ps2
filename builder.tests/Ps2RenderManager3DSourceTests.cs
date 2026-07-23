@@ -427,6 +427,21 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures textured batches only use the dynamic VU1 path after a conservative whole-batch visibility check,
+    /// leaving every clip-boundary case on the established CPU clipping path.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenClassifyingTexturedBatches_ReservesCpuClippingFallback() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("bool Ps2RenderManager3D::CanUseTexturedVuFastPath(", source, StringComparison.Ordinal);
+        Assert.Contains("bool allBoundsInside = true;", source, StringComparison.Ordinal);
+        Assert.Contains("return allBoundsInside;", source, StringComparison.Ordinal);
+        Assert.Contains("std::vector<Ps2VuOpaqueBatchSlice> cpuFallbackTexturedBatches;", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the compact PS2 overlay reports the actual submitted triangle count and payload size for performance diagnosis.
     /// </summary>
     [Fact]
