@@ -138,6 +138,7 @@ namespace helengine::ps2 {
         constexpr bool EnableVuDirectGifHelperTriangleDiagnostics = false;
         constexpr bool EnableVuSingleTrianglePayloadDiagnostics = false;
         constexpr bool EnableTexturedBatchAggregation = true;
+        constexpr std::size_t MaximumTexturedVuSourceTriangleCount = 12u;
         constexpr bool UseDirectGifTexturedSubmission = true;
         constexpr bool UseDirectGifUntexturedSubmission = true;
         constexpr bool EnableUntexturedAggregatePacketDiagnostics = false;
@@ -1303,16 +1304,26 @@ namespace helengine::ps2 {
         LastVuRejectedMissingModelCount = VuOpaqueBatchBuilder.GetLastRejectedMissingModelCount();
         LastVuRejectedMissingPackedModelCount = VuOpaqueBatchBuilder.GetLastRejectedMissingPackedModelCount();
         std::vector<Ps2VuOpaqueBatchSlice> cpuFallbackTexturedBatches;
+        std::vector<Ps2VuOpaqueBatchSlice> texturedVuBatches;
         std::vector<::float4x4> texturedWorlds;
         std::vector<GSTEXTURE*> texturedTextures;
         std::vector<int> texturedTextureWidths;
         std::vector<int> texturedTextureHeights;
+        std::vector<::float4x4> texturedVuWorlds;
+        std::vector<GSTEXTURE*> texturedVuTextures;
+        std::vector<int> texturedVuTextureWidths;
+        std::vector<int> texturedVuTextureHeights;
         std::vector<Ps2VuOpaqueBatch> runtimeWhiteTexturedBatches;
         cpuFallbackTexturedBatches.reserve(batches.size());
+        texturedVuBatches.reserve(batches.size());
         texturedWorlds.reserve(batches.size());
         texturedTextures.reserve(batches.size());
         texturedTextureWidths.reserve(batches.size());
         texturedTextureHeights.reserve(batches.size());
+        texturedVuWorlds.reserve(batches.size());
+        texturedVuTextures.reserve(batches.size());
+        texturedVuTextureWidths.reserve(batches.size());
+        texturedVuTextureHeights.reserve(batches.size());
         runtimeWhiteTexturedBatches.reserve(batches.size());
         static std::uint32_t texturedBatchClassificationDiagnosticCount = 0u;
         static bool hasWrittenUntexturedAggregationDiagnostic = false;
@@ -1344,6 +1355,7 @@ namespace helengine::ps2 {
                 }
             }
 
+            const bool canUseTexturedVuFastPath = CanUseTexturedVuFastPath(batch, world, view, projection, nearPlaneDistance);
             if (texturedBatchClassificationDiagnosticCount < TexturedVuSubmitDiagnosticLogLimit) {
                 texturedBatchClassificationDiagnosticCount++;
                 AppendDiagnosticToHostBootLog(
@@ -1357,7 +1369,7 @@ namespace helengine::ps2 {
                     + " texturePath=" + (batch.Material != nullptr && batch.Material->HasTextureRelativePath() ? batch.Material->GetTextureRelativePath() : std::string("none"))
                     + " textureResolved=" + std::to_string(batchTexture != nullptr ? 1 : 0)
                     + " textureSize=" + std::to_string(batchTextureWidth) + "x" + std::to_string(batchTextureHeight)
-                    + " vuFastPathEligible=" + std::to_string(CanUseTexturedVuFastPath(batch, world, view, projection, nearPlaneDistance) ? 1 : 0));
+                    + " vuFastPathEligible=" + std::to_string(canUseTexturedVuFastPath ? 1 : 0));
             }
 
             if (EnableLegacyCpuTexturedOpaquePath && batch.Textured) {
@@ -1381,13 +1393,23 @@ namespace helengine::ps2 {
 
                 std::vector<Ps2VuOpaqueBatchSlice> batchSlices = CreateOpaqueBatchSlices(
                     *texturedBatch,
-                    MaximumBoundedTexturedAggregateSourceTriangleCount);
+                    canUseTexturedVuFastPath
+                        ? MaximumTexturedVuSourceTriangleCount
+                        : MaximumBoundedTexturedAggregateSourceTriangleCount);
                 for (const Ps2VuOpaqueBatchSlice& batchSlice : batchSlices) {
-                    cpuFallbackTexturedBatches.push_back(batchSlice);
-                    texturedWorlds.push_back(world);
-                    texturedTextures.push_back(batchTexture);
-                    texturedTextureWidths.push_back(batchTextureWidth);
-                    texturedTextureHeights.push_back(batchTextureHeight);
+                    if (canUseTexturedVuFastPath) {
+                        texturedVuBatches.push_back(batchSlice);
+                        texturedVuWorlds.push_back(world);
+                        texturedVuTextures.push_back(batchTexture);
+                        texturedVuTextureWidths.push_back(batchTextureWidth);
+                        texturedVuTextureHeights.push_back(batchTextureHeight);
+                    } else {
+                        cpuFallbackTexturedBatches.push_back(batchSlice);
+                        texturedWorlds.push_back(world);
+                        texturedTextures.push_back(batchTexture);
+                        texturedTextureWidths.push_back(batchTextureWidth);
+                        texturedTextureHeights.push_back(batchTextureHeight);
+                    }
                 }
                 continue;
             }
@@ -1675,6 +1697,51 @@ namespace helengine::ps2 {
             }
             (void)viewport;
             (void)nearPlaneDistance;
+        }
+
+        if (!texturedVuBatches.empty()) {
+            WaitForVif1BeforePacketReuse();
+            ReleaseVuPacketSlot(ActiveVuPacketSlotIndex);
+            VuGifStateEncoder.EncodeOpaqueState(*texturedVuBatches.front().Batch, GsGlobal);
+            VuVifPacketBuilder.Reset();
+            const std::clock_t vuPacketEncodeStartTicks = std::clock();
+            VuVifPacketBuilder.AddOpaqueTexturedVuBatches(
+                texturedVuBatches,
+                texturedVuWorlds,
+                view,
+                projection,
+                viewport,
+                GsGlobal,
+                texturedVuTextures,
+                texturedVuTextureWidths,
+                texturedVuTextureHeights);
+            packet2_t* texturedVuPacket = VuVifPacketBuilder.GetPacket();
+            const std::clock_t vuPacketEncodeEndTicks = std::clock();
+            LastVuPacketEncodeMilliseconds += ResolveMillisecondsFromClockTicks(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);
+            LastPerformanceMetrics.PacketEncodeMilliseconds += ResolveMillisecondsFromClockTicks(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);
+            LastVuPacketAssemblyMilliseconds += VuVifPacketBuilder.GetLastPacketAssemblyMilliseconds();
+            LastVuPacketByteCount += VuVifPacketBuilder.GetPacketByteCount();
+            LastPerformanceMetrics.VifPacketByteCount += VuVifPacketBuilder.GetPacketByteCount();
+            LastVuPacketPhase = VuVifPacketBuilder.GetLastCompletedPhase();
+            LastSubmittedTriangleCount += VuVifPacketBuilder.GetSubmittedTriangleCount();
+            LastPerformanceMetrics.SubmittedTriangleCount += VuVifPacketBuilder.GetSubmittedTriangleCount();
+            for (const Ps2VuOpaqueBatchSlice& texturedVuBatch : texturedVuBatches) {
+                LastVuTriangleVertexCount += texturedVuBatch.SourceTriangleCount * 3u;
+            }
+            if (texturedVuPacket == nullptr) {
+                throw std::runtime_error("PS2 textured VU source path did not produce a VIF packet.");
+            }
+
+            VuPacketSlots[ActiveVuPacketSlotIndex] = VuVifPacketBuilder.ReleasePacket();
+            texturedVuPacket = VuPacketSlots[ActiveVuPacketSlotIndex];
+            const std::clock_t vuSubmitStartTicks = std::clock();
+            dma_channel_send_packet2(texturedVuPacket, DMA_CHANNEL_VIF1, 1);
+            const std::clock_t vuSubmitEndTicks = std::clock();
+            LastVuSubmitMilliseconds += ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);
+            LastPerformanceMetrics.VifSubmitMilliseconds += ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);
+            LastVuBatchDispatchCount += 1u;
+            LastPerformanceMetrics.VifPacketCount += 1u;
+            ActiveVuPacketSlotIndex = (ActiveVuPacketSlotIndex + 1u) % 2u;
         }
 
         if (cpuFallbackTexturedBatches.empty()) {

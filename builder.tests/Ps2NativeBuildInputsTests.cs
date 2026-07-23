@@ -7,6 +7,20 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2NativeBuildInputsTests {
     /// <summary>
+    /// Ensures the textured VU1 program performs perspective-correct coordinate generation before kicking GIF output.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_program_transforms_vertices_with_perspective_q() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string microProgram = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"));
+
+        Assert.Contains("div           Q", microProgram, StringComparison.Ordinal);
+        Assert.Contains("mulq.xy", microProgram, StringComparison.Ordinal);
+        Assert.Contains("xgkick", microProgram, StringComparison.Ordinal);
+        Assert.DoesNotContain("NOP                                                        xgkick VI02", microProgram, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the dynamic textured VU1 path receives local mesh source data instead of CPU-projected GIF registers.
     /// </summary>
     [Fact]

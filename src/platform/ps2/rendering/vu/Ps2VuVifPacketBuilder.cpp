@@ -202,7 +202,7 @@ namespace helengine::ps2 {
             float GsOffset[4];
             float FlatColor[4];
             std::uint32_t TriangleCount[4];
-            Ps2VuGifQword StateTemplate[6];
+            Ps2VuGifQword StateTemplate[8];
         };
 
         struct alignas(16) Ps2VuUntexturedTrianglePayload final {
@@ -2149,13 +2149,10 @@ namespace helengine::ps2 {
             sharedState.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
             sharedState.GsOffset[2] = 4194304.0f;
             sharedState.GsOffset[3] = 0.0f;
-            const std::uint32_t flatColor = GS_SETREG_RGBAQ(
-                batch->Material->GetBaseColorR(),
-                batch->Material->GetBaseColorG(),
-                batch->Material->GetBaseColorB(),
-                batch->Material->GetBaseColorA(),
-                0x00);
-            std::memcpy(&sharedState.FlatColor[0], &flatColor, sizeof(flatColor));
+            sharedState.FlatColor[0] = static_cast<float>(batch->Material->GetBaseColorR());
+            sharedState.FlatColor[1] = static_cast<float>(batch->Material->GetBaseColorG());
+            sharedState.FlatColor[2] = static_cast<float>(batch->Material->GetBaseColorB());
+            sharedState.FlatColor[3] = static_cast<float>(batch->Material->GetBaseColorA());
             sharedState.TriangleCount[0] = static_cast<std::uint32_t>(batchSlice.SourceTriangleCount);
             sharedState.StateTemplate[0].Low = GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1);
             sharedState.StateTemplate[0].High = GIF_REG_AD;
@@ -2167,12 +2164,18 @@ namespace helengine::ps2 {
             sharedState.StateTemplate[3].High = GS_REG_TEX1;
             const int textureWidthPower = ResolveGsTextureDimensionExponent(textureWidth);
             const int textureHeightPower = ResolveGsTextureDimensionExponent(textureHeight);
-            sharedState.StateTemplate[4].Low = texture->VramClut == 0
+            sharedState.StateTemplate[4].Low = GIF_SET_TAG(2, 0, 0, 0, GIF_FLG_PACKED, 1);
+            sharedState.StateTemplate[4].High = GIF_REG_AD;
+            sharedState.StateTemplate[5].Low = texture->VramClut == 0
                 ? GS_SETREG_TEX0(texture->Vram / 256, texture->TBW, texture->PSM, textureWidthPower, textureHeightPower, gsGlobal->PrimAlphaEnable, 0, 0, 0, 0, 0, GS_CLUT_STOREMODE_NOLOAD)
                 : GS_SETREG_TEX0(texture->Vram / 256, texture->TBW, texture->PSM, textureWidthPower, textureHeightPower, gsGlobal->PrimAlphaEnable, 0, texture->VramClut / 256, texture->ClutPSM, texture->ClutStorageMode, 0, GS_CLUT_STOREMODE_LOAD);
-            sharedState.StateTemplate[4].High = GS_SETREG_PRIM(GS_PRIM_PRIM_TRIANGLE, PRIM_SHADE_GOURAUD, 1, gsGlobal->PrimFogEnable, gsGlobal->PrimAlphaEnable, gsGlobal->PrimAAEnable, 0, gsGlobal->PrimContext, 0);
-            sharedState.StateTemplate[5].Low = GIF_TAG_TRIANGLE_GORAUD_TEXTURED(1);
-            sharedState.StateTemplate[5].High = BuildPerspectiveTextureRegisterList(gsGlobal->PrimContext);
+            sharedState.StateTemplate[5].High = GS_REG_TEX0_1 + gsGlobal->PrimContext;
+            sharedState.StateTemplate[6].Low = GS_SETREG_PRIM(GS_PRIM_PRIM_TRIANGLE, PRIM_SHADE_GOURAUD, 1, gsGlobal->PrimFogEnable, gsGlobal->PrimAlphaEnable, gsGlobal->PrimAAEnable, 0, gsGlobal->PrimContext, 0);
+            sharedState.StateTemplate[6].High = GS_REG_PRIM;
+            sharedState.StateTemplate[7].Low = GIF_SET_TAG(static_cast<std::uint32_t>(batchSlice.SourceTriangleCount * 3u), 1, 0, 0, GIF_FLG_PACKED, 3);
+            sharedState.StateTemplate[7].High = (static_cast<std::uint64_t>(GIF_REG_RGBAQ) << 0u)
+                | (static_cast<std::uint64_t>(GIF_REG_ST) << 4u)
+                | (static_cast<std::uint64_t>(GIF_REG_XYZ2) << 8u);
 
             std::vector<Ps2VuTexturedSourceTriangle> sourceTriangles;
             sourceTriangles.reserve(batchSlice.SourceTriangleCount);

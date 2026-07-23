@@ -7,6 +7,19 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2RenderManager3DSourceTests {
     /// <summary>
+    /// Ensures safe textured batches use the dynamic VU1 source path while clip-boundary batches retain CPU clipping.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenSubmittingSafeTexturedBatches_UsesDynamicVuSourcePackets() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("std::vector<Ps2VuOpaqueBatchSlice> texturedVuBatches;", source, StringComparison.Ordinal);
+        Assert.Contains("VuVifPacketBuilder.AddOpaqueTexturedVuBatches(", source, StringComparison.Ordinal);
+        Assert.Contains("cpuFallbackTexturedBatches.push_back", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 renderer deserializes PS2-native cooked textures instead of assuming generic raw texture assets.
     /// </summary>
     [Fact]
