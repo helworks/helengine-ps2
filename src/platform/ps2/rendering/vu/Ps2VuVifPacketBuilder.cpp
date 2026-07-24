@@ -2135,10 +2135,13 @@ namespace helengine::ps2 {
                 throw std::runtime_error("PS2 textured VU source packing requires packed positions and texture coordinates.");
             }
 
+            ::float4x4 worldCopy = worlds[batchIndex];
+            ::float4x4 viewCopy = view;
+            ::float4x4 projectionCopy = projection;
             ::float4x4 worldView;
             ::float4x4 worldViewProjection;
-            ::float4x4::Multiply__ref0_ref1_out2(worlds[batchIndex], view, worldView);
-            ::float4x4::Multiply__ref0_ref1_out2(worldView, projection, worldViewProjection);
+            ::float4x4::Multiply__ref0_ref1_out2(worldCopy, viewCopy, worldView);
+            ::float4x4::Multiply__ref0_ref1_out2(worldView, projectionCopy, worldViewProjection);
             Ps2VuTexturedSharedState sharedState {};
             CopyMatrixWords(worldViewProjection, sharedState.WorldViewProjectionMatrix);
             sharedState.GsScale[0] = viewport.Z * 0.5f;
