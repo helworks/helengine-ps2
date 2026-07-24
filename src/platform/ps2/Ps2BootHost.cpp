@@ -186,7 +186,7 @@ namespace {
     constexpr float CubeTriangle2dVertexB2X = 428.156738f;
     constexpr float CubeTriangle2dVertexB2Y = 115.843239f;
     constexpr float CubeTriangle3dDiagnosticDepth = 1.0f;
-    constexpr const char* FrameTimingOverlayBuildNumber = "B63";
+    constexpr const char* FrameTimingOverlayBuildNumber = "B64";
     bool DebugConsoleReady = false;
     bool CubeDiagnosticsShown = false;
     bool CubeRuntimeDiagnosticsCompleted = false;
