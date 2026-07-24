@@ -1126,6 +1126,7 @@ public class Ps2PlatformAssetBuilderTests {
             "C:\\repo\\staging",
             "C:\\generated-core",
             outputRootPath,
+            "C:\\private-artifacts",
             "C:\\repo\\build\\helengine_ps2.elf");
 
         IReadOnlyList<string> arguments = Ps2NativeBuildExecutor.CreatePackageIsoArguments(workspace);

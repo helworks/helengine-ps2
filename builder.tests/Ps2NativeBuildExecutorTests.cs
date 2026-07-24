@@ -186,6 +186,31 @@ public sealed class Ps2NativeBuildExecutorTests {
     }
 
     /// <summary>
+    /// Verifies that every PS2 native invocation writes its object files and ELF into the platform builder's private working root rather than the checked-out repository.
+    /// </summary>
+    [Fact]
+    public void Ps2NativeBuildExecutor_WhenBuilding_ShouldUseInvocationPrivateBuildOutputRoot() {
+        string repositoryRootPath = ResolveRepositoryRoot();
+        string makefilePath = Path.Combine(repositoryRootPath, "Makefile");
+        string builderPath = Path.Combine(repositoryRootPath, "builder", "Ps2PlatformAssetBuilder.cs");
+        string executorPath = Path.Combine(repositoryRootPath, "builder", "Ps2NativeBuildExecutor.cs");
+
+        string makefile = File.ReadAllText(makefilePath);
+        string builderSource = File.ReadAllText(builderPath);
+        string executorSource = File.ReadAllText(executorPath);
+
+        Assert.Contains("BUILD_DIR ?= build", makefile, StringComparison.Ordinal);
+        Assert.Contains("TARGET ?= $(BUILD_DIR)/helengine_ps2.elf", makefile, StringComparison.Ordinal);
+        Assert.Contains("Path.Combine(request.WorkingRoot, \"ps2-native\", \"helengine_ps2.elf\")", builderSource, StringComparison.Ordinal);
+        Assert.Contains("Path.Combine(request.WorkingRoot, \"ps2-artifacts\")", builderSource, StringComparison.Ordinal);
+        Assert.Contains("PublishPackagedOutputs(workspace)", builderSource, StringComparison.Ordinal);
+        Assert.Contains("$\"{workspace.RepositoryRootPath}:/workspace:ro\"", executorSource, StringComparison.Ordinal);
+        Assert.Contains("$\"{nativeBuildRootPath}:/build-output\"", executorSource, StringComparison.Ordinal);
+        Assert.Contains("$\"{workspace.ArtifactRootPath}:/export\"", executorSource, StringComparison.Ordinal);
+        Assert.Contains("BUILD_DIR=/build-output", executorSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Verifies that the PS2 render-manager contract validator accepts the current generated-core layout that exposes cooked platform materials plus raw-asset loading without the removed raw-material virtual.
     /// </summary>
     [Fact]

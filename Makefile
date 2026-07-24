@@ -12,8 +12,8 @@ $(error HELENGINE_CORE_CPP_ROOT must point at the generated helengine.core C++ o
 endif
 endif
 
-TARGET := build/helengine_ps2.elf
-BUILD_DIR := build
+BUILD_DIR ?= build
+TARGET ?= $(BUILD_DIR)/helengine_ps2.elf
 SOURCE_DIR := src
 HOST_DEBUGGER_DIR := tools/ps2-host-debugger
 HOST_DEBUGGER_BUILD_DIR := $(HOST_DEBUGGER_DIR)/build

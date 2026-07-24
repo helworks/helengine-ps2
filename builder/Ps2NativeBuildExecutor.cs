@@ -24,6 +24,12 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
 
         ValidateRenderManager3DContractPairing(workspace.RepositoryRootPath, workspace.GeneratedCoreRootPath);
         ValidateGeneratedCoreSources(workspace.GeneratedCoreRootPath);
+        string nativeBuildRootPath = Path.GetDirectoryName(workspace.NativeExecutablePath);
+        if (string.IsNullOrWhiteSpace(nativeBuildRootPath)) {
+            throw new InvalidOperationException("The PS2 native executable path must have a parent build directory.");
+        }
+
+        Directory.CreateDirectory(nativeBuildRootPath);
 
         RunProcess(
             "docker",
@@ -42,15 +48,18 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
                 "run",
                 "--rm",
                 "-v",
-                $"{workspace.RepositoryRootPath}:/workspace",
+                $"{workspace.RepositoryRootPath}:/workspace:ro",
                 "-v",
-                $"{workspace.GeneratedCoreRootPath}:/generated-core",
+                $"{workspace.GeneratedCoreRootPath}:/generated-core:ro",
+                "-v",
+                $"{nativeBuildRootPath}:/build-output",
                 "-w",
                 "/workspace",
                 "-e",
                 "HELENGINE_CORE_CPP_ROOT=/generated-core",
                 DockerImageTag,
-                "make"
+                "make",
+                "BUILD_DIR=/build-output"
             ],
             workspace.RepositoryRootPath,
             cancellationToken);
@@ -284,7 +293,7 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             throw new ArgumentNullException(nameof(workspace));
         }
 
-        Directory.CreateDirectory(workspace.OutputRootPath);
+        Directory.CreateDirectory(workspace.ArtifactRootPath);
         RunProcess(
             "docker",
             CreatePackageIsoArguments(workspace),
@@ -307,7 +316,7 @@ public sealed class Ps2NativeBuildExecutor : IPs2NativeBuildExecutor {
             "run",
             "--rm",
             "-v",
-            $"{workspace.OutputRootPath}:/export",
+            $"{workspace.ArtifactRootPath}:/export",
             "-w",
             "/export",
             DockerImageTag,

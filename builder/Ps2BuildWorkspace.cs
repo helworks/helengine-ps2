@@ -16,12 +16,14 @@ public sealed class Ps2BuildWorkspace {
     /// <param name="stagingRootPath">Prepared staged package root used as the source of cooked runtime files.</param>
     /// <param name="generatedCoreRootPath">Generated native core root compiled into the PS2 ELF.</param>
     /// <param name="outputRootPath">Final export root that receives the ELF and cooked runtime files.</param>
+    /// <param name="artifactRootPath">Invocation-private artifact root used to stage the disc tree and ISO before final publication.</param>
     /// <param name="nativeExecutablePath">Absolute path to the built ELF produced by the Docker build.</param>
     public Ps2BuildWorkspace(
         string repositoryRootPath,
         string stagingRootPath,
         string generatedCoreRootPath,
         string outputRootPath,
+        string artifactRootPath,
         string nativeExecutablePath) {
         if (string.IsNullOrWhiteSpace(repositoryRootPath)) {
             throw new ArgumentException("Repository root path must be provided.", nameof(repositoryRootPath));
@@ -35,6 +37,9 @@ public sealed class Ps2BuildWorkspace {
         if (string.IsNullOrWhiteSpace(outputRootPath)) {
             throw new ArgumentException("Output root path must be provided.", nameof(outputRootPath));
         }
+        if (string.IsNullOrWhiteSpace(artifactRootPath)) {
+            throw new ArgumentException("Artifact root path must be provided.", nameof(artifactRootPath));
+        }
         if (string.IsNullOrWhiteSpace(nativeExecutablePath)) {
             throw new ArgumentException("Native executable path must be provided.", nameof(nativeExecutablePath));
         }
@@ -43,6 +48,7 @@ public sealed class Ps2BuildWorkspace {
         StagingRootPath = Path.GetFullPath(stagingRootPath);
         GeneratedCoreRootPath = Path.GetFullPath(generatedCoreRootPath);
         OutputRootPath = Path.GetFullPath(outputRootPath);
+        ArtifactRootPath = Path.GetFullPath(artifactRootPath);
         NativeExecutablePath = Path.GetFullPath(nativeExecutablePath);
     }
 
@@ -72,14 +78,19 @@ public sealed class Ps2BuildWorkspace {
     public string OutputRootPath { get; }
 
     /// <summary>
+    /// Gets the invocation-private artifact root that contains PS2 packaging outputs before publication.
+    /// </summary>
+    public string ArtifactRootPath { get; }
+
+    /// <summary>
     /// Gets the absolute path to the built ELF produced by the Docker build.
     /// </summary>
     public string NativeExecutablePath { get; }
 
     /// <summary>
-    /// Gets the staged PS2 disc root exported to the final output directory.
+    /// Gets the invocation-private staged PS2 disc root.
     /// </summary>
-    public string DiscRootPath => Path.Combine(OutputRootPath, "disc");
+    public string DiscRootPath => Path.Combine(ArtifactRootPath, "disc");
 
     /// <summary>
     /// Gets the generated PS2 runtime asset-path manifest header path.
@@ -102,7 +113,17 @@ public sealed class Ps2BuildWorkspace {
     public string DiscExecutablePath => Path.Combine(DiscRootPath, DiscExecutableFileName);
 
     /// <summary>
-    /// Gets the final bootable PS2 ISO output path.
+    /// Gets the invocation-private bootable PS2 ISO output path.
     /// </summary>
-    public string IsoOutputPath => Path.Combine(OutputRootPath, "game.iso");
+    public string IsoOutputPath => Path.Combine(ArtifactRootPath, "game.iso");
+
+    /// <summary>
+    /// Gets the final published PS2 disc root path.
+    /// </summary>
+    public string PublishedDiscRootPath => Path.Combine(OutputRootPath, "disc");
+
+    /// <summary>
+    /// Gets the final published PS2 ISO path.
+    /// </summary>
+    public string PublishedIsoOutputPath => Path.Combine(OutputRootPath, "game.iso");
 }

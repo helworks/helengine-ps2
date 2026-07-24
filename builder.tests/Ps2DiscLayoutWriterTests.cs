@@ -27,17 +27,18 @@ public sealed class Ps2DiscLayoutWriterTests {
             stagingRootPath: stagedCookedRootPath,
             generatedCoreRootPath: Path.Combine(rootPath, "generated"),
             outputRootPath: outputRootPath,
+            artifactRootPath: Path.Combine(rootPath, "artifacts"),
             nativeExecutablePath: nativeElfPath);
 
         Ps2DiscLayoutWriter writer = new();
         IReadOnlyDictionary<string, string> logicalToPhysicalPaths = writer.Write(workspace);
 
-        Assert.True(File.Exists(Path.Combine(outputRootPath, "disc", "SYSTEM.CNF")));
-        Assert.True(File.Exists(Path.Combine(outputRootPath, "disc", Ps2BuildWorkspace.DiscExecutableFileName)));
-        Assert.True(File.Exists(Path.Combine(outputRootPath, "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/scenes/main.hasset"))));
+        Assert.True(File.Exists(Path.Combine(rootPath, "artifacts", "disc", "SYSTEM.CNF")));
+        Assert.True(File.Exists(Path.Combine(rootPath, "artifacts", "disc", Ps2BuildWorkspace.DiscExecutableFileName)));
+        Assert.True(File.Exists(Path.Combine(rootPath, "artifacts", "disc", Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/scenes/main.hasset"))));
         Assert.Contains(
             "BOOT2 = cdrom0:\\" + Ps2BuildWorkspace.DiscExecutableFileName + ";1",
-            File.ReadAllText(Path.Combine(outputRootPath, "disc", "SYSTEM.CNF")));
+            File.ReadAllText(Path.Combine(rootPath, "artifacts", "disc", "SYSTEM.CNF")));
         Assert.Equal("\\COOKED\\SCENES\\MAIN.HAS;1", logicalToPhysicalPaths["cooked/scenes/main.hasset"]);
     }
 }

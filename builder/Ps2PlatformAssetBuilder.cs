@@ -93,9 +93,8 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             throw new ArgumentNullException(nameof(diagnosticReporter));
         }
 
-        Directory.CreateDirectory(request.OutputRoot);
         Directory.CreateDirectory(request.WorkingRoot);
-        string phaseMarkerPath = Path.Combine(request.OutputRoot, "ps2-build-phase.txt");
+        string phaseMarkerPath = Path.Combine(request.WorkingRoot, "ps2-build-phase.txt");
 
         List<PlatformBuildDiagnostic> diagnostics = [];
         List<PlatformBuildItemOutcome> sceneOutcomes = BuildSceneOutcomes(request.Manifest.Scenes);
@@ -119,6 +118,8 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
                 WritePhaseMarker(phaseMarkerPath, "iso packaged");
                 VerifyPackagedOutputs(workspace);
                 WritePhaseMarker(phaseMarkerPath, "packaged outputs verified");
+                PublishPackagedOutputs(workspace);
+                WritePhaseMarker(phaseMarkerPath, "packaged outputs published");
             } catch (Exception exception) {
                 WritePhaseMarker(phaseMarkerPath, "exception: " + exception);
                 throw;
@@ -403,6 +404,53 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     }
 
     /// <summary>
+    /// Publishes completed PS2 packaging artifacts from the invocation-private workspace into the caller-selected final output root.
+    /// </summary>
+    /// <param name="workspace">Prepared PS2 build workspace containing verified private artifacts.</param>
+    static void PublishPackagedOutputs(Ps2BuildWorkspace workspace) {
+        if (workspace == null) {
+            throw new ArgumentNullException(nameof(workspace));
+        }
+
+        Directory.CreateDirectory(workspace.OutputRootPath);
+        if (Directory.Exists(workspace.PublishedDiscRootPath)) {
+            Directory.Delete(workspace.PublishedDiscRootPath, true);
+        }
+
+        CopyDirectoryTree(workspace.DiscRootPath, workspace.PublishedDiscRootPath);
+        File.Copy(workspace.IsoOutputPath, workspace.PublishedIsoOutputPath, true);
+    }
+
+    /// <summary>
+    /// Copies every directory and file from one completed artifact tree into its final destination.
+    /// </summary>
+    /// <param name="sourceRootPath">Existing source artifact root.</param>
+    /// <param name="destinationRootPath">Destination root that receives the copied artifact tree.</param>
+    static void CopyDirectoryTree(string sourceRootPath, string destinationRootPath) {
+        if (string.IsNullOrWhiteSpace(sourceRootPath)) {
+            throw new ArgumentException("Source root path must be provided.", nameof(sourceRootPath));
+        } else if (string.IsNullOrWhiteSpace(destinationRootPath)) {
+            throw new ArgumentException("Destination root path must be provided.", nameof(destinationRootPath));
+        } else if (!Directory.Exists(sourceRootPath)) {
+            throw new DirectoryNotFoundException($"Source artifact root '{sourceRootPath}' was not found.");
+        }
+
+        string[] sourceFilePaths = Directory.GetFiles(sourceRootPath, "*", SearchOption.AllDirectories);
+        for (int fileIndex = 0; fileIndex < sourceFilePaths.Length; fileIndex++) {
+            string sourceFilePath = sourceFilePaths[fileIndex];
+            string relativeFilePath = Path.GetRelativePath(sourceRootPath, sourceFilePath);
+            string destinationFilePath = Path.Combine(destinationRootPath, relativeFilePath);
+            string destinationDirectoryPath = Path.GetDirectoryName(destinationFilePath);
+            if (string.IsNullOrWhiteSpace(destinationDirectoryPath)) {
+                throw new InvalidOperationException($"Artifact destination '{destinationFilePath}' must have a parent directory.");
+            }
+
+            Directory.CreateDirectory(destinationDirectoryPath);
+            File.Copy(sourceFilePath, destinationFilePath, true);
+        }
+    }
+
+    /// <summary>
     /// Walks upward from one starting directory until the checked-in PS2 repository root markers are found.
     /// </summary>
     /// <param name="startPath">Candidate directory path used as the initial repository-root search location.</param>
@@ -441,13 +489,15 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         }
 
         string repositoryRootPath = ResolveRepositoryRootPath();
-        string nativeExecutablePath = Path.Combine(repositoryRootPath, "build", "helengine_ps2.elf");
+        string nativeExecutablePath = Path.Combine(request.WorkingRoot, "ps2-native", "helengine_ps2.elf");
         string stagingRootPath = Path.Combine(request.WorkingRoot, "ps2-staging");
+        string artifactRootPath = Path.Combine(request.WorkingRoot, "ps2-artifacts");
         return new Ps2BuildWorkspace(
             repositoryRootPath,
             stagingRootPath,
             request.GeneratedCoreCppRootPath,
             request.OutputRoot,
+            artifactRootPath,
             nativeExecutablePath);
     }
 
