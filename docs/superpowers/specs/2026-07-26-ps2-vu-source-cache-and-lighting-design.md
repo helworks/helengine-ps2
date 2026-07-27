@@ -35,11 +35,13 @@ vector for every batch.
 ### VU-side lighting
 
 The textured VU1 shared state gains the values needed for flat diffuse
-lighting: the material base color, the normalized light direction expressed in
-the batch's local space, and the material lighting constants. Each triangle
-uses its cached local face normal to calculate its own RGBA value on VU1 while
-it produces its vertices. This avoids the EE's per-triangle normal transform,
-normalization, intensity calculation, channel multiplication, and RGBA packing.
+lighting: the material base color, the current world normal-direction matrix,
+the normalized world light direction, and the material lighting constants.
+Each triangle uses its cached local face normal, transforms and normalizes it
+with the same W = 0 direction convention used by the current EE path, then
+calculates its own RGBA value on VU1 while it produces its vertices. This
+avoids the EE's per-triangle normal transform, normalization, intensity
+calculation, channel multiplication, and RGBA packing.
 
 The VU route remains limited to batches proven wholly inside the frustum.
 Lighting behavior is deliberately diffuse-only on that fast path. It matches

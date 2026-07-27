@@ -4,7 +4,7 @@
 
 **Goal:** Move Colored Cubes' repeated immutable-source decoding and flat diffuse-light calculation out of the EE packet encoder while preserving the CPU clipping fallback and reaching `Drw <= 2.0 ms`.
 
-**Architecture:** The bounded `Ps2VuTexturedPacketCache` supplies immutable local positions, local face normals, and UVs to the conservative textured VU1 route. VU1 receives per-batch material and local-light constants, calculates a flat diffuse RGBA value per source triangle, transforms the vertices, and emits perspective-correct STQ output. Batches that can meet a clip plane continue through the existing CPU encoder unchanged.
+**Architecture:** The bounded `Ps2VuTexturedPacketCache` supplies immutable local positions, local face normals, and UVs to the conservative textured VU1 route. VU1 receives per-batch material constants, the current world normal-direction matrix, and the world light direction; it calculates a flat diffuse RGBA value per source triangle, transforms the vertices, and emits perspective-correct STQ output. Batches that can meet a clip plane continue through the existing CPU encoder unchanged.
 
 **Tech Stack:** C++17, PS2SDK packet2/VIF1/GIF DMA, VU1 `.vsm` assembly, C# source-contract tests, HelenUI OCR.
 
@@ -83,14 +83,15 @@ rtk git commit -m "perf(ps2): reuse textured VU triangle sources"
 
 - [ ] **Step 1: Write failing layout tests**
 
-Require source records to carry a local face normal and shared state to carry local light plus material lighting values:
+Require source records to carry a local face normal and shared state to carry world-space normal/light plus material lighting values:
 
 ```csharp
 Assert.Contains("float FaceNormal[4];", source, StringComparison.Ordinal);
-Assert.Contains("float LocalLightDirection[4];", source, StringComparison.Ordinal);
+Assert.Contains("float WorldNormalMatrix[16];", source, StringComparison.Ordinal);
+Assert.Contains("float WorldLightDirection[4];", source, StringComparison.Ordinal);
 Assert.Contains("float MaterialLighting[4];", source, StringComparison.Ordinal);
 Assert.Contains("sourceTriangle.FaceNormal[0] = triangleSource.FaceNormal.X;", source, StringComparison.Ordinal);
-Assert.Contains("TransformDirection", source, StringComparison.Ordinal);
+Assert.Contains("CopyMatrixWords(worlds[batchIndex], sharedState.WorldNormalMatrix);", source, StringComparison.Ordinal);
 ```
 
 - [ ] **Step 2: Run the focused test and verify red**
@@ -108,11 +109,12 @@ Expected: FAIL because the VU source payload still contains a CPU-computed `LitC
 Replace `LitColor` with `FaceNormal` in `Ps2VuTexturedSourceTriangle`. Add these aligned fields to `Ps2VuTexturedSharedState`:
 
 ```cpp
-float LocalLightDirection[4];
+float WorldNormalMatrix[16];
+float WorldLightDirection[4];
 float MaterialLighting[4];
 ```
 
-Populate them once per batch. `LocalLightDirection` is the normalized world light transformed into local space with a direction transform (W = 0). `MaterialLighting` stores base RGB and the diffuse multiplier. Reject a batch from the VU fast path when the material is unlit, uses showcase/expensive lighting, has non-zero emissive strength, or has non-zero specular strength; those batches retain the CPU path.
+Populate them once per batch. `WorldNormalMatrix` is the current world matrix and the VU program transforms `FaceNormal` with W = 0, matching the existing EE normal-direction convention. `WorldLightDirection` is normalized once per frame. `MaterialLighting` stores base RGB and the diffuse multiplier. Reject a batch from the VU fast path when the material is unlit, uses showcase/expensive lighting, has non-zero emissive strength, or has non-zero specular strength; those batches retain the CPU path.
 
 - [ ] **Step 4: Update payload-size constants and validate alignment**
 
@@ -166,7 +168,7 @@ Expected: FAIL because the microprogram currently loads precomputed `LitColor` f
 
 - [ ] **Step 3: Change the VU register map and emit VU-computed RGBAQ**
 
-Load `LocalLightDirection` and `MaterialLighting` from the shared header once. For each triangle, load its local face normal, calculate `max(dot(normal, light), 0)`, multiply by the diffuse multiplier, then multiply base RGB by the resulting intensity. Store that color in the three RGBAQ records for the triangle. Keep the existing WVP transform, reciprocal-Q, `mulq.xy` ST calculation, and `xgkick` behavior intact.
+Load `WorldNormalMatrix`, `WorldLightDirection`, and `MaterialLighting` from the shared header once. For each triangle, load its local face normal, transform it with W = 0, normalize it with VU reciprocal-square-root, calculate `max(dot(normal, light), 0)`, multiply by the diffuse multiplier, then multiply base RGB by the resulting intensity. Store that color in the three RGBAQ records for the triangle. Keep the existing WVP transform, reciprocal-Q, `mulq.xy` ST calculation, and `xgkick` behavior intact.
 
 Use a single triangle color for all three vertices. Do not add VU clipping or an affine UV path.
 
