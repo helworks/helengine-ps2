@@ -246,31 +246,36 @@ public sealed class Ps2NativeBuildInputsTests {
         string packetBuilderSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
 
         Assert.Equal(3, source.Split("addq.z        VF09, VF00, Q", StringSplitOptions.None).Length - 1);
-        Assert.Equal(3, source.Split("ftoi0         VF10, VF07", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, source.Split("ftoi0         VF17, VF17", StringSplitOptions.None).Length - 1);
         Assert.Contains("sq VF09, 0(VI03)", source, StringComparison.Ordinal);
-        Assert.Contains("sq VF10, 1(VI03)", source, StringComparison.Ordinal);
+        Assert.Contains("sq VF17, 1(VI03)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("addq.w        VF10, VF00, Q", source, StringComparison.Ordinal);
-        Assert.Contains("float FlatColor[4];", packetBuilderSource, StringComparison.Ordinal);
-        Assert.Contains("sharedState.FlatColor[0] = static_cast<float>(batch->Material->GetBaseColorR());", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("float MaterialLighting[4];", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("sharedState.MaterialLighting[0] = static_cast<float>(lightingConstants.BaseColorR) / 255.0f;", packetBuilderSource, StringComparison.Ordinal);
         Assert.Contains("sharedState.StateTemplate[7].High = (static_cast<std::uint64_t>(GIF_REG_ST) << 0u)", packetBuilderSource, StringComparison.Ordinal);
         Assert.Contains("| (static_cast<std::uint64_t>(GIF_REG_RGBAQ) << 4u)", packetBuilderSource, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Ensures the textured VU path preserves the established PS2 face-lighting result by uploading one lit color with each source triangle.
+    /// Ensures the textured VU program calculates its flat diffuse color from the uploaded normal, light, and material inputs.
     /// </summary>
     [Fact]
-    public void Ps2_textured_vu_path_uploads_lit_color_for_each_source_triangle() {
+    public void Ps2_textured_vu_program_calculates_flat_diffuse_color() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string programSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"));
         string packetBuilderSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
         string packetBuilderHeaderSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.hpp"));
+        int dynamicVuPathStartIndex = packetBuilderSource.IndexOf("void Ps2VuVifPacketBuilder::AddOpaqueTexturedVuBatches(", StringComparison.Ordinal);
+        int cpuPathStartIndex = packetBuilderSource.IndexOf("void Ps2VuVifPacketBuilder::AddOpaqueTexturedBatches(", dynamicVuPathStartIndex, StringComparison.Ordinal);
+        string dynamicVuPath = packetBuilderSource.Substring(dynamicVuPathStartIndex, cpuPathStartIndex - dynamicVuPathStartIndex);
 
-        Assert.Contains("float LitColor[4];", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("float FaceNormal[4];", packetBuilderSource, StringComparison.Ordinal);
         Assert.Contains("const ::float3& lightDirection", packetBuilderHeaderSource, StringComparison.Ordinal);
-        Assert.Contains("const std::uint64_t triangleColor = ResolveTexturedVertexColor", packetBuilderSource, StringComparison.Ordinal);
-        Assert.Contains("sourceTriangle.LitColor[0]", packetBuilderSource, StringComparison.Ordinal);
-        Assert.Contains("lq VF07, 6(VI05)", programSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("const std::uint64_t triangleColor = ResolveTexturedVertexColor", dynamicVuPath, StringComparison.Ordinal);
+        Assert.Contains("lq VF10, 6(VI05)", programSource, StringComparison.Ordinal);
+        Assert.Contains("ersqrt", programSource, StringComparison.Ordinal);
+        Assert.Contains("mulx.xyz", programSource, StringComparison.Ordinal);
+        Assert.Contains("ftoi0         VF17, VF17", programSource, StringComparison.Ordinal);
         Assert.Contains("iaddiu VI05, VI05, 0x00000007", programSource, StringComparison.Ordinal);
     }
 
@@ -289,6 +294,22 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("TexturedPacketCache.ResolveTriangleSources(*batch->Model, runtimeModel)", dynamicVuPath, StringComparison.Ordinal);
         Assert.DoesNotContain("const float* packedPositionWords", dynamicVuPath, StringComparison.Ordinal);
         Assert.DoesNotContain("const std::vector<std::uint16_t>* runtimeIndices", dynamicVuPath, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the textured VU source stream supplies VU1 with normal and material inputs for flat diffuse lighting.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_source_packet_contains_world_space_lighting_inputs() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+
+        Assert.Contains("float FaceNormal[4];", source, StringComparison.Ordinal);
+        Assert.Contains("float WorldNormalMatrix[16];", source, StringComparison.Ordinal);
+        Assert.Contains("float WorldLightDirection[4];", source, StringComparison.Ordinal);
+        Assert.Contains("float MaterialLighting[4];", source, StringComparison.Ordinal);
+        Assert.Contains("sourceRecord.FaceNormal[0] = sourceTriangle.FaceNormal.X;", source, StringComparison.Ordinal);
+        Assert.Contains("CopyMatrixWords(worlds[batchIndex], sharedState.WorldNormalMatrix);", source, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -200,7 +200,7 @@ namespace helengine::ps2 {
             float TexCoordA[4];
             float TexCoordB[4];
             float TexCoordC[4];
-            float LitColor[4];
+            float FaceNormal[4];
         };
 
         /// <summary>
@@ -210,8 +210,10 @@ namespace helengine::ps2 {
             float WorldViewProjectionMatrix[16];
             float GsScale[4];
             float GsOffset[4];
-            float FlatColor[4];
+            float MaterialLighting[4];
             std::uint32_t TriangleCount[4];
+            float WorldNormalMatrix[16];
+            float WorldLightDirection[4];
             Ps2VuGifQword StateTemplate[8];
         };
 
@@ -2284,11 +2286,18 @@ namespace helengine::ps2 {
             sharedState.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
             sharedState.GsOffset[2] = 4194304.0f;
             sharedState.GsOffset[3] = 0.0f;
-            sharedState.FlatColor[0] = static_cast<float>(batch->Material->GetBaseColorR());
-            sharedState.FlatColor[1] = static_cast<float>(batch->Material->GetBaseColorG());
-            sharedState.FlatColor[2] = static_cast<float>(batch->Material->GetBaseColorB());
-            sharedState.FlatColor[3] = static_cast<float>(batch->Material->GetBaseColorA());
+            Ps2VuLightingConstants lightingConstants {};
+            PopulateLightingConstants(*batch->Material, lightingConstants);
+            sharedState.MaterialLighting[0] = static_cast<float>(lightingConstants.BaseColorR) / 255.0f;
+            sharedState.MaterialLighting[1] = static_cast<float>(lightingConstants.BaseColorG) / 255.0f;
+            sharedState.MaterialLighting[2] = static_cast<float>(lightingConstants.BaseColorB) / 255.0f;
+            sharedState.MaterialLighting[3] = static_cast<float>(lightingConstants.DiffuseScale);
             sharedState.TriangleCount[0] = static_cast<std::uint32_t>(batchSlice.SourceTriangleCount);
+            CopyMatrixWords(worlds[batchIndex], sharedState.WorldNormalMatrix);
+            sharedState.WorldLightDirection[0] = normalizedLightDirection.X;
+            sharedState.WorldLightDirection[1] = normalizedLightDirection.Y;
+            sharedState.WorldLightDirection[2] = normalizedLightDirection.Z;
+            sharedState.WorldLightDirection[3] = 0.0f;
             sharedState.StateTemplate[0].Low = GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1);
             sharedState.StateTemplate[0].High = GIF_REG_AD;
             sharedState.StateTemplate[1].Low = ResolveOpaqueUntexturedTestRegister(gsGlobal);
@@ -2330,22 +2339,16 @@ namespace helengine::ps2 {
                     sourceRecord.PositionC[1] = sourceTriangle.PositionC.Y;
                     sourceRecord.PositionC[2] = sourceTriangle.PositionC.Z;
                     sourceRecord.PositionC[3] = sourceTriangle.PositionC.W;
-                    const ::float3 worldFaceNormal = NormalizeOrFallback(
-                        TransformPosition(
-                            ::float4(sourceTriangle.FaceNormal.X, sourceTriangle.FaceNormal.Y, sourceTriangle.FaceNormal.Z, 0.0f),
-                            worlds[batchIndex]),
-                        ::float3(0.0f, 0.0f, -1.0f));
-                    const std::uint64_t triangleColor = ResolveTexturedVertexColor(*batch->Material, worldFaceNormal, normalizedLightDirection);
                     sourceRecord.TexCoordA[0] = sourceTriangle.TexCoordA.X;
                     sourceRecord.TexCoordA[1] = sourceTriangle.TexCoordA.Y;
                     sourceRecord.TexCoordB[0] = sourceTriangle.TexCoordB.X;
                     sourceRecord.TexCoordB[1] = sourceTriangle.TexCoordB.Y;
                     sourceRecord.TexCoordC[0] = sourceTriangle.TexCoordC.X;
                     sourceRecord.TexCoordC[1] = sourceTriangle.TexCoordC.Y;
-                    sourceRecord.LitColor[0] = static_cast<float>(triangleColor & 0xFFu);
-                    sourceRecord.LitColor[1] = static_cast<float>((triangleColor >> 8u) & 0xFFu);
-                    sourceRecord.LitColor[2] = static_cast<float>((triangleColor >> 16u) & 0xFFu);
-                    sourceRecord.LitColor[3] = static_cast<float>((triangleColor >> 24u) & 0xFFu);
+                    sourceRecord.FaceNormal[0] = sourceTriangle.FaceNormal.X;
+                    sourceRecord.FaceNormal[1] = sourceTriangle.FaceNormal.Y;
+                    sourceRecord.FaceNormal[2] = sourceTriangle.FaceNormal.Z;
+                    sourceRecord.FaceNormal[3] = static_cast<float>(lightingConstants.BaseColorA);
                     sourceTriangles.push_back(sourceRecord);
                 }
 
