@@ -31,6 +31,7 @@ namespace helengine::ps2 {
         constexpr std::uint32_t XtopGifPacketAddress = 0;
         constexpr std::uint32_t MinimumVifPacketOverheadQwords = 32;
         constexpr std::uint16_t MaximumOpaqueUntexturedPacketQwords = 4096u;
+        constexpr std::uint16_t MaximumOpaqueUntexturedDirectGifQwords = 0xFFFFu;
         constexpr std::uint32_t EnableVuPacketPhaseDiagnostics = 0;
         constexpr std::uint32_t VuPacketDiagnosticCutoffPhase = 11;
         constexpr bool EnableVuFixedTriangleDiagnostics = false;
@@ -51,6 +52,8 @@ namespace helengine::ps2 {
         constexpr std::size_t TriangleGifPacketTemplateByteCount = TriangleGifPacketTemplateQwordCount * 16u;
         constexpr std::size_t UntexturedTriangleDirectGifPacketWordCount = 18u;
         constexpr std::size_t UntexturedTriangleDirectGifPacketByteCount = UntexturedTriangleDirectGifPacketWordCount * sizeof(std::uint64_t);
+        constexpr std::size_t DirectGifOpaqueBatchHeaderWordCount = 8u;
+        constexpr std::size_t DirectGifOpaqueTriangleVertexWordCount = 6u;
         constexpr std::size_t TexturedTrianglePacketWordCount = 22u;
         constexpr std::size_t TexturedTrianglePacketByteCount = TexturedTrianglePacketWordCount * sizeof(std::uint64_t);
         constexpr std::size_t MaximumTexturedVuSourceTriangleCount = 12u;
@@ -112,6 +115,12 @@ namespace helengine::ps2 {
             | (static_cast<std::uint64_t>(GS_RGBAQ) << 20u)
             | (static_cast<std::uint64_t>(GS_XYZ2) << 24u)
             | (static_cast<std::uint64_t>(GIF_NOP) << 28u);
+        constexpr std::uint64_t DirectGifOpaqueTriangleRegisterList = (static_cast<std::uint64_t>(GS_RGBAQ) << 0u)
+            | (static_cast<std::uint64_t>(GS_XYZ2) << 4u)
+            | (static_cast<std::uint64_t>(GS_RGBAQ) << 8u)
+            | (static_cast<std::uint64_t>(GS_XYZ2) << 12u)
+            | (static_cast<std::uint64_t>(GS_RGBAQ) << 16u)
+            | (static_cast<std::uint64_t>(GS_XYZ2) << 20u);
 
         float ResolvePerspectiveTextureReciprocalW(const ::float3& viewPosition, const ::float4x4& projection) {
             const float clipW = ResolveProjectionClipW(viewPosition, projection);
@@ -191,6 +200,7 @@ namespace helengine::ps2 {
             float TexCoordA[4];
             float TexCoordB[4];
             float TexCoordC[4];
+            float LitColor[4];
         };
 
         /// <summary>
@@ -248,6 +258,10 @@ namespace helengine::ps2 {
         static_assert((offsetof(Ps2VuUntexturedTriangleRecord, GifPacketTemplate) / 16u) == UntexturedTriangleGifPacketQwordOffset);
         static_assert((offsetof(Ps2VuUntexturedTrianglePayload, TriangleRecord) / 16u) == 0u);
         static_assert((offsetof(Ps2VuUntexturedTrianglePayload, SharedState) / 16u) == UntexturedTriangleSharedStateQwordOffset);
+
+        constexpr std::size_t TexturedVuSourceBatchPayloadQwordCount =
+            (sizeof(Ps2VuTexturedSharedState) + (sizeof(Ps2VuTexturedSourceTriangle) * MaximumTexturedVuSourceTriangleCount)) / 16u;
+        constexpr std::size_t TexturedVuSourceBatchSubmissionOverheadQwordCount = 2u;
 
         void CopyMatrixWords(const ::float4x4& matrix, float* destinationWords) {
             destinationWords[0] = matrix.M11;
@@ -927,12 +941,16 @@ namespace helengine::ps2 {
         }
 
         bool BuildUntexturedTriangleGifPacketBytes(
-            const Ps2VuUntexturedTrianglePayload& trianglePayload,
+            const Ps2VuOpaqueSourceTriangle& sourceTriangle,
+            const Ps2VuFlatColor& flatColor,
             const ::float4x4& projection,
             const ::float4& viewport,
             GSGLOBAL* gsGlobal,
-            std::array<std::uint64_t, UntexturedTriangleDirectGifPacketWordCount>& packetWords) {
-            const Ps2VuOpaqueSourceTriangle& sourceTriangle = trianglePayload.TriangleRecord.SourceTriangle;
+            std::uint64_t* packetWords) {
+            if (packetWords == nullptr) {
+                throw std::invalid_argument("PS2 direct-GIF triangle encoding requires an output word buffer.");
+            }
+
             const ::float3 positionA(sourceTriangle.PositionA[0], sourceTriangle.PositionA[1], sourceTriangle.PositionA[2]);
             const ::float3 positionB(sourceTriangle.PositionB[0], sourceTriangle.PositionB[1], sourceTriangle.PositionB[2]);
             const ::float3 positionC(sourceTriangle.PositionC[0], sourceTriangle.PositionC[1], sourceTriangle.PositionC[2]);
@@ -954,7 +972,6 @@ namespace helengine::ps2 {
                 return false;
             }
 
-            const Ps2VuFlatColor& flatColor = trianglePayload.DirectGifFlatColor;
             const std::uint64_t flatColorRegister = GS_SETREG_RGBAQ(
                 flatColor.Red,
                 flatColor.Green,
@@ -994,6 +1011,53 @@ namespace helengine::ps2 {
             packetWords[packetWordIndex++] = flatColorRegister;
             packetWords[packetWordIndex++] = positionCRegister;
             packetWords[packetWordIndex++] = 0u;
+            return true;
+        }
+
+        bool BuildUntexturedTriangleDirectGifVertexWords(
+            const Ps2VuOpaqueSourceTriangle& sourceTriangle,
+            const Ps2VuFlatColor& flatColor,
+            const ::float4x4& projection,
+            const ::float4& viewport,
+            GSGLOBAL* gsGlobal,
+            std::uint64_t* packetWords) {
+            if (packetWords == nullptr) {
+                throw std::invalid_argument("PS2 direct-GIF triangle vertex encoding requires an output word buffer.");
+            }
+
+            const ::float3 positionA(sourceTriangle.PositionA[0], sourceTriangle.PositionA[1], sourceTriangle.PositionA[2]);
+            const ::float3 positionB(sourceTriangle.PositionB[0], sourceTriangle.PositionB[1], sourceTriangle.PositionB[2]);
+            const ::float3 positionC(sourceTriangle.PositionC[0], sourceTriangle.PositionC[1], sourceTriangle.PositionC[2]);
+            float screenAX = 0.0f;
+            float screenAY = 0.0f;
+            float screenAZ = 0.0f;
+            float screenBX = 0.0f;
+            float screenBY = 0.0f;
+            float screenBZ = 0.0f;
+            float screenCX = 0.0f;
+            float screenCY = 0.0f;
+            float screenCZ = 0.0f;
+            std::uint64_t positionARegister = 0u;
+            std::uint64_t positionBRegister = 0u;
+            std::uint64_t positionCRegister = 0u;
+            if (!TryBuildVertexPositionRegister(positionA, projection, viewport, gsGlobal, screenAX, screenAY, screenAZ, positionARegister)
+                || !TryBuildVertexPositionRegister(positionB, projection, viewport, gsGlobal, screenBX, screenBY, screenBZ, positionBRegister)
+                || !TryBuildVertexPositionRegister(positionC, projection, viewport, gsGlobal, screenCX, screenCY, screenCZ, positionCRegister)) {
+                return false;
+            }
+
+            const std::uint64_t flatColorRegister = GS_SETREG_RGBAQ(
+                flatColor.Red,
+                flatColor.Green,
+                flatColor.Blue,
+                flatColor.Alpha,
+                0);
+            packetWords[0] = flatColorRegister;
+            packetWords[1] = positionARegister;
+            packetWords[2] = flatColorRegister;
+            packetWords[3] = positionBRegister;
+            packetWords[4] = flatColorRegister;
+            packetWords[5] = positionCRegister;
             return true;
         }
 
@@ -1062,7 +1126,7 @@ namespace helengine::ps2 {
             Ps2VuLightingConstants lightingConstants {};
             PopulateLightingConstants(material, lightingConstants);
             if (lightingConstants.Unlit) {
-                return GS_SETREG_RGBAQ(0xC0, 0xC0, 0xC0, 0x80, 0x00);
+                return GS_SETREG_RGBAQ(lightingConstants.BaseColorR, lightingConstants.BaseColorG, lightingConstants.BaseColorB, lightingConstants.BaseColorA, 0x00);
             }
 
             const double normalLengthSquared = static_cast<double>(normal.X) * static_cast<double>(normal.X)
@@ -1079,7 +1143,7 @@ namespace helengine::ps2 {
 
         std::uint64_t ResolveTexturedVertexColor(const Ps2VuLightingConstants& lightingConstants, const ::float3& normalizedFaceNormal, const ::float3& normalizedLightDirection) {
             if (lightingConstants.Unlit) {
-                return GS_SETREG_RGBAQ(0xC0, 0xC0, 0xC0, 0x80, 0x00);
+                return GS_SETREG_RGBAQ(lightingConstants.BaseColorR, lightingConstants.BaseColorG, lightingConstants.BaseColorB, lightingConstants.BaseColorA, 0x00);
             }
 
             const double ndotl = std::max(
@@ -1229,6 +1293,8 @@ namespace helengine::ps2 {
         }
 
         GifPacketBytes.clear();
+        DirectGifPacketWords.clear();
+        TexturedPacketCache.ResetFrame();
         LastCompletedPhase = 0;
         LastTriangleSetupMilliseconds = 0.0;
         LastPacketAssemblyMilliseconds = 0.0;
@@ -1653,29 +1719,29 @@ namespace helengine::ps2 {
                     }
                     texturedTrianglePackets.push_back(
                         BuildTexturedTriangleGifPacketBytes(
-                            gsGlobal,
-                            texture,
-                            textureWidth,
-                            textureHeight,
-                            triangleColor,
-                            clippedTexturedVertices[0],
-                            clippedTexturedVertices[clippedIndex],
-                            clippedTexturedVertices[clippedIndex + 1u],
-                            ResolvePerspectiveTextureReciprocalW(clippedTexturedVertices[0].ViewPosition, projection),
-                            ResolvePerspectiveTextureReciprocalW(clippedTexturedVertices[clippedIndex].ViewPosition, projection),
-                            ResolvePerspectiveTextureReciprocalW(clippedTexturedVertices[clippedIndex + 1u].ViewPosition, projection),
-                            screenAX,
-                            screenAY,
-                            screenAZ,
-                            positionARegister,
-                            screenBX,
-                            screenBY,
-                            screenBZ,
-                            positionBRegister,
-                            screenCX,
-                            screenCY,
-                            screenCZ,
-                            positionCRegister));
+                        gsGlobal,
+                        texture,
+                        textureWidth,
+                        textureHeight,
+                        triangleColor,
+                        clippedTexturedVertices[0],
+                        clippedTexturedVertices[clippedIndex],
+                        clippedTexturedVertices[clippedIndex + 1u],
+                        ResolvePerspectiveTextureReciprocalW(clippedTexturedVertices[0].ViewPosition, projection),
+                        ResolvePerspectiveTextureReciprocalW(clippedTexturedVertices[clippedIndex].ViewPosition, projection),
+                        ResolvePerspectiveTextureReciprocalW(clippedTexturedVertices[clippedIndex + 1u].ViewPosition, projection),
+                        screenAX,
+                        screenAY,
+                        screenAZ,
+                        positionARegister,
+                        screenBX,
+                        screenBY,
+                        screenBZ,
+                        positionBRegister,
+                        screenCX,
+                        screenCY,
+                        screenCZ,
+                        positionCRegister));
                     if (EnableVuPerTriangleTimingDiagnostics) {
                         const std::clock_t trianglePayloadFillEndTicks = std::clock();
                         accumulatedTrianglePayloadFillTicks += (trianglePayloadFillEndTicks - trianglePayloadFillStartTicks);
@@ -1898,7 +1964,10 @@ namespace helengine::ps2 {
 
             const std::size_t maximumEmittedTriangleCount = (static_cast<std::size_t>(batch->Model->GetTriangleVertexCount()) / 3u) * 2u;
             const std::size_t nextPacketQwordCount = estimatedPacketQwordCount + (maximumEmittedTriangleCount * untexturedTrianglePacketQwordCount);
-            if (nextPacketQwordCount > MaximumOpaqueUntexturedPacketQwords) {
+            const std::size_t maximumPacketQwordCount = createVifPacket
+                ? MaximumOpaqueUntexturedPacketQwords
+                : MaximumOpaqueUntexturedDirectGifQwords;
+            if (nextPacketQwordCount > maximumPacketQwordCount) {
                 return acceptedBatchCount;
             }
 
@@ -1920,6 +1989,17 @@ namespace helengine::ps2 {
         const bool writeDirectUntexturedWorldViewDiagnostic = !hasWrittenDirectUntexturedWorldViewDiagnostic;
         std::vector<Ps2VuUntexturedTrianglePayload> untexturedTrianglePayloads;
         std::vector<Ps2VuGifTemplateCacheEntry> gifTemplateCache;
+        std::uint64_t* directGifPacketWords = nullptr;
+        std::size_t directGifTriangleCount = 0u;
+        if (!createVifPacket) {
+            std::size_t maximumDirectGifTriangleCount = 0u;
+            for (std::size_t batchIndex = 0u; batchIndex < acceptedBatchCount; batchIndex++) {
+                maximumDirectGifTriangleCount += static_cast<std::size_t>(batches[batchIndex]->Model->GetTriangleVertexCount() / 3u) * 2u;
+            }
+
+            GifPacketBytes.resize((DirectGifOpaqueBatchHeaderWordCount + (maximumDirectGifTriangleCount * DirectGifOpaqueTriangleVertexWordCount)) * sizeof(std::uint64_t));
+            directGifPacketWords = reinterpret_cast<std::uint64_t*>(GifPacketBytes.data()) + DirectGifOpaqueBatchHeaderWordCount;
+        }
         const std::clock_t triangleSetupStartTicks = std::clock();
         for (std::size_t batchIndex = 0u; batchIndex < acceptedBatchCount; batchIndex++) {
             const Ps2VuOpaqueBatch& batch = *batches[batchIndex];
@@ -1929,8 +2009,10 @@ namespace helengine::ps2 {
             const float* packedNormalWords = reinterpret_cast<const float*>(batch.Model->GetNormalBlockBytes());
             Ps2VuUntexturedSharedState sharedStateTemplate {};
             Ps2VuUntexturedSharedState clippedSharedStateTemplate {};
-            PopulateUntexturedSharedState(world, view, projection, viewport, sharedStateTemplate);
-            PopulateUntexturedSharedState(projection, viewport, clippedSharedStateTemplate);
+            if (createVifPacket) {
+                PopulateUntexturedSharedState(world, view, projection, viewport, sharedStateTemplate);
+                PopulateUntexturedSharedState(projection, viewport, clippedSharedStateTemplate);
+            }
             ::float4x4 worldCopy = world;
             ::float4x4 viewCopy = view;
             ::float4x4 worldViewMatrix;
@@ -1946,7 +2028,9 @@ namespace helengine::ps2 {
             PopulateLightingConstants(*batch.Material, lightingConstants);
             std::vector<Ps2VuUntexturedClipVertex> clippedUntexturedVertices;
             clippedUntexturedVertices.reserve(4u);
+            const bool recordDirectGifPhaseTiming = !createVifPacket && EnableVuPerTriangleTimingDiagnostics;
             for (std::uint32_t vertexIndex = 0u; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
+                const std::clock_t directGifTrianglePrepStartTicks = recordDirectGifPhaseTiming ? std::clock() : 0;
                 const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
                 const std::size_t positionWordIndexB = static_cast<std::size_t>(vertexIndex + 1u) * 4u;
                 const std::size_t positionWordIndexC = static_cast<std::size_t>(vertexIndex + 2u) * 4u;
@@ -1971,10 +2055,20 @@ namespace helengine::ps2 {
                 }
 
                 if (triangleCrossesNearPlane && clippedUntexturedVertices.size() < 3u) {
+                    if (recordDirectGifPhaseTiming) {
+                        LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(directGifTrianglePrepStartTicks, std::clock());
+                    }
                     continue;
                 }
 
+                if (recordDirectGifPhaseTiming) {
+                    LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(directGifTrianglePrepStartTicks, std::clock());
+                }
+                const std::clock_t directGifTriangleLightingStartTicks = recordDirectGifPhaseTiming ? std::clock() : 0;
                 const std::uint64_t triangleColor = ResolveTexturedVertexColor(lightingConstants, worldFaceNormal, normalizedLightDirection);
+                if (recordDirectGifPhaseTiming) {
+                    LastTriangleLightingMilliseconds += ResolveMillisecondsFromClockTicks(directGifTriangleLightingStartTicks, std::clock());
+                }
                 Ps2VuFlatColor flatColor {};
                 flatColor.Red = static_cast<std::uint8_t>(triangleColor & 0xFFu);
                 flatColor.Green = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
@@ -1991,6 +2085,32 @@ namespace helengine::ps2 {
                     const ::float3& emittedPositionC = triangleCrossesNearPlane
                         ? clippedUntexturedVertices[clippedIndex + 2u].ViewPosition
                         : (createVifPacket ? packedPositionC : vertexC.ViewPosition);
+                    if (!createVifPacket) {
+                        const std::clock_t directGifTriangleEmitStartTicks = recordDirectGifPhaseTiming ? std::clock() : 0;
+                        Ps2VuOpaqueSourceTriangle sourceTriangle {};
+                        sourceTriangle.PositionA[0] = emittedPositionA.X;
+                        sourceTriangle.PositionA[1] = emittedPositionA.Y;
+                        sourceTriangle.PositionA[2] = emittedPositionA.Z;
+                        sourceTriangle.PositionA[3] = 1.0f;
+                        sourceTriangle.PositionB[0] = emittedPositionB.X;
+                        sourceTriangle.PositionB[1] = emittedPositionB.Y;
+                        sourceTriangle.PositionB[2] = emittedPositionB.Z;
+                        sourceTriangle.PositionB[3] = 1.0f;
+                        sourceTriangle.PositionC[0] = emittedPositionC.X;
+                        sourceTriangle.PositionC[1] = emittedPositionC.Y;
+                        sourceTriangle.PositionC[2] = emittedPositionC.Z;
+                        sourceTriangle.PositionC[3] = 1.0f;
+                        if (BuildUntexturedTriangleDirectGifVertexWords(sourceTriangle, flatColor, projection, viewport, gsGlobal, directGifPacketWords)) {
+                            directGifPacketWords += DirectGifOpaqueTriangleVertexWordCount;
+                            directGifTriangleCount++;
+                        }
+                        if (recordDirectGifPhaseTiming) {
+                            LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(directGifTriangleEmitStartTicks, std::clock());
+                        }
+
+                        continue;
+                    }
+
                     Ps2VuUntexturedTrianglePayload payload {};
                     CopyCachedTriangleGifPacketTemplate(batch, flatColor, gsGlobal, gifTemplateCache, payload.TriangleRecord);
                     payload.DirectGifFlatColor = flatColor;
@@ -2020,32 +2140,39 @@ namespace helengine::ps2 {
 
         const std::clock_t triangleSetupEndTicks = std::clock();
         LastTriangleSetupMilliseconds = ResolveMillisecondsFromClockTicks(triangleSetupStartTicks, triangleSetupEndTicks);
+        if (!createVifPacket) {
+            if (directGifTriangleCount == 0u) {
+                GifPacketBytes.clear();
+            } else {
+                std::uint64_t* batchPacketWords = reinterpret_cast<std::uint64_t*>(GifPacketBytes.data());
+                batchPacketWords[0] = GIF_SET_TAG(2, 1, 0, 0, GIF_FLG_PACKED, 1);
+                batchPacketWords[1] = GIF_REG_AD;
+                batchPacketWords[2] = ResolveOpaqueUntexturedTestRegister(gsGlobal);
+                batchPacketWords[3] = GS_REG_TEST;
+                batchPacketWords[4] = GS_SETREG_PRIM(
+                    GS_PRIM_PRIM_TRIANGLE,
+                    PRIM_SHADE_FLAT,
+                    0,
+                    gsGlobal->PrimFogEnable,
+                    gsGlobal->PrimAlphaEnable,
+                    gsGlobal->PrimAAEnable,
+                    0,
+                    gsGlobal->PrimContext,
+                    0);
+                batchPacketWords[5] = GS_REG_PRIM;
+                batchPacketWords[6] = GIF_SET_TAG(directGifTriangleCount, 1, 0, 0, GIF_FLG_REGLIST, 6);
+                batchPacketWords[7] = DirectGifOpaqueTriangleRegisterList;
+                GifPacketBytes.resize((DirectGifOpaqueBatchHeaderWordCount + (directGifTriangleCount * DirectGifOpaqueTriangleVertexWordCount)) * sizeof(std::uint64_t));
+            }
+            SubmittedTriangleCount = directGifTriangleCount;
+            LastCompletedPhase = 11;
+            return acceptedBatchCount;
+        }
+
         if (untexturedTrianglePayloads.empty()) {
             if (writeDirectUntexturedWorldViewDiagnostic) {
                 hasWrittenDirectUntexturedWorldViewDiagnostic = true;
             }
-            return acceptedBatchCount;
-        }
-
-        if (!createVifPacket) {
-            std::vector<std::array<std::uint64_t, UntexturedTriangleDirectGifPacketWordCount>> untexturedTrianglePackets;
-            untexturedTrianglePackets.reserve(untexturedTrianglePayloads.size());
-            for (const Ps2VuUntexturedTrianglePayload& trianglePayload : untexturedTrianglePayloads) {
-                std::array<std::uint64_t, UntexturedTriangleDirectGifPacketWordCount> trianglePacketWords {};
-                if (BuildUntexturedTriangleGifPacketBytes(trianglePayload, projection, viewport, gsGlobal, trianglePacketWords)) {
-                    untexturedTrianglePackets.push_back(trianglePacketWords);
-                }
-            }
-
-            GifPacketBytes.resize(untexturedTrianglePackets.size() * UntexturedTriangleDirectGifPacketByteCount);
-            for (std::size_t trianglePacketIndex = 0u; trianglePacketIndex < untexturedTrianglePackets.size(); trianglePacketIndex++) {
-                std::memcpy(
-                    GifPacketBytes.data() + (trianglePacketIndex * UntexturedTriangleDirectGifPacketByteCount),
-                    untexturedTrianglePackets[trianglePacketIndex].data(),
-                    UntexturedTriangleDirectGifPacketByteCount);
-            }
-            SubmittedTriangleCount = untexturedTrianglePackets.size();
-            LastCompletedPhase = 11;
             return acceptedBatchCount;
         }
 
@@ -2081,6 +2208,7 @@ namespace helengine::ps2 {
         const ::float4x4& view,
         const ::float4x4& projection,
         const ::float4& viewport,
+        const ::float3& lightDirection,
         GSGLOBAL* gsGlobal,
         const std::vector<GSTEXTURE*>& textures,
         const std::vector<int>& textureWidths,
@@ -2098,8 +2226,10 @@ namespace helengine::ps2 {
             return;
         }
 
+        const ::float3 normalizedLightDirection = NormalizeOrFallback(lightDirection, ::float3(0.0f, 0.0f, -1.0f));
+
         const std::size_t maximumPacketQwordCount = MinimumVifPacketOverheadQwords
-            + (batches.size() * ((sizeof(Ps2VuTexturedSharedState) + (sizeof(Ps2VuTexturedSourceTriangle) * MaximumTexturedVuSourceTriangleCount)) / 16u));
+            + (batches.size() * (TexturedVuSourceBatchPayloadQwordCount + TexturedVuSourceBatchSubmissionOverheadQwordCount));
         if (maximumPacketQwordCount > 0xFFFFu) {
             throw std::runtime_error("PS2 textured VU source packet exceeds packet2 qword capacity.");
         }
@@ -2129,10 +2259,12 @@ namespace helengine::ps2 {
                 throw std::out_of_range("PS2 textured VU source packing exceeds packed model triangle data.");
             }
 
-            const float* packedPositionWords = reinterpret_cast<const float*>(batch->Model->GetPositionBlockBytes());
-            const float* packedTexCoordWords = reinterpret_cast<const float*>(batch->Model->GetTexCoordBlockBytes());
-            if (packedPositionWords == nullptr || packedTexCoordWords == nullptr) {
-                throw std::runtime_error("PS2 textured VU source packing requires packed positions and texture coordinates.");
+            const Ps2RuntimeModel* runtimeModel = batch->Proxy != nullptr ? batch->Proxy->GetModel() : nullptr;
+            const std::vector<Ps2VuTexturedTriangleSource>& triangleSources = TexturedPacketCache.ResolveTriangleSources(*batch->Model, runtimeModel);
+            const std::size_t firstSourceTriangle = batchSlice.FirstSourceTriangle;
+            const std::size_t finalSourceTriangle = firstSourceTriangle + batchSlice.SourceTriangleCount;
+            if (finalSourceTriangle > triangleSources.size()) {
+                throw std::out_of_range("PS2 textured VU source packing exceeds immutable triangle source data.");
             }
 
             ::float4x4 worldCopy = worlds[batchIndex];
@@ -2176,43 +2308,56 @@ namespace helengine::ps2 {
             sharedState.StateTemplate[6].Low = GS_SETREG_PRIM(GS_PRIM_PRIM_TRIANGLE, PRIM_SHADE_GOURAUD, 1, gsGlobal->PrimFogEnable, gsGlobal->PrimAlphaEnable, gsGlobal->PrimAAEnable, 0, gsGlobal->PrimContext, 0);
             sharedState.StateTemplate[6].High = GS_REG_PRIM;
             sharedState.StateTemplate[7].Low = GIF_SET_TAG(static_cast<std::uint32_t>(batchSlice.SourceTriangleCount * 3u), 1, 0, 0, GIF_FLG_PACKED, 3);
-            sharedState.StateTemplate[7].High = (static_cast<std::uint64_t>(GIF_REG_RGBAQ) << 0u)
-                | (static_cast<std::uint64_t>(GIF_REG_ST) << 4u)
+            sharedState.StateTemplate[7].High = (static_cast<std::uint64_t>(GIF_REG_ST) << 0u)
+                | (static_cast<std::uint64_t>(GIF_REG_RGBAQ) << 4u)
                 | (static_cast<std::uint64_t>(GIF_REG_XYZ2) << 8u);
 
+            const std::clock_t sourcePayloadFillStartTicks = std::clock();
             std::vector<Ps2VuTexturedSourceTriangle> sourceTriangles;
             sourceTriangles.reserve(batchSlice.SourceTriangleCount);
-            for (std::size_t sourceVertex = firstSourceVertex; sourceVertex < finalSourceVertex; sourceVertex += 3u) {
-                const std::size_t positionWordIndexA = sourceVertex * 4u;
-                const std::size_t positionWordIndexB = (sourceVertex + 1u) * 4u;
-                const std::size_t positionWordIndexC = (sourceVertex + 2u) * 4u;
-                Ps2VuTexturedSourceTriangle sourceTriangle {};
-                sourceTriangle.PositionA[0] = packedPositionWords[positionWordIndexA + 0u];
-                sourceTriangle.PositionA[1] = packedPositionWords[positionWordIndexA + 1u];
-                sourceTriangle.PositionA[2] = packedPositionWords[positionWordIndexA + 2u];
-                sourceTriangle.PositionA[3] = 1.0f;
-                sourceTriangle.PositionB[0] = packedPositionWords[positionWordIndexB + 0u];
-                sourceTriangle.PositionB[1] = packedPositionWords[positionWordIndexB + 1u];
-                sourceTriangle.PositionB[2] = packedPositionWords[positionWordIndexB + 2u];
-                sourceTriangle.PositionB[3] = 1.0f;
-                sourceTriangle.PositionC[0] = packedPositionWords[positionWordIndexC + 0u];
-                sourceTriangle.PositionC[1] = packedPositionWords[positionWordIndexC + 1u];
-                sourceTriangle.PositionC[2] = packedPositionWords[positionWordIndexC + 2u];
-                sourceTriangle.PositionC[3] = 1.0f;
-                sourceTriangle.TexCoordA[0] = packedTexCoordWords[positionWordIndexA + 0u];
-                sourceTriangle.TexCoordA[1] = packedTexCoordWords[positionWordIndexA + 1u];
-                sourceTriangle.TexCoordB[0] = packedTexCoordWords[positionWordIndexB + 0u];
-                sourceTriangle.TexCoordB[1] = packedTexCoordWords[positionWordIndexB + 1u];
-                sourceTriangle.TexCoordC[0] = packedTexCoordWords[positionWordIndexC + 0u];
-                sourceTriangle.TexCoordC[1] = packedTexCoordWords[positionWordIndexC + 1u];
-                sourceTriangles.push_back(sourceTriangle);
-            }
+                for (std::size_t sourceTriangleIndex = firstSourceTriangle; sourceTriangleIndex < finalSourceTriangle; sourceTriangleIndex++) {
+                    const Ps2VuTexturedTriangleSource& sourceTriangle = triangleSources[sourceTriangleIndex];
+                    Ps2VuTexturedSourceTriangle sourceRecord {};
+                    sourceRecord.PositionA[0] = sourceTriangle.PositionA.X;
+                    sourceRecord.PositionA[1] = sourceTriangle.PositionA.Y;
+                    sourceRecord.PositionA[2] = sourceTriangle.PositionA.Z;
+                    sourceRecord.PositionA[3] = sourceTriangle.PositionA.W;
+                    sourceRecord.PositionB[0] = sourceTriangle.PositionB.X;
+                    sourceRecord.PositionB[1] = sourceTriangle.PositionB.Y;
+                    sourceRecord.PositionB[2] = sourceTriangle.PositionB.Z;
+                    sourceRecord.PositionB[3] = sourceTriangle.PositionB.W;
+                    sourceRecord.PositionC[0] = sourceTriangle.PositionC.X;
+                    sourceRecord.PositionC[1] = sourceTriangle.PositionC.Y;
+                    sourceRecord.PositionC[2] = sourceTriangle.PositionC.Z;
+                    sourceRecord.PositionC[3] = sourceTriangle.PositionC.W;
+                    const ::float3 worldFaceNormal = NormalizeOrFallback(
+                        TransformPosition(
+                            ::float4(sourceTriangle.FaceNormal.X, sourceTriangle.FaceNormal.Y, sourceTriangle.FaceNormal.Z, 0.0f),
+                            worlds[batchIndex]),
+                        ::float3(0.0f, 0.0f, -1.0f));
+                    const std::uint64_t triangleColor = ResolveTexturedVertexColor(*batch->Material, worldFaceNormal, normalizedLightDirection);
+                    sourceRecord.TexCoordA[0] = sourceTriangle.TexCoordA.X;
+                    sourceRecord.TexCoordA[1] = sourceTriangle.TexCoordA.Y;
+                    sourceRecord.TexCoordB[0] = sourceTriangle.TexCoordB.X;
+                    sourceRecord.TexCoordB[1] = sourceTriangle.TexCoordB.Y;
+                    sourceRecord.TexCoordC[0] = sourceTriangle.TexCoordC.X;
+                    sourceRecord.TexCoordC[1] = sourceTriangle.TexCoordC.Y;
+                    sourceRecord.LitColor[0] = static_cast<float>(triangleColor & 0xFFu);
+                    sourceRecord.LitColor[1] = static_cast<float>((triangleColor >> 8u) & 0xFFu);
+                    sourceRecord.LitColor[2] = static_cast<float>((triangleColor >> 16u) & 0xFFu);
+                    sourceRecord.LitColor[3] = static_cast<float>((triangleColor >> 24u) & 0xFFu);
+                    sourceTriangles.push_back(sourceRecord);
+                }
+
+            LastTrianglePayloadFillMilliseconds += ResolveMillisecondsFromClockTicks(sourcePayloadFillStartTicks, std::clock());
 
             packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
             std::memcpy(packet.get()->next, &sharedState, sizeof(sharedState));
             packet2_advance_next(packet.get(), sizeof(sharedState));
-            std::memcpy(packet.get()->next, sourceTriangles.data(), sourceTriangles.size() * sizeof(Ps2VuTexturedSourceTriangle));
-            packet2_advance_next(packet.get(), sourceTriangles.size() * sizeof(Ps2VuTexturedSourceTriangle));
+            if (!sourceTriangles.empty()) {
+                std::memcpy(packet.get()->next, sourceTriangles.data(), sourceTriangles.size() * sizeof(Ps2VuTexturedSourceTriangle));
+                packet2_advance_next(packet.get(), sourceTriangles.size() * sizeof(Ps2VuTexturedSourceTriangle));
+            }
             packet2_utils_vu_close_unpack(packet.get());
             packet2_chain_open_cnt(packet.get(), 0, 0, 0);
             packet2_vif_flush(packet.get(), 0);
@@ -2270,10 +2415,13 @@ namespace helengine::ps2 {
         }
 
         std::vector<std::array<std::uint64_t, TexturedTrianglePacketWordCount>> texturedTrianglePackets;
-        texturedTrianglePackets.reserve(texturedTriangleCapacity);
-        std::vector<std::uint64_t> directGifPacketWords;
+        if (createVifPacket) {
+            texturedTrianglePackets.reserve(texturedTriangleCapacity);
+        }
+
+        DirectGifPacketWords.clear();
         if (!createVifPacket) {
-            directGifPacketWords.reserve((texturedTriangleCapacity * 14u) + (batches.size() * 8u));
+            DirectGifPacketWords.reserve((texturedTriangleCapacity * 14u) + (batches.size() * 8u));
         }
         std::vector<Ps2VuTexturedClipVertex> clippedTexturedVertices;
         clippedTexturedVertices.reserve(4u);
@@ -2299,13 +2447,6 @@ namespace helengine::ps2 {
 
             gsKit_set_texfilter(gsGlobal, texture->Filter);
             const ::float4x4& world = worlds[batchIndex];
-            const std::size_t firstSourceVertex = batchSlice.FirstSourceTriangle * 3u;
-            const std::size_t sourceVertexCount = batchSlice.SourceTriangleCount * 3u;
-            const std::size_t finalSourceVertex = firstSourceVertex + sourceVertexCount;
-            if (sourceVertexCount == 0u || finalSourceVertex > batch->Model->GetTriangleVertexCount()) {
-                continue;
-            }
-
             ::float4x4 worldCopy = world;
             ::float4x4 viewCopy = view;
             ::float4x4 worldViewMatrix;
@@ -2313,62 +2454,22 @@ namespace helengine::ps2 {
             Ps2VuLightingConstants lightingConstants {};
             PopulateLightingConstants(*batch->Material, lightingConstants);
             const Ps2RuntimeModel* runtimeModel = batch->Proxy != nullptr ? batch->Proxy->GetModel() : nullptr;
-            const std::vector<std::uint16_t>* runtimeIndices = runtimeModel != nullptr ? &runtimeModel->GetIndices() : nullptr;
-            const std::vector<::float2>* runtimeTexCoords = runtimeModel != nullptr ? &runtimeModel->GetTexCoords() : nullptr;
-            const float* packedPositionWords = reinterpret_cast<const float*>(batch->Model->GetPositionBlockBytes());
-            const float* packedNormalWords = reinterpret_cast<const float*>(batch->Model->GetNormalBlockBytes());
-            const float* packedTexCoordWords = reinterpret_cast<const float*>(batch->Model->GetTexCoordBlockBytes());
-            const std::size_t firstTexturedTrianglePacketIndex = texturedTrianglePackets.size();
-            for (std::size_t vertexIndex = firstSourceVertex; (vertexIndex + 2u) < finalSourceVertex; vertexIndex += 3u) {
+            const std::vector<Ps2VuTexturedTriangleSource>& triangleSources = TexturedPacketCache.ResolveTriangleSources(*batch->Model, runtimeModel);
+            const std::size_t firstSourceTriangle = batchSlice.FirstSourceTriangle;
+            const std::size_t finalSourceTriangle = firstSourceTriangle + batchSlice.SourceTriangleCount;
+            if (batchSlice.SourceTriangleCount == 0u || finalSourceTriangle > triangleSources.size()) {
+                continue;
+            }
+
+            bool directGifBatchHeaderWritten = false;
+            for (std::size_t sourceTriangleIndex = firstSourceTriangle; sourceTriangleIndex < finalSourceTriangle; sourceTriangleIndex++) {
                 std::clock_t trianglePrepStartTicks = 0;
                 if (EnableVuPerTriangleTimingDiagnostics) {
                     trianglePrepStartTicks = std::clock();
                 }
 
-                const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
-                const std::size_t positionWordIndexB = static_cast<std::size_t>(vertexIndex + 1u) * 4u;
-                const std::size_t positionWordIndexC = static_cast<std::size_t>(vertexIndex + 2u) * 4u;
-                const ::float3 packedNormalA(
-                    packedNormalWords[positionWordIndexA + 0u],
-                    packedNormalWords[positionWordIndexA + 1u],
-                    packedNormalWords[positionWordIndexA + 2u]);
-                const ::float3 packedNormalB(
-                    packedNormalWords[positionWordIndexB + 0u],
-                    packedNormalWords[positionWordIndexB + 1u],
-                    packedNormalWords[positionWordIndexB + 2u]);
-                const ::float3 packedNormalC(
-                    packedNormalWords[positionWordIndexC + 0u],
-                    packedNormalWords[positionWordIndexC + 1u],
-                    packedNormalWords[positionWordIndexC + 2u]);
-                const ::float3 faceNormal(
-                    packedNormalA.X + packedNormalB.X + packedNormalC.X,
-                    packedNormalA.Y + packedNormalB.Y + packedNormalC.Y,
-                    packedNormalA.Z + packedNormalB.Z + packedNormalC.Z);
-                const ::float3 packedPositionA(
-                    packedPositionWords[positionWordIndexA + 0u],
-                    packedPositionWords[positionWordIndexA + 1u],
-                    packedPositionWords[positionWordIndexA + 2u]);
-                const ::float3 packedPositionB(
-                    packedPositionWords[positionWordIndexB + 0u],
-                    packedPositionWords[positionWordIndexB + 1u],
-                    packedPositionWords[positionWordIndexB + 2u]);
-                const ::float3 packedPositionC(
-                    packedPositionWords[positionWordIndexC + 0u],
-                    packedPositionWords[positionWordIndexC + 1u],
-                    packedPositionWords[positionWordIndexC + 2u]);
-                const ::float4 positionA(packedPositionA.X, packedPositionA.Y, packedPositionA.Z, 1.0f);
-                const ::float4 positionB(packedPositionB.X, packedPositionB.Y, packedPositionB.Z, 1.0f);
-                const ::float4 positionC(packedPositionC.X, packedPositionC.Y, packedPositionC.Z, 1.0f);
-                const std::uint16_t sourceIndexA = runtimeIndices != nullptr && vertexIndex < runtimeIndices->size()
-                    ? (*runtimeIndices)[vertexIndex + 0u]
-                    : static_cast<std::uint16_t>(vertexIndex + 0u);
-                const std::uint16_t sourceIndexB = runtimeIndices != nullptr && (vertexIndex + 1u) < runtimeIndices->size()
-                    ? (*runtimeIndices)[vertexIndex + 1u]
-                    : static_cast<std::uint16_t>(vertexIndex + 1u);
-                const std::uint16_t sourceIndexC = runtimeIndices != nullptr && (vertexIndex + 2u) < runtimeIndices->size()
-                    ? (*runtimeIndices)[vertexIndex + 2u]
-                    : static_cast<std::uint16_t>(vertexIndex + 2u);
-                const ::float4 faceNormal4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f);
+                const Ps2VuTexturedTriangleSource& triangleSource = triangleSources[sourceTriangleIndex];
+                const ::float4 faceNormal4(triangleSource.FaceNormal.X, triangleSource.FaceNormal.Y, triangleSource.FaceNormal.Z, 0.0f);
                 const ::float3 triangleWorldNormal = NormalizeOrFallback(
                     TransformPosition(faceNormal4, world),
                     ::float3(0.0f, 0.0f, -1.0f));
@@ -2381,21 +2482,12 @@ namespace helengine::ps2 {
                     triangleEmitStartTicks = std::clock();
                 }
 
-                const ::float3 viewPositionA = TransformPosition(positionA, worldViewMatrix);
-                const ::float3 viewPositionB = TransformPosition(positionB, worldViewMatrix);
-                const ::float3 viewPositionC = TransformPosition(positionC, worldViewMatrix);
-                const ::float2 sourceTexCoordA = runtimeTexCoords != nullptr && sourceIndexA < runtimeTexCoords->size()
-                    ? (*runtimeTexCoords)[sourceIndexA]
-                    : ::float2(packedTexCoordWords[positionWordIndexA + 0u], packedTexCoordWords[positionWordIndexA + 1u]);
-                const ::float2 sourceTexCoordB = runtimeTexCoords != nullptr && sourceIndexB < runtimeTexCoords->size()
-                    ? (*runtimeTexCoords)[sourceIndexB]
-                    : ::float2(packedTexCoordWords[positionWordIndexB + 0u], packedTexCoordWords[positionWordIndexB + 1u]);
-                const ::float2 sourceTexCoordC = runtimeTexCoords != nullptr && sourceIndexC < runtimeTexCoords->size()
-                    ? (*runtimeTexCoords)[sourceIndexC]
-                    : ::float2(packedTexCoordWords[positionWordIndexC + 0u], packedTexCoordWords[positionWordIndexC + 1u]);
-                const Ps2VuTexturedClipVertex texturedVertexA { viewPositionA, sourceTexCoordA };
-                const Ps2VuTexturedClipVertex texturedVertexB { viewPositionB, sourceTexCoordB };
-                const Ps2VuTexturedClipVertex texturedVertexC { viewPositionC, sourceTexCoordC };
+                const ::float3 viewPositionA = TransformPosition(triangleSource.PositionA, worldViewMatrix);
+                const ::float3 viewPositionB = TransformPosition(triangleSource.PositionB, worldViewMatrix);
+                const ::float3 viewPositionC = TransformPosition(triangleSource.PositionC, worldViewMatrix);
+                const Ps2VuTexturedClipVertex texturedVertexA { viewPositionA, triangleSource.TexCoordA };
+                const Ps2VuTexturedClipVertex texturedVertexB { viewPositionB, triangleSource.TexCoordB };
+                const Ps2VuTexturedClipVertex texturedVertexC { viewPositionC, triangleSource.TexCoordC };
                 float screenAX = 0.0f;
                 float screenAY = 0.0f;
                 float screenAZ = 0.0f;
@@ -2474,31 +2566,39 @@ namespace helengine::ps2 {
                     if (EnableVuPerTriangleTimingDiagnostics) {
                         trianglePayloadFillStartTicks = std::clock();
                     }
-                    texturedTrianglePackets.push_back(
-                        BuildTexturedTriangleGifPacketBytes(
-                            gsGlobal,
-                            texture,
-                            textureWidth,
-                            textureHeight,
-                            triangleColor,
-                            texturedVertexA,
-                            texturedVertexB,
-                            texturedVertexC,
-                            reciprocalClipWA,
-                            reciprocalClipWB,
-                            reciprocalClipWC,
-                            screenAX,
-                            screenAY,
-                            screenAZ,
-                            positionARegister,
-                            screenBX,
-                            screenBY,
-                            screenBZ,
-                            positionBRegister,
-                            screenCX,
-                            screenCY,
-                            screenCZ,
-                            positionCRegister));
+                    const std::array<std::uint64_t, TexturedTrianglePacketWordCount> trianglePacket = BuildTexturedTriangleGifPacketBytes(
+                        gsGlobal,
+                        texture,
+                        textureWidth,
+                        textureHeight,
+                        triangleColor,
+                        texturedVertexA,
+                        texturedVertexB,
+                        texturedVertexC,
+                        reciprocalClipWA,
+                        reciprocalClipWB,
+                        reciprocalClipWC,
+                        screenAX,
+                        screenAY,
+                        screenAZ,
+                        positionARegister,
+                        screenBX,
+                        screenBY,
+                        screenBZ,
+                        positionBRegister,
+                        screenCX,
+                        screenCY,
+                        screenCZ,
+                        positionCRegister);
+                    if (createVifPacket) {
+                        texturedTrianglePackets.push_back(trianglePacket);
+                    } else {
+                        if (!directGifBatchHeaderWritten) {
+                            DirectGifPacketWords.insert(DirectGifPacketWords.end(), trianglePacket.begin(), trianglePacket.begin() + 8u);
+                            directGifBatchHeaderWritten = true;
+                        }
+                        DirectGifPacketWords.insert(DirectGifPacketWords.end(), trianglePacket.begin() + 8u, trianglePacket.end());
+                    }
                     if (EnableVuPerTriangleTimingDiagnostics) {
                         accumulatedTrianglePayloadFillTicks += (std::clock() - trianglePayloadFillStartTicks);
                     }
@@ -2592,31 +2692,39 @@ namespace helengine::ps2 {
                     if (EnableVuPerTriangleTimingDiagnostics) {
                         trianglePayloadFillStartTicks = std::clock();
                     }
-                    texturedTrianglePackets.push_back(
-                        BuildTexturedTriangleGifPacketBytes(
-                            gsGlobal,
-                            texture,
-                            textureWidth,
-                            textureHeight,
-                            triangleColor,
-                            clippedTexturedVertices[0],
-                            clippedTexturedVertices[clippedIndex],
-                            clippedTexturedVertices[clippedIndex + 1u],
-                            ResolvePerspectiveTextureReciprocalW(clippedTexturedVertices[0].ViewPosition, projection),
-                            ResolvePerspectiveTextureReciprocalW(clippedTexturedVertices[clippedIndex].ViewPosition, projection),
-                            ResolvePerspectiveTextureReciprocalW(clippedTexturedVertices[clippedIndex + 1u].ViewPosition, projection),
-                            screenAX,
-                            screenAY,
-                            screenAZ,
-                            positionARegister,
-                            screenBX,
-                            screenBY,
-                            screenBZ,
-                            positionBRegister,
-                            screenCX,
-                            screenCY,
-                            screenCZ,
-                            positionCRegister));
+                    const std::array<std::uint64_t, TexturedTrianglePacketWordCount> trianglePacket = BuildTexturedTriangleGifPacketBytes(
+                        gsGlobal,
+                        texture,
+                        textureWidth,
+                        textureHeight,
+                        triangleColor,
+                        clippedTexturedVertices[0],
+                        clippedTexturedVertices[clippedIndex],
+                        clippedTexturedVertices[clippedIndex + 1u],
+                        ResolvePerspectiveTextureReciprocalW(clippedTexturedVertices[0].ViewPosition, projection),
+                        ResolvePerspectiveTextureReciprocalW(clippedTexturedVertices[clippedIndex].ViewPosition, projection),
+                        ResolvePerspectiveTextureReciprocalW(clippedTexturedVertices[clippedIndex + 1u].ViewPosition, projection),
+                        screenAX,
+                        screenAY,
+                        screenAZ,
+                        positionARegister,
+                        screenBX,
+                        screenBY,
+                        screenBZ,
+                        positionBRegister,
+                        screenCX,
+                        screenCY,
+                        screenCZ,
+                        positionCRegister);
+                    if (createVifPacket) {
+                        texturedTrianglePackets.push_back(trianglePacket);
+                    } else {
+                        if (!directGifBatchHeaderWritten) {
+                            DirectGifPacketWords.insert(DirectGifPacketWords.end(), trianglePacket.begin(), trianglePacket.begin() + 8u);
+                            directGifBatchHeaderWritten = true;
+                        }
+                        DirectGifPacketWords.insert(DirectGifPacketWords.end(), trianglePacket.begin() + 8u, trianglePacket.end());
+                    }
                     if (EnableVuPerTriangleTimingDiagnostics) {
                         accumulatedTrianglePayloadFillTicks += (std::clock() - trianglePayloadFillStartTicks);
                     }
@@ -2652,15 +2760,6 @@ namespace helengine::ps2 {
                 }
             }
 
-            if (!createVifPacket && texturedTrianglePackets.size() > firstTexturedTrianglePacketIndex) {
-                const std::array<std::uint64_t, TexturedTrianglePacketWordCount>& firstTrianglePacket = texturedTrianglePackets[firstTexturedTrianglePacketIndex];
-                directGifPacketWords.insert(directGifPacketWords.end(), firstTrianglePacket.begin(), firstTrianglePacket.begin() + 8u);
-                for (std::size_t trianglePacketIndex = firstTexturedTrianglePacketIndex; trianglePacketIndex < texturedTrianglePackets.size(); trianglePacketIndex++) {
-                    const std::array<std::uint64_t, TexturedTrianglePacketWordCount>& trianglePacket = texturedTrianglePackets[trianglePacketIndex];
-                    directGifPacketWords.insert(directGifPacketWords.end(), trianglePacket.begin() + 8u, trianglePacket.end());
-                }
-            }
-
         }
 
         LastTrianglePrepMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTrianglePrepTicks);
@@ -2669,16 +2768,20 @@ namespace helengine::ps2 {
         LastTrianglePayloadFillMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTrianglePayloadFillTicks);
         const std::clock_t triangleSetupEndTicks = std::clock();
         LastTriangleSetupMilliseconds = ResolveMillisecondsFromClockTicks(triangleSetupStartTicks, triangleSetupEndTicks);
+        if (!createVifPacket) {
+            if (DirectGifPacketWords.empty()) {
+                return;
+            }
+
+            GifPacketBytes.resize(DirectGifPacketWords.size() * sizeof(std::uint64_t));
+            std::memcpy(GifPacketBytes.data(), DirectGifPacketWords.data(), GifPacketBytes.size());
+            LastCompletedPhase = 11;
+            return;
+        }
         if (texturedTrianglePackets.empty()) {
             return;
         }
 
-        if (!createVifPacket) {
-            GifPacketBytes.resize(directGifPacketWords.size() * sizeof(std::uint64_t));
-            std::memcpy(GifPacketBytes.data(), directGifPacketWords.data(), GifPacketBytes.size());
-            LastCompletedPhase = 11;
-            return;
-        }
         GifPacketBytes.resize(texturedTrianglePackets.size() * TexturedTrianglePacketByteCount);
         for (std::size_t triangleIndex = 0u; triangleIndex < texturedTrianglePackets.size(); triangleIndex++) {
             std::memcpy(

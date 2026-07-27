@@ -14,10 +14,154 @@ public sealed class Ps2NativeBuildInputsTests {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string microProgram = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"));
 
+        if (microProgram.Contains("boundary diagnostic", StringComparison.Ordinal)) {
+            return;
+        }
+
         Assert.Contains("div           Q", microProgram, StringComparison.Ordinal);
         Assert.Contains("mulq.xy", microProgram, StringComparison.Ordinal);
         Assert.Contains("xgkick", microProgram, StringComparison.Ordinal);
         Assert.DoesNotContain("NOP                                                        xgkick VI02", microProgram, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the textured VU1 program waits for the final matrix multiply-add before dividing by clip W.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_program_waits_for_clip_w_before_perspective_divide() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string microProgram = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"));
+
+        if (microProgram.Contains("boundary diagnostic", StringComparison.Ordinal)) {
+            return;
+        }
+
+        int matrixCompletionIndex = microProgram.IndexOf("maddw         VF08, VF04, VF08w", StringComparison.Ordinal);
+        int perspectiveDivideIndex = microProgram.IndexOf("div           Q, VF00w, VF08w", matrixCompletionIndex, StringComparison.Ordinal);
+        Assert.True(matrixCompletionIndex >= 0, "Expected the textured VU1 matrix completion instruction.");
+        Assert.True(perspectiveDivideIndex > matrixCompletionIndex, "Expected the textured VU1 perspective divide after matrix completion.");
+
+        string dependencyWindow = microProgram.Substring(matrixCompletionIndex, perspectiveDivideIndex - matrixCompletionIndex);
+        int independentCycles = dependencyWindow
+            .Split('\n')
+            .Count(line => line.Trim().Replace(" ", string.Empty, StringComparison.Ordinal) == "NOPNOP");
+        Assert.Equal(4, independentCycles);
+    }
+
+    /// <summary>
+    /// Ensures the textured VU1 program allows each projected-position result to settle before the next dependent operation.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_program_waits_between_projected_position_dependencies() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string microProgram = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"));
+
+        if (microProgram.Contains("boundary diagnostic", StringComparison.Ordinal)) {
+            return;
+        }
+
+        int perspectiveMultiplyIndex = microProgram.IndexOf("mulq.xyz      VF08, VF08, Q", StringComparison.Ordinal);
+        int screenScaleIndex = microProgram.IndexOf("mul.xyz       VF08, VF08, VF05", perspectiveMultiplyIndex, StringComparison.Ordinal);
+        int screenOffsetIndex = microProgram.IndexOf("add.xyz       VF08, VF08, VF06", screenScaleIndex, StringComparison.Ordinal);
+        int depthConversionIndex = microProgram.IndexOf("ftoi0.z       VF08, VF08", screenOffsetIndex, StringComparison.Ordinal);
+        int xyConversionIndex = microProgram.IndexOf("ftoi4.xy      VF08, VF08", depthConversionIndex, StringComparison.Ordinal);
+
+        Assert.True(perspectiveMultiplyIndex >= 0 && screenScaleIndex > perspectiveMultiplyIndex);
+        Assert.True(screenOffsetIndex > screenScaleIndex && depthConversionIndex > screenOffsetIndex);
+        Assert.True(xyConversionIndex > depthConversionIndex);
+        Assert.Equal(4, microProgram.Substring(perspectiveMultiplyIndex, screenScaleIndex - perspectiveMultiplyIndex).Split('\n').Count(line => line.Trim().Replace(" ", string.Empty, StringComparison.Ordinal) == "NOPNOP"));
+        Assert.Equal(4, microProgram.Substring(screenScaleIndex, screenOffsetIndex - screenScaleIndex).Split('\n').Count(line => line.Trim().Replace(" ", string.Empty, StringComparison.Ordinal) == "NOPNOP"));
+        Assert.Equal(4, microProgram.Substring(screenOffsetIndex, depthConversionIndex - screenOffsetIndex).Split('\n').Count(line => line.Trim().Replace(" ", string.Empty, StringComparison.Ordinal) == "NOPNOP"));
+    }
+
+    /// <summary>
+    /// Ensures every VU-produced XYZ2 vertex clears its ADC word before GIF submission so clip-space W cannot suppress or corrupt GS primitives.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_program_clears_xyz2_adc_words_before_gif_submission() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string microProgram = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"));
+
+        if (microProgram.Contains("boundary diagnostic", StringComparison.Ordinal)) {
+            return;
+        }
+
+        Assert.Contains("iaddiu VI06, VI00, 0x00000000", microProgram, StringComparison.Ordinal);
+        Assert.Equal(1, microProgram.Split("isw.w VI06, 2(VI03)", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, microProgram.Split("isw.w VI06, 5(VI03)", StringSplitOptions.None).Length - 1);
+        Assert.Equal(1, microProgram.Split("isw.w VI06, 8(VI03)", StringSplitOptions.None).Length - 1);
+        string triangleLoop = microProgram.Substring(microProgram.IndexOf("texturedTriangleLoop:", StringComparison.Ordinal));
+        Assert.True(
+            triangleLoop.IndexOf("sq VF08, 2(VI03)", StringComparison.Ordinal)
+                < triangleLoop.IndexOf("isw.w VI06, 2(VI03)", StringComparison.Ordinal),
+            "The first XYZ2 qword must be written before its ADC word is cleared.");
+        Assert.True(
+            triangleLoop.IndexOf("sq VF08, 5(VI03)", StringComparison.Ordinal)
+                < triangleLoop.IndexOf("isw.w VI06, 5(VI03)", StringComparison.Ordinal),
+            "The second XYZ2 qword must be written before its ADC word is cleared.");
+        Assert.True(
+            triangleLoop.IndexOf("sq VF08, 8(VI03)", StringComparison.Ordinal)
+                < triangleLoop.IndexOf("isw.w VI06, 8(VI03)", StringComparison.Ordinal),
+            "The third XYZ2 qword must be written before its ADC word is cleared.");
+    }
+
+    /// <summary>
+    /// Ensures the textured VU1 program allows each source position load to complete before starting its matrix transformation.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_program_waits_for_source_position_load_before_transforming() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string microProgram = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"));
+
+        if (microProgram.Contains("boundary diagnostic", StringComparison.Ordinal)) {
+            return;
+        }
+
+        int positionLoadIndex = microProgram.IndexOf("lq VF08, 0(VI05)", StringComparison.Ordinal);
+        int matrixStartIndex = microProgram.IndexOf("mulax         ACC, VF01, VF08x", positionLoadIndex, StringComparison.Ordinal);
+        Assert.True(positionLoadIndex >= 0 && matrixStartIndex > positionLoadIndex);
+        Assert.Equal(4, microProgram.Substring(positionLoadIndex, matrixStartIndex - positionLoadIndex).Split('\n').Count(line => line.Trim().Replace(" ", string.Empty, StringComparison.Ordinal) == "NOPNOP"));
+    }
+
+    /// <summary>
+    /// Ensures each VU matrix result is available before its homogeneous W component is used for perspective division.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_program_waits_for_matrix_result_before_perspective_division() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string microProgram = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"));
+
+        int firstMatrixResultIndex = microProgram.IndexOf("maddw         VF08, VF04, VF08w", StringComparison.Ordinal);
+        int firstPerspectiveDivisionIndex = microProgram.IndexOf("div           Q, VF00w, VF08w", firstMatrixResultIndex, StringComparison.Ordinal);
+        Assert.True(firstMatrixResultIndex >= 0 && firstPerspectiveDivisionIndex > firstMatrixResultIndex);
+        Assert.Equal(4, microProgram.Substring(firstMatrixResultIndex, firstPerspectiveDivisionIndex - firstMatrixResultIndex).Split('\n').Count(line => line.Trim().Replace(" ", string.Empty, StringComparison.Ordinal) == "NOPNOP"));
+    }
+
+    /// <summary>
+    /// Ensures the B82 dynamic VU program is restored after the transport boundary diagnostics.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_program_restores_dynamic_triangle_generation_after_boundary_diagnostics() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string microProgram = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"));
+
+        Assert.DoesNotContain("boundary diagnostic", microProgram, StringComparison.Ordinal);
+        Assert.Contains("texturedTriangleLoop:", microProgram, StringComparison.Ordinal);
+        Assert.Contains("mulax         ACC, VF01, VF08x", microProgram, StringComparison.Ordinal);
+        Assert.Contains("xgkick VI04", microProgram, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures B84 removes all fixed-packet storage before dynamic VU vertex generation is tested.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_packet_builder_removes_fixed_gif_diagnostic_storage_for_dynamic_generation() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+
+        Assert.DoesNotContain("EnableTexturedVuFixedGifOutputDiagnostic", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2VuTexturedFixedGifTriangle", source, StringComparison.Ordinal);
+        Assert.Contains("sourceTriangles.push_back(sourceTriangle);", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -42,6 +186,155 @@ public sealed class Ps2NativeBuildInputsTests {
     }
 
     /// <summary>
+    /// Ensures the dynamic textured VU1 path submits every eligible bounded batch after correctness diagnostics are complete.
+    /// </summary>
+    [Fact]
+    public void Ps2_renderer3d_submits_all_dynamic_textured_vu_batches() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp"));
+
+        Assert.Contains("constexpr bool EnableTexturedVuSingleBatchDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("texturedVuBatches.resize(dynamicTexturedVuBatchCount);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("texturedVuWorlds.resize(dynamicTexturedVuBatchCount);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("texturedVuTextures.resize(dynamicTexturedVuBatchCount);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the dynamic textured VU1 path preserves every source triangle in each bounded batch.
+    /// </summary>
+    [Fact]
+    public void Ps2_renderer3d_preserves_dynamic_textured_vu_batch_triangle_counts() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp"));
+
+        Assert.DoesNotContain("texturedVuBatches.front().SourceTriangleCount = std::min(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("DynamicTexturedVuDiagnosticTriangleLimit,", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures color-only materials can use the renderer-owned white texture through the textured VU path without adding a cooked texture asset.
+    /// </summary>
+    [Fact]
+    public void Ps2_renderer3d_uses_runtime_white_texture_batches_on_textured_vu_path_when_they_are_frustum_safe() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp"));
+
+        Assert.Contains("const bool canUseTexturedVuFastPath = (batch.Textured || usesRuntimeWhiteTexture)", source, StringComparison.Ordinal);
+        Assert.Contains("&& CanUseTexturedVuFastPath(batch, world, view, projection, nearPlaneDistance);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the textured VU program writes generated GIF data outside both VIF double-buffer input regions.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_program_writes_gif_output_outside_double_buffered_inputs() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"));
+
+        Assert.Contains("iaddiu VI03, VI00, 0x00000100", source, StringComparison.Ordinal);
+        Assert.Contains("iaddiu VI04, VI03, 0x00000000", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("iaddiu VI03, VI00, 0x00000200", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures every VU-textured vertex emits the packed GIF STQ, RGBA, and XYZ stream in the order required for perspective-correct texturing.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_program_emits_packed_stq_rgba_xyz_stream() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"));
+        string packetBuilderSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+
+        Assert.Equal(3, source.Split("addq.z        VF09, VF00, Q", StringSplitOptions.None).Length - 1);
+        Assert.Equal(3, source.Split("ftoi0         VF10, VF07", StringSplitOptions.None).Length - 1);
+        Assert.Contains("sq VF09, 0(VI03)", source, StringComparison.Ordinal);
+        Assert.Contains("sq VF10, 1(VI03)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("addq.w        VF10, VF00, Q", source, StringComparison.Ordinal);
+        Assert.Contains("float FlatColor[4];", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("sharedState.FlatColor[0] = static_cast<float>(batch->Material->GetBaseColorR());", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("sharedState.StateTemplate[7].High = (static_cast<std::uint64_t>(GIF_REG_ST) << 0u)", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("| (static_cast<std::uint64_t>(GIF_REG_RGBAQ) << 4u)", packetBuilderSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the textured VU path preserves the established PS2 face-lighting result by uploading one lit color with each source triangle.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_path_uploads_lit_color_for_each_source_triangle() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string programSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"));
+        string packetBuilderSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        string packetBuilderHeaderSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.hpp"));
+
+        Assert.Contains("float LitColor[4];", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("const ::float3& lightDirection", packetBuilderHeaderSource, StringComparison.Ordinal);
+        Assert.Contains("const std::uint64_t triangleColor = ResolveTexturedVertexColor", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("sourceTriangle.LitColor[0]", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("lq VF07, 6(VI05)", programSource, StringComparison.Ordinal);
+        Assert.Contains("iaddiu VI05, VI05, 0x00000007", programSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the dynamic textured VU path reuses immutable triangle sources instead of decoding packed buffers every frame.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_fast_path_uses_cached_immutable_triangle_sources() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        int dynamicVuPathStartIndex = source.IndexOf("void Ps2VuVifPacketBuilder::AddOpaqueTexturedVuBatches(", StringComparison.Ordinal);
+        int cpuPathStartIndex = source.IndexOf("void Ps2VuVifPacketBuilder::AddOpaqueTexturedBatches(", StringComparison.Ordinal);
+        string dynamicVuPath = source.Substring(dynamicVuPathStartIndex, cpuPathStartIndex - dynamicVuPathStartIndex);
+
+        Assert.Contains("const Ps2RuntimeModel* runtimeModel = batch->Proxy != nullptr ? batch->Proxy->GetModel() : nullptr;", dynamicVuPath, StringComparison.Ordinal);
+        Assert.Contains("TexturedPacketCache.ResolveTriangleSources(*batch->Model, runtimeModel)", dynamicVuPath, StringComparison.Ordinal);
+        Assert.DoesNotContain("const float* packedPositionWords", dynamicVuPath, StringComparison.Ordinal);
+        Assert.DoesNotContain("const std::vector<std::uint16_t>* runtimeIndices", dynamicVuPath, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the dynamic textured VU path accounts for CPU time spent constructing its per-triangle source payload separately from VIF packet assembly.
+    /// </summary>
+    [Fact]
+    public void Ps2_dynamic_textured_vu_path_measures_source_payload_construction() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        int dynamicVuPathStartIndex = source.IndexOf("void Ps2VuVifPacketBuilder::AddOpaqueTexturedVuBatches(", StringComparison.Ordinal);
+        int cpuPathStartIndex = source.IndexOf("void Ps2VuVifPacketBuilder::AddOpaqueTexturedBatches(", StringComparison.Ordinal);
+        string dynamicVuPath = source.Substring(dynamicVuPathStartIndex, cpuPathStartIndex - dynamicVuPathStartIndex);
+
+        Assert.Contains("const std::clock_t sourcePayloadFillStartTicks = std::clock();", dynamicVuPath, StringComparison.Ordinal);
+        Assert.Contains("LastTrianglePayloadFillMilliseconds += ResolveMillisecondsFromClockTicks(sourcePayloadFillStartTicks, std::clock());", dynamicVuPath, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures unlit textured draws modulate the white fallback texture with the material's authored base color instead of a neutral diagnostic color.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_packet_builder_uses_authored_base_color_for_unlit_materials() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        const string expectedColorRegister = "GS_SETREG_RGBAQ(lightingConstants.BaseColorR, lightingConstants.BaseColorG, lightingConstants.BaseColorB, lightingConstants.BaseColorA, 0x00)";
+
+        Assert.Equal(2, source.Split(expectedColorRegister, StringSplitOptions.None).Length - 1);
+    }
+
+    /// <summary>
+    /// Ensures the dynamic textured VU1 packet reserves the VIF chain commands in addition to its unpacked mesh data.
+    /// </summary>
+    [Fact]
+    public void Ps2_textured_vu_packet_builder_reserves_per_submission_vif_overhead() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+
+        Assert.Contains("constexpr std::size_t TexturedVuSourceBatchPayloadQwordCount", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::size_t TexturedVuSourceBatchSubmissionOverheadQwordCount = 2u;", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "batches.size() * (TexturedVuSourceBatchPayloadQwordCount + TexturedVuSourceBatchSubmissionOverheadQwordCount)",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 DualShock analog axes are normalized into the shared gamepad state used by menu navigation.
     /// </summary>
     [Fact]
@@ -55,6 +348,18 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("padSetMainMode(Port, Slot, PAD_MMODE_DUALSHOCK, PAD_MMODE_LOCK);", inputSource, StringComparison.Ordinal);
         Assert.Contains("gamepad.set_LeftStickX(CurrentButtons.LeftStickX);", inputSource, StringComparison.Ordinal);
         Assert.Contains("gamepad.set_LeftStickY(CurrentButtons.LeftStickY);", inputSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 controller mapper remains gamepad-only and never imports desktop keyboard generated-core state.
+    /// </summary>
+    [Fact]
+    public void Ps2_pad_input_mapper_has_no_desktop_keyboard_dependency() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string mapperHeader = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2PadInputMapper.hpp"));
+
+        Assert.DoesNotContain("Keys.hpp", mapperHeader, StringComparison.Ordinal);
+        Assert.DoesNotContain("MapPadButtonsToKeys", mapperHeader, StringComparison.Ordinal);
     }
 
     /// <summary>
