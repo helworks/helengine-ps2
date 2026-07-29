@@ -9,6 +9,7 @@
 #include <packet2.h>
 #include <packet2_utils.h>
 #include <gsKit.h>
+#include <gsInline.h>
 #include <cerrno>
 #include <algorithm>
 #include <ctime>
@@ -50,7 +51,6 @@
 #define HE_PS2_HAS_SCENE_LOAD_TIMING_DIAGNOSTICS_INTERFACE 0
 #endif
 #include "IRuntimeSceneTransitionDiagnosticsProvider.hpp"
-#include "IRuntimeUpdateStageDiagnosticsProvider.hpp"
 #include "IRoundedRectDrawable2D.hpp"
 #include "ISpriteDrawable2D.hpp"
 #include "ITextDrawable2D.hpp"
@@ -153,7 +153,6 @@ namespace {
     constexpr double CubeRuntimeDiagnosticWatchSeconds = 5.0;
     constexpr const char* CubeRuntimeDiagnosticSceneId = "textured_cube_grid";
     constexpr bool EnableVerboseEntityDisposalDiagnostics = false;
-    constexpr bool EnableVerboseUpdateStageDiagnostics = false;
     constexpr bool EnableFrameTimingDiagnostics = true;
     constexpr bool EnableFrameTimingDiagnosticHalt = false;
     constexpr bool EnableFirstUpdateStateHalt = false;
@@ -186,7 +185,7 @@ namespace {
     constexpr float CubeTriangle2dVertexB2X = 428.156738f;
     constexpr float CubeTriangle2dVertexB2Y = 115.843239f;
     constexpr float CubeTriangle3dDiagnosticDepth = 1.0f;
-    constexpr const char* FrameTimingOverlayBuildNumber = "B123";
+    constexpr const char* FrameTimingOverlayBuildNumber = "B222";
     bool DebugConsoleReady = false;
     bool CubeDiagnosticsShown = false;
     bool CubeRuntimeDiagnosticsCompleted = false;
@@ -207,12 +206,16 @@ namespace {
     double FrameTimingDraw3dSeconds = 0.0;
     double FrameTimingGifWaitSeconds = 0.0;
     double FrameTimingDraw2dSeconds = 0.0;
+    double FrameTimingDraw2dCommandBuildMilliseconds = 0.0;
+    double FrameTimingDraw2dCommandPlaybackMilliseconds = 0.0;
     double FrameTimingDrawSeconds = 0.0;
     double FrameTimingPresentSeconds = 0.0;
+    double FrameTimingPhysicsMilliseconds = 0.0;
     double FrameTimingProxySyncMilliseconds = 0.0;
     double FrameTimingFramePlanMilliseconds = 0.0;
     double FrameTimingVuBatchBuildMilliseconds = 0.0;
     double FrameTimingVuBatchDispatchCount = 0.0;
+    double FrameTimingVuTriangleSetupMilliseconds = 0.0;
     double FrameTimingVuTrianglePrepMilliseconds = 0.0;
     double FrameTimingVuTriangleEmitMilliseconds = 0.0;
     double FrameTimingVuTriangleLightingMilliseconds = 0.0;
@@ -221,12 +224,20 @@ namespace {
     double FrameTimingVuWaitMilliseconds = 0.0;
     double FrameTimingVuSubmitMilliseconds = 0.0;
     double FrameTimingVuPacketEncodeMilliseconds = 0.0;
+    double FrameTimingVifDrainMilliseconds = 0.0;
     double FrameTimingGifDrainMilliseconds = 0.0;
     double FrameTimingLegacyOpaqueMilliseconds = 0.0;
     double FrameTimingLegacyOpaqueTriangleCount = 0.0;
     double FrameTimingSubmittedTriangleCount = 0.0;
+    double FrameTimingTexturedSubmittedTriangleCount = 0.0;
+    double FrameTimingUntexturedSubmittedTriangleCount = 0.0;
+    double FrameTimingTexturedPacketCacheBuildCount = 0.0;
+    double FrameTimingFrustumRejectedBatchCount = 0.0;
+    double FrameTimingFrustumRejectedSliceCount = 0.0;
     double FrameTimingVifPacketByteCount = 0.0;
     double FrameTimingCompatibleUntexturedGroupCount = 0.0;
+    double LastRender2dCommandBuildMilliseconds = 0.0;
+    double LastRender2dCommandPlaybackMilliseconds = 0.0;
     int FrameTimingFrameCount = 0;
     bool FrameTimingSampleCompleted = false;
     bool FrameTimingOverlayPending = false;
@@ -309,7 +320,6 @@ namespace {
         : public ::IRuntimeDiagnosticsProvider
         , public ::IRuntimeSceneTransitionDiagnosticsProvider
         , public ::IRuntimeEntityDisposalDiagnosticsProvider
-        , public ::IRuntimeUpdateStageDiagnosticsProvider
 #if HE_PS2_HAS_SCENE_LOAD_TIMING_DIAGNOSTICS_INTERFACE
         , public ::IRuntimeSceneLoadTimingDiagnosticsProvider
 #endif
@@ -382,18 +392,6 @@ namespace {
             LastSceneStageTicks = nowTicks;
         }
 
-        void ReportUpdateStage(std::string stage) override {
-            if (!EnableVerboseUpdateStageDiagnostics) {
-                return;
-            }
-            if (String::Equals(LastUpdateStage, stage, StringComparison::Ordinal)) {
-                return;
-            }
-
-            LastUpdateStage = stage;
-            HostLogOnly(std::string("update stage=") + stage);
-        }
-
 #if HE_PS2_HAS_SCENE_LOAD_TIMING_DIAGNOSTICS_INTERFACE
         void ReportSceneLoadPhaseTiming(std::string phaseName, double elapsedMilliseconds) override {
             PhaseTimingsMilliseconds[phaseName] = elapsedMilliseconds;
@@ -417,7 +415,6 @@ namespace {
     private:
         std::string CurrentLoadSceneId;
         std::string LastSceneStage;
-        std::string LastUpdateStage;
         std::clock_t LastSceneStageTicks;
         std::clock_t SceneLoadStartTicks;
         std::unordered_map<std::string, double> PhaseTimingsMilliseconds;
@@ -700,7 +697,8 @@ namespace {
         FrameTimingProxySyncMilliseconds += metrics.ProxySyncMilliseconds;
         FrameTimingFramePlanMilliseconds += metrics.FramePlanMilliseconds;
         FrameTimingVuBatchBuildMilliseconds += metrics.VuBatchBuildMilliseconds;
-        FrameTimingVuBatchDispatchCount += static_cast<double>(metrics.VifPacketCount);
+        FrameTimingVuBatchDispatchCount += static_cast<double>(renderManager3DBackend.GetLastVuBatchDispatchCount());
+        FrameTimingVuTriangleSetupMilliseconds += renderManager3DBackend.GetLastVuTriangleSetupMilliseconds();
         FrameTimingVuTrianglePrepMilliseconds += renderManager3DBackend.GetLastVuTrianglePrepMilliseconds();
         FrameTimingVuTriangleEmitMilliseconds += renderManager3DBackend.GetLastVuTriangleEmitMilliseconds();
         FrameTimingVuTriangleLightingMilliseconds += renderManager3DBackend.GetLastVuTriangleLightingMilliseconds();
@@ -709,10 +707,16 @@ namespace {
         FrameTimingVuWaitMilliseconds += metrics.VifReuseWaitMilliseconds;
         FrameTimingVuSubmitMilliseconds += metrics.VifSubmitMilliseconds;
         FrameTimingVuPacketEncodeMilliseconds += metrics.PacketEncodeMilliseconds;
+        FrameTimingVifDrainMilliseconds += metrics.VifDrainMilliseconds;
         FrameTimingGifDrainMilliseconds += metrics.GifDrainMilliseconds;
         FrameTimingLegacyOpaqueMilliseconds += metrics.LegacyOpaqueMilliseconds;
         FrameTimingLegacyOpaqueTriangleCount += static_cast<double>(metrics.LegacyOpaqueTriangleCount);
         FrameTimingSubmittedTriangleCount += static_cast<double>(metrics.SubmittedTriangleCount);
+        FrameTimingTexturedSubmittedTriangleCount += static_cast<double>(renderManager3DBackend.GetLastTexturedSubmittedTriangleCount());
+        FrameTimingUntexturedSubmittedTriangleCount += static_cast<double>(renderManager3DBackend.GetLastUntexturedSubmittedTriangleCount());
+        FrameTimingTexturedPacketCacheBuildCount += static_cast<double>(renderManager3DBackend.GetLastTexturedPacketCacheBuildCount());
+        FrameTimingFrustumRejectedBatchCount += static_cast<double>(renderManager3DBackend.GetLastFrustumRejectedBatchCount());
+        FrameTimingFrustumRejectedSliceCount += static_cast<double>(renderManager3DBackend.GetLastFrustumRejectedSliceCount());
         FrameTimingVifPacketByteCount += static_cast<double>(metrics.VifPacketByteCount);
         FrameTimingCompatibleUntexturedGroupCount += static_cast<double>(metrics.CompatibleUntexturedGroupCount);
     }
@@ -724,7 +728,8 @@ namespace {
         double gifWaitSeconds,
         double draw2dSeconds,
         double drawSeconds,
-        double presentSeconds) {
+        double presentSeconds,
+        double physicsMilliseconds) {
         if (!EnableFrameTimingDiagnostics) {
             return;
         }
@@ -733,8 +738,11 @@ namespace {
         FrameTimingDraw3dSeconds += draw3dSeconds;
         FrameTimingGifWaitSeconds += gifWaitSeconds;
         FrameTimingDraw2dSeconds += draw2dSeconds;
+        FrameTimingDraw2dCommandBuildMilliseconds += LastRender2dCommandBuildMilliseconds;
+        FrameTimingDraw2dCommandPlaybackMilliseconds += LastRender2dCommandPlaybackMilliseconds;
         FrameTimingDrawSeconds += drawSeconds;
         FrameTimingPresentSeconds += presentSeconds;
+        FrameTimingPhysicsMilliseconds += physicsMilliseconds;
         FrameTimingFrameCount += 1;
         if (FrameTimingFrameCount < FrameTimingSampleFrameCount) {
             return;
@@ -745,13 +753,17 @@ namespace {
         const double averageDraw3dMilliseconds = (FrameTimingDraw3dSeconds / sampledFrameCount) * 1000.0;
         const double averageGifWaitMilliseconds = (FrameTimingGifWaitSeconds / sampledFrameCount) * 1000.0;
         const double averageDraw2dMilliseconds = (FrameTimingDraw2dSeconds / sampledFrameCount) * 1000.0;
+        const double averageDraw2dCommandBuildMilliseconds = FrameTimingDraw2dCommandBuildMilliseconds / sampledFrameCount;
+        const double averageDraw2dCommandPlaybackMilliseconds = FrameTimingDraw2dCommandPlaybackMilliseconds / sampledFrameCount;
         const double averageDrawMilliseconds = (FrameTimingDrawSeconds / sampledFrameCount) * 1000.0;
         const double averagePresentMilliseconds = (FrameTimingPresentSeconds / sampledFrameCount) * 1000.0;
+        const double averagePhysicsMilliseconds = FrameTimingPhysicsMilliseconds / sampledFrameCount;
         const double averageRenderMilliseconds = averageDraw3dMilliseconds + averageGifWaitMilliseconds;
         const double averageProxySyncMilliseconds = FrameTimingProxySyncMilliseconds / sampledFrameCount;
         const double averageFramePlanMilliseconds = FrameTimingFramePlanMilliseconds / sampledFrameCount;
         const double averageVuBatchBuildMilliseconds = FrameTimingVuBatchBuildMilliseconds / sampledFrameCount;
         const double averageVuBatchDispatchCount = FrameTimingVuBatchDispatchCount / sampledFrameCount;
+        const double averageVuTriangleSetupMilliseconds = FrameTimingVuTriangleSetupMilliseconds / sampledFrameCount;
         const double averageVuTrianglePrepMilliseconds = FrameTimingVuTrianglePrepMilliseconds / sampledFrameCount;
         const double averageVuTriangleEmitMilliseconds = FrameTimingVuTriangleEmitMilliseconds / sampledFrameCount;
         const double averageVuTriangleLightingMilliseconds = FrameTimingVuTriangleLightingMilliseconds / sampledFrameCount;
@@ -760,10 +772,16 @@ namespace {
         const double averageVuWaitMilliseconds = FrameTimingVuWaitMilliseconds / sampledFrameCount;
         const double averageVuSubmitMilliseconds = FrameTimingVuSubmitMilliseconds / sampledFrameCount;
         const double averageVuPacketEncodeMilliseconds = FrameTimingVuPacketEncodeMilliseconds / sampledFrameCount;
+        const double averageVifDrainMilliseconds = FrameTimingVifDrainMilliseconds / sampledFrameCount;
         const double averageGifDrainMilliseconds = FrameTimingGifDrainMilliseconds / sampledFrameCount;
         const double averageLegacyOpaqueMilliseconds = FrameTimingLegacyOpaqueMilliseconds / sampledFrameCount;
         const double averageLegacyOpaqueTriangleCount = FrameTimingLegacyOpaqueTriangleCount / sampledFrameCount;
         const double averageSubmittedTriangleCount = FrameTimingSubmittedTriangleCount / sampledFrameCount;
+        const double averageTexturedSubmittedTriangleCount = FrameTimingTexturedSubmittedTriangleCount / sampledFrameCount;
+        const double averageUntexturedSubmittedTriangleCount = FrameTimingUntexturedSubmittedTriangleCount / sampledFrameCount;
+        const double averageTexturedPacketCacheBuildCount = FrameTimingTexturedPacketCacheBuildCount / sampledFrameCount;
+        const double averageFrustumRejectedBatchCount = FrameTimingFrustumRejectedBatchCount / sampledFrameCount;
+        const double averageFrustumRejectedSliceCount = FrameTimingFrustumRejectedSliceCount / sampledFrameCount;
         const double averageVifPacketByteCount = FrameTimingVifPacketByteCount / sampledFrameCount;
         const double averageCompatibleUntexturedGroupCount = FrameTimingCompatibleUntexturedGroupCount / sampledFrameCount;
         const double averageSetMilliseconds = averageProxySyncMilliseconds
@@ -786,8 +804,14 @@ namespace {
             + std::to_string(averageGifWaitMilliseconds)
             + " draw2dMs="
             + std::to_string(averageDraw2dMilliseconds)
+            + " draw2dBuildMs="
+            + std::to_string(averageDraw2dCommandBuildMilliseconds)
+            + " draw2dPlaybackMs="
+            + std::to_string(averageDraw2dCommandPlaybackMilliseconds)
             + " drawMs="
             + std::to_string(averageDrawMilliseconds)
+            + " physicsMs="
+            + std::to_string(averagePhysicsMilliseconds)
             + " presentMs="
             + std::to_string(averagePresentMilliseconds)
             + " setMs="
@@ -798,6 +822,8 @@ namespace {
             + std::to_string(averageFramePlanMilliseconds)
             + " buildMs="
             + std::to_string(averageVuBatchBuildMilliseconds)
+            + " setupMs="
+            + std::to_string(averageVuTriangleSetupMilliseconds)
             + " encMs="
             + std::to_string(averageVuPacketEncodeMilliseconds)
             + " prepMs="
@@ -831,39 +857,48 @@ namespace {
         const double averageFrameMilliseconds = averageFramesPerSecond <= 0.0 ? 0.0 : 1000.0 / averageFramesPerSecond;
         FrameTimingOverlayLine1 =
             std::string(FrameTimingOverlayBuildNumber)
-            + " "
-            + FormatOverlayMilliseconds(averageFramesPerSecond)
-            + " FPS "
-            + FormatOverlayMilliseconds(averageFrameMilliseconds)
-            + " ms";
-        FrameTimingOverlayLine2 =
-            std::string("Drw ")
-            + FormatOverlayMilliseconds(averageDrawMilliseconds)
-            + " Set "
-            + FormatOverlayMilliseconds(averageSetMilliseconds)
-            + " Upd "
-            + FormatOverlayMilliseconds(averageUpdateMilliseconds)
-            + " Prs "
-            + FormatOverlayMilliseconds(averagePresentMilliseconds);
-        FrameTimingOverlayDetailLine =
-            std::string("Drw ")
-            + FormatOverlayMilliseconds(averageRenderMilliseconds)
+            + " Phy "
+            + FormatOverlayMilliseconds(averagePhysicsMilliseconds)
             + " 3D "
             + FormatOverlayMilliseconds(averageDraw3dMilliseconds)
+            + " 2D "
+            + FormatOverlayMilliseconds(averageDraw2dMilliseconds)
+            + " Set "
+            + FormatOverlayMilliseconds(averageSetMilliseconds)
+            + " Sync "
+            + FormatOverlayMilliseconds(averageProxySyncMilliseconds);
+        FrameTimingOverlayLine2 =
+            std::string("Plan ")
+            + FormatOverlayMilliseconds(averageFramePlanMilliseconds)
+            + " Bld "
+            + FormatOverlayMilliseconds(averageVuBatchBuildMilliseconds)
+            + " Setup "
+            + FormatOverlayMilliseconds(averageVuTriangleSetupMilliseconds)
             + " Enc "
             + FormatOverlayMilliseconds(averageVuPacketEncodeMilliseconds)
+            + " Prep "
+            + FormatOverlayMilliseconds(averageVuTrianglePrepMilliseconds);
+        FrameTimingOverlayDetailLine =
+            std::string("Emit ")
+            + FormatOverlayMilliseconds(averageVuTriangleEmitMilliseconds)
+            + " Lit "
+            + FormatOverlayMilliseconds(averageVuTriangleLightingMilliseconds)
+            + " Pay "
+            + FormatOverlayMilliseconds(averageVuTrianglePayloadFillMilliseconds)
+            + " Asm "
+            + FormatOverlayMilliseconds(averageVuPacketAssemblyMilliseconds)
             + " Vif "
             + FormatOverlayMilliseconds(averageVuWaitMilliseconds)
-            + " Gif "
-            + FormatOverlayMilliseconds(averageGifDrainMilliseconds);
+            + " Sub "
+            + FormatOverlayMilliseconds(averageVuSubmitMilliseconds);
         FrameTimingOverlayAdditionalText =
-            std::string("Pkt ")
-            + FormatOverlayMilliseconds(averageVuBatchDispatchCount)
-            + " Grp "
-            + FormatOverlayMilliseconds(averageCompatibleUntexturedGroupCount)
+            std::string("Gif ")
+            + FormatOverlayMilliseconds(averageGifDrainMilliseconds)
             + " Tri "
             + std::to_string(static_cast<int>(averageSubmittedTriangleCount))
-            + " B "
+            + " Bat "
+            + std::to_string(static_cast<int>(averageVuBatchDispatchCount))
+            + " Bytes "
             + std::to_string(static_cast<int>(averageVifPacketByteCount));
         FrameTimingOverlayPending = true;
         FrameTimingOverlayPresented = false;
@@ -872,12 +907,16 @@ namespace {
         FrameTimingDraw3dSeconds = 0.0;
         FrameTimingGifWaitSeconds = 0.0;
         FrameTimingDraw2dSeconds = 0.0;
+        FrameTimingDraw2dCommandBuildMilliseconds = 0.0;
+        FrameTimingDraw2dCommandPlaybackMilliseconds = 0.0;
         FrameTimingDrawSeconds = 0.0;
         FrameTimingPresentSeconds = 0.0;
+        FrameTimingPhysicsMilliseconds = 0.0;
         FrameTimingProxySyncMilliseconds = 0.0;
         FrameTimingFramePlanMilliseconds = 0.0;
         FrameTimingVuBatchBuildMilliseconds = 0.0;
         FrameTimingVuBatchDispatchCount = 0.0;
+        FrameTimingVuTriangleSetupMilliseconds = 0.0;
         FrameTimingVuTrianglePrepMilliseconds = 0.0;
         FrameTimingVuTriangleEmitMilliseconds = 0.0;
         FrameTimingVuTriangleLightingMilliseconds = 0.0;
@@ -886,10 +925,16 @@ namespace {
         FrameTimingVuWaitMilliseconds = 0.0;
         FrameTimingVuSubmitMilliseconds = 0.0;
         FrameTimingVuPacketEncodeMilliseconds = 0.0;
+        FrameTimingVifDrainMilliseconds = 0.0;
         FrameTimingGifDrainMilliseconds = 0.0;
         FrameTimingLegacyOpaqueMilliseconds = 0.0;
         FrameTimingLegacyOpaqueTriangleCount = 0.0;
         FrameTimingSubmittedTriangleCount = 0.0;
+        FrameTimingTexturedSubmittedTriangleCount = 0.0;
+        FrameTimingUntexturedSubmittedTriangleCount = 0.0;
+        FrameTimingTexturedPacketCacheBuildCount = 0.0;
+        FrameTimingFrustumRejectedBatchCount = 0.0;
+        FrameTimingFrustumRejectedSliceCount = 0.0;
         FrameTimingVifPacketByteCount = 0.0;
         FrameTimingCompatibleUntexturedGroupCount = 0.0;
         FrameTimingFrameCount = 0;
@@ -1878,7 +1923,11 @@ namespace {
     public:
         Ps2RenderManager2D()
             : CommandListBuilder(new ::RenderCommandListBuilder2D()),
-              TexturedQuadAlphaStateActive(false) {
+              TexturedQuadAlphaStateActive(false),
+              GlyphBatchTexture(nullptr),
+              StaticGlyphCommandList(nullptr),
+              StaticGlyphCommandListVersion(-1),
+              StaticGlyphTexture(nullptr) {
         }
 
         ~Ps2RenderManager2D() override {
@@ -2056,6 +2105,13 @@ namespace {
                 throw std::invalid_argument("PS2 runtime texture release requires one texture.");
             }
 
+            if (texture == StaticGlyphTexture) {
+                StaticGlyphVertices.clear();
+                StaticGlyphCommandList = nullptr;
+                StaticGlyphCommandListVersion = -1;
+                StaticGlyphTexture = nullptr;
+            }
+
             auto textureIt = TextureRecords.find(texture);
             if (textureIt != TextureRecords.end()) {
                 ReleaseTextureRecord(textureIt->second);
@@ -2093,6 +2149,9 @@ namespace {
                 return;
             }
 
+            LastRender2dCommandBuildMilliseconds = 0.0;
+            LastRender2dCommandPlaybackMilliseconds = 0.0;
+
             ::Core* core = ::Core::get_Instance();
             if (core == nullptr || core->get_ObjectManager() == nullptr) {
                 return;
@@ -2110,7 +2169,10 @@ namespace {
                     continue;
                 }
 
+                const std::clock_t commandBuildStartTicks = std::clock();
                 ::RenderCommandList2D* commandList = CommandListBuilder->Build(camera->get_RenderQueue2D());
+                const std::clock_t commandBuildEndTicks = std::clock();
+                LastRender2dCommandBuildMilliseconds += ResolveMillisecondsFromClockTicks(commandBuildStartTicks, commandBuildEndTicks);
                 if (commandList == nullptr) {
                     continue;
                 }
@@ -2157,6 +2219,13 @@ namespace {
                     Pending2dCommandTraceSceneId.clear();
                 }
 
+                const std::clock_t commandPlaybackStartTicks = std::clock();
+                if (TryDrawStaticGlyphCommandList(commandList)) {
+                    const std::clock_t commandPlaybackEndTicks = std::clock();
+                    LastRender2dCommandPlaybackMilliseconds += ResolveMillisecondsFromClockTicks(commandPlaybackStartTicks, commandPlaybackEndTicks);
+                    continue;
+                }
+
                 clipStack.clear();
                 for (int32_t commandIndex = 0; commandIndex < commandList->get_Count(); commandIndex++) {
                     const ::RenderCommand2DType commandType = commandList->GetCommandType(commandIndex);
@@ -2172,12 +2241,15 @@ namespace {
                     }
 
                     if (commandType == ::RenderCommand2DType::ClipPush) {
+                        FlushGlyphBatch();
                         clipStack.push_back(commandList->GetClipPushRect(commandList->GetClipPushPayloadIndex(commandIndex)));
                     } else if (commandType == ::RenderCommand2DType::ClipPop) {
+                        FlushGlyphBatch();
                         if (!clipStack.empty()) {
                             clipStack.pop_back();
                         }
                     } else if (commandType == ::RenderCommand2DType::TexturedQuad) {
+                        FlushGlyphBatch();
                         const int32_t payloadIndex = commandList->GetTexturedQuadPayloadIndex(commandIndex);
                         DrawTexturedQuad(
                             commandList->GetTexturedQuadTexture(payloadIndex),
@@ -2190,13 +2262,23 @@ namespace {
                             continue;
                         }
                         const int32_t payloadIndex = commandList->GetGlyphQuadPayloadIndex(commandIndex);
-                        DrawTexturedQuad(
-                            commandList->GetGlyphQuadTexture(payloadIndex),
-                            commandList->GetGlyphQuadBounds(payloadIndex),
-                            commandList->GetGlyphQuadSourceRect(payloadIndex),
-                            commandList->GetGlyphQuadColor(payloadIndex),
-                            clipStack.empty() ? nullptr : &clipStack.back());
+                        if (clipStack.empty()) {
+                            AppendGlyphQuadToBatch(
+                                commandList->GetGlyphQuadTexture(payloadIndex),
+                                commandList->GetGlyphQuadBounds(payloadIndex),
+                                commandList->GetGlyphQuadSourceRect(payloadIndex),
+                                commandList->GetGlyphQuadColor(payloadIndex));
+                        } else {
+                            FlushGlyphBatch();
+                            DrawTexturedQuad(
+                                commandList->GetGlyphQuadTexture(payloadIndex),
+                                commandList->GetGlyphQuadBounds(payloadIndex),
+                                commandList->GetGlyphQuadSourceRect(payloadIndex),
+                                commandList->GetGlyphQuadColor(payloadIndex),
+                                &clipStack.back());
+                        }
                     } else if (commandType == ::RenderCommand2DType::RoundedRect) {
+                        FlushGlyphBatch();
                         if (EnableRoundedRectDrawSkipDiagnostics) {
                             continue;
                         }
@@ -2218,6 +2300,10 @@ namespace {
                         ActiveDraw2dDiagnosticCommandIndex = -1;
                     }
                 }
+
+                FlushGlyphBatch();
+                const std::clock_t commandPlaybackEndTicks = std::clock();
+                LastRender2dCommandPlaybackMilliseconds += ResolveMillisecondsFromClockTicks(commandPlaybackStartTicks, commandPlaybackEndTicks);
             }
 
             if (TexturedQuadAlphaStateActive) {
@@ -2323,6 +2409,146 @@ namespace {
     private:
         ::RenderCommandListBuilder2D* CommandListBuilder;
         bool TexturedQuadAlphaStateActive;
+        std::vector<GSPRIMUVPOINT> GlyphBatchVertices;
+        ::RuntimeTexture* GlyphBatchTexture;
+        std::vector<GSPRIMUVPOINT> StaticGlyphVertices;
+        ::RenderCommandList2D* StaticGlyphCommandList;
+        int32_t StaticGlyphCommandListVersion;
+        ::RuntimeTexture* StaticGlyphTexture;
+
+        bool TryDrawStaticGlyphCommandList(::RenderCommandList2D* commandList) {
+            if (commandList == nullptr || commandList->get_Count() <= 0) {
+                return false;
+            }
+
+            if (commandList == StaticGlyphCommandList
+                && commandList->get_Version() == StaticGlyphCommandListVersion
+                && StaticGlyphTexture != nullptr
+                && !StaticGlyphVertices.empty()) {
+                DrawGlyphVertices(StaticGlyphTexture, StaticGlyphVertices);
+                return true;
+            }
+
+            ::RuntimeTexture* glyphTexture = nullptr;
+            for (int32_t commandIndex = 0; commandIndex < commandList->get_Count(); commandIndex++) {
+                if (commandList->GetCommandType(commandIndex) != ::RenderCommand2DType::GlyphQuad) {
+                    return false;
+                }
+
+                const int32_t payloadIndex = commandList->GetGlyphQuadPayloadIndex(commandIndex);
+                ::RuntimeTexture* commandTexture = commandList->GetGlyphQuadTexture(payloadIndex);
+                if (commandTexture == nullptr || (glyphTexture != nullptr && glyphTexture != commandTexture)) {
+                    return false;
+                }
+
+                glyphTexture = commandTexture;
+            }
+
+            GlyphBatchVertices.clear();
+            GlyphBatchTexture = glyphTexture;
+            for (int32_t commandIndex = 0; commandIndex < commandList->get_Count(); commandIndex++) {
+                const int32_t payloadIndex = commandList->GetGlyphQuadPayloadIndex(commandIndex);
+                AppendGlyphQuadToBatch(
+                    commandList->GetGlyphQuadTexture(payloadIndex),
+                    commandList->GetGlyphQuadBounds(payloadIndex),
+                    commandList->GetGlyphQuadSourceRect(payloadIndex),
+                    commandList->GetGlyphQuadColor(payloadIndex));
+            }
+
+            if (GlyphBatchVertices.empty()) {
+                return false;
+            }
+
+            StaticGlyphVertices = GlyphBatchVertices;
+            StaticGlyphCommandList = commandList;
+            StaticGlyphCommandListVersion = commandList->get_Version();
+            StaticGlyphTexture = GlyphBatchTexture;
+            DrawGlyphVertices(StaticGlyphTexture, StaticGlyphVertices);
+            GlyphBatchVertices.clear();
+            GlyphBatchTexture = nullptr;
+            return true;
+        }
+
+        void AppendGlyphQuadToBatch(
+            ::RuntimeTexture* runtimeTexture,
+            const ::float4& bounds,
+            const ::float4& sourceRect,
+            const ::byte4& color) {
+            if (ActiveGsGlobal == nullptr || runtimeTexture == nullptr) {
+                return;
+            }
+
+            if (GlyphBatchTexture != nullptr && GlyphBatchTexture != runtimeTexture) {
+                FlushGlyphBatch();
+            }
+
+            auto textureIt = TextureRecords.find(runtimeTexture);
+            if (textureIt == TextureRecords.end() || !EnsureTextureUploaded(textureIt->second)) {
+                return;
+            }
+
+            if (GlyphBatchTexture == nullptr) {
+                GlyphBatchTexture = runtimeTexture;
+            }
+
+            const Ps2TextureRecord& record = textureIt->second;
+            const double textureWidth = static_cast<double>(record.Texture.Width);
+            const double textureHeight = static_cast<double>(record.Texture.Height);
+            const float sourceLeft = static_cast<float>(static_cast<double>(sourceRect.X) * textureWidth);
+            const float sourceTop = static_cast<float>(static_cast<double>(sourceRect.Y) * textureHeight);
+            const float sourceRight = static_cast<float>((static_cast<double>(sourceRect.X) + static_cast<double>(sourceRect.Z)) * textureWidth);
+            const float sourceBottom = static_cast<float>((static_cast<double>(sourceRect.Y) + static_cast<double>(sourceRect.W)) * textureHeight);
+
+            const u64 rgba = ResolveTexturedSpriteRgba(color);
+            GSPRIMUVPOINT firstVertex {};
+            firstVertex.rgbaq.color.rgbaq = rgba;
+            firstVertex.rgbaq.tag = GS_RGBAQ;
+            firstVertex.uv.coord.u = static_cast<u16>(gsKit_float_to_int_u(&record.Texture, sourceLeft));
+            firstVertex.uv.coord.v = static_cast<u16>(gsKit_float_to_int_v(&record.Texture, sourceTop));
+            firstVertex.uv.tag = GS_UV;
+            firstVertex.xyz2 = vertex_to_XYZ2(ActiveGsGlobal, bounds.X, bounds.Y, 0);
+
+            GSPRIMUVPOINT secondVertex {};
+            secondVertex.rgbaq.color.rgbaq = rgba;
+            secondVertex.rgbaq.tag = GS_RGBAQ;
+            secondVertex.uv.coord.u = static_cast<u16>(gsKit_float_to_int_u(&record.Texture, sourceRight));
+            secondVertex.uv.coord.v = static_cast<u16>(gsKit_float_to_int_v(&record.Texture, sourceBottom));
+            secondVertex.uv.tag = GS_UV;
+            secondVertex.xyz2 = vertex_to_XYZ2(ActiveGsGlobal, bounds.X + bounds.Z, bounds.Y + bounds.W, 0);
+
+            GlyphBatchVertices.push_back(firstVertex);
+            GlyphBatchVertices.push_back(secondVertex);
+        }
+
+        void FlushGlyphBatch() {
+            if (GlyphBatchVertices.empty()) {
+                return;
+            }
+
+            DrawGlyphVertices(GlyphBatchTexture, GlyphBatchVertices);
+            GlyphBatchVertices.clear();
+            GlyphBatchTexture = nullptr;
+        }
+
+        void DrawGlyphVertices(::RuntimeTexture* runtimeTexture, const std::vector<GSPRIMUVPOINT>& vertices) {
+            auto textureIt = TextureRecords.find(runtimeTexture);
+            if (textureIt == TextureRecords.end()) {
+                throw std::invalid_argument("PS2 glyph batch texture record is required.");
+            }
+
+            if (!TexturedQuadAlphaStateActive) {
+                gsKit_set_test(ActiveGsGlobal, GS_ATEST_OFF);
+                gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 1, 0, 1, 0), 0);
+                ActiveGsGlobal->PrimAlphaEnable = GS_SETTING_ON;
+                TexturedQuadAlphaStateActive = true;
+            }
+
+            gskit_prim_list_sprite_texture_uv_3d(
+                ActiveGsGlobal,
+                &textureIt->second.Texture,
+                static_cast<int>(vertices.size()),
+                vertices.data());
+        }
 
         void DrawSolidQuad(::float4 bounds, const ::byte4& color, const ::float4* clipRect) {
             if (ActiveGsGlobal == 0) {
@@ -2345,10 +2571,12 @@ namespace {
             }
 
             const u64 rgba = ResolveSpriteRgba(color);
-            gsKit_set_test(ActiveGsGlobal, GS_ATEST_OFF);
-            gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 0, 0, 0, 0), 0);
-            ActiveGsGlobal->PrimAlphaEnable = GS_SETTING_OFF;
-            TexturedQuadAlphaStateActive = false;
+            if (!TexturedQuadAlphaStateActive) {
+                gsKit_set_test(ActiveGsGlobal, GS_ATEST_OFF);
+                gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 1, 0, 1, 0), 0);
+                ActiveGsGlobal->PrimAlphaEnable = GS_SETTING_ON;
+                TexturedQuadAlphaStateActive = true;
+            }
             gsKit_prim_sprite(
                 ActiveGsGlobal,
                 bounds.X,
@@ -2536,6 +2764,8 @@ namespace helengine::ps2 {
         EngineOptions->set_UpdateListInitialCapacity(4);
         EngineOptions->set_RenderList2DInitialCapacity(4);
         EngineOptions->set_RenderList3DInitialCapacity(4);
+        EngineOptions->set_PhysicsFixedStepSeconds(1.0 / 20.0);
+        EngineOptions->set_PhysicsMaxStepsPerUpdate(1);
         EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalogFromManifest());
         EngineOptions->set_StandardPlatformInputConfiguration(BuildStandardPlatformInputConfigurationFromManifest());
         EngineCore = new Core(EngineOptions);
@@ -2610,7 +2840,8 @@ namespace helengine::ps2 {
         GsGlobal->Aspect = GS_ASPECT_4_3;
         GsGlobal->Width = Ps2DefaultFramebufferWidth;
         GsGlobal->Height = Ps2DefaultFramebufferHeight;
-        GsGlobal->PSM = GS_PSM_CT32;
+        GsGlobal->PSM = GS_PSM_CT16;
+        GsGlobal->PSMZ = GS_PSMZ_16;
         GsGlobal->DoubleBuffering = GS_SETTING_ON;
         GsGlobal->ZBuffering = GS_SETTING_ON;
         RenderManager3DBackend.SetHdrEnabled(false);
@@ -2729,6 +2960,7 @@ namespace helengine::ps2 {
                 const std::clock_t frameUpdateStartTicks = std::clock();
                 std::clock_t frameUpdateEndTicks = frameUpdateStartTicks;
                 std::clock_t frameDraw3dEndTicks = frameUpdateStartTicks;
+                std::clock_t frameVifWaitEndTicks = frameUpdateStartTicks;
                 std::clock_t frameGifWaitEndTicks = frameUpdateStartTicks;
                 std::clock_t frameDrawEndTicks = frameUpdateStartTicks;
                 std::clock_t framePresentEndTicks = frameUpdateStartTicks;
@@ -2940,14 +3172,18 @@ namespace helengine::ps2 {
                     }
                     frameDraw3dEndTicks = std::clock();
 
-                    // VU opaque rendering emits GIF work asynchronously through VIF1. Wait for the
-                    // GIF channel to drain before 2D overlays and the frame submit reuse GS state.
+                    // VU opaque rendering emits GIF work through VIF1. Complete VIF1 first so the
+                    // following GIF drain measures work the VU actually submitted, not an idle GIF channel.
                     if (EnableCubeRuntimeDiagnostics
                         && !CubeFrameGifWaitBeginLogged
                         && IsCubeRuntimeDiagnosticsSceneActive(EngineCore)) {
                         CubeFrameGifWaitBeginLogged = true;
-                        BootLog("cube frame checkpoint: before dma_channel_wait(DMA_CHANNEL_GIF)");
+                        BootLog("cube frame checkpoint: before dma_channel_wait(DMA_CHANNEL_VIF1)");
                     }
+                    dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+                    frameVifWaitEndTicks = std::clock();
+                    RenderManager3DBackend.SetLastVifDrainMilliseconds(
+                        ResolveMillisecondsFromClockTicks(frameDraw3dEndTicks, frameVifWaitEndTicks));
                     dma_channel_wait(DMA_CHANNEL_GIF, 0);
                     if (EnableCubeRuntimeDiagnostics
                         && !CubeFrameGifWaitEndLogged
@@ -2957,7 +3193,7 @@ namespace helengine::ps2 {
                     }
                     frameGifWaitEndTicks = std::clock();
                     RenderManager3DBackend.SetLastGifDrainMilliseconds(
-                        ResolveMillisecondsFromClockTicks(frameDraw3dEndTicks, frameGifWaitEndTicks));
+                        ResolveMillisecondsFromClockTicks(frameVifWaitEndTicks, frameGifWaitEndTicks));
 
                     if (EnableCubeRuntimeDiagnostics
                         && !CubeDiagnosticsShown
@@ -3036,29 +3272,6 @@ namespace helengine::ps2 {
 
                     if (EngineCore->get_ObjectManager() != nullptr &&
                         EngineCore->get_ObjectManager()->get_Drawables2D() != nullptr) {
-                        if (FrameTimingOverlayPending) {
-                            auto* drawables2D = EngineCore->get_ObjectManager()->get_Drawables2D();
-                            for (int32_t i = 0; i < drawables2D->Count(); i++) {
-                                ::IDrawable2D* drawable = (*drawables2D)[i];
-                                ::ITextDrawable2D* textDrawable = dynamic_cast<::ITextDrawable2D*>(drawable);
-                                if (textDrawable == nullptr) {
-                                    continue;
-                                }
-
-                                std::string currentText = textDrawable->get_Text();
-                                if (currentText.rfind("Update FPS:", 0) == 0
-                                    || currentText.rfind("Upd", 0) == 0
-                                    || currentText.rfind("FPS", 0) == 0) {
-                                    textDrawable->set_Text(FrameTimingOverlayLine1);
-                                } else if (currentText.rfind("Render FPS:", 0) == 0
-                                    || currentText.rfind("Rdr", 0) == 0
-                                    || currentText.rfind("Drw", 0) == 0
-                                    || currentText.rfind("Enc", 0) == 0) {
-                                    textDrawable->set_Text(FrameTimingOverlayDetailLine);
-                                }
-                            }
-                        }
-
                         const int32_t previousZBuffering = GsGlobal->ZBuffering;
                         GsGlobal->ZBuffering = GS_SETTING_OFF;
                         gsKit_set_test(GsGlobal, GS_ZTEST_OFF);
@@ -3104,9 +3317,12 @@ namespace helengine::ps2 {
                     if (!FirstFramePresentCheckpointLogged) {
                         BootLog("P2 after queue_exec");
                     }
-                    gsKit_sync_flip(GsGlobal);
+                    gsKit_finish();
+                    gsKit_display_buffer(GsGlobal);
+                    GsGlobal->ActiveBuffer ^= 1;
+                    gsKit_setactive(GsGlobal);
                     if (!FirstFramePresentCheckpointLogged) {
-                        BootLog("P3 after sync_flip");
+                        BootLog("P3 after double-buffer present");
                         FirstFramePresentCheckpointLogged = true;
                     }
                 } catch (Exception* exception) {
@@ -3135,7 +3351,8 @@ namespace helengine::ps2 {
                     ResolveSecondsFromClockTicks(frameDraw3dEndTicks, frameGifWaitEndTicks),
                     ResolveSecondsFromClockTicks(frameGifWaitEndTicks, frameDrawEndTicks),
                     ResolveSecondsFromClockTicks(frameUpdateEndTicks, frameDrawEndTicks),
-                    ResolveSecondsFromClockTicks(frameDrawEndTicks, framePresentEndTicks));
+                    ResolveSecondsFromClockTicks(frameDrawEndTicks, framePresentEndTicks),
+                    EngineCore != nullptr ? EngineCore->get_LastPhysicsUpdateMilliseconds() : 0.0);
                 RecordMemoryDiagnosticsSample(EngineCore, framePresentEndTicks);
                 ApplyPlatformPerformanceOverlayRows(EngineCore);
                 if (EnableCubeRuntimeDiagnostics && CubeDiagnosticsShown && !CubeRuntimeDiagnosticsCompleted) {

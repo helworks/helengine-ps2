@@ -566,6 +566,172 @@ public sealed class Ps2BootHostSourceTests {
     }
 
     /// <summary>
+    /// Ensures the PS2 timing overlay retains high-level timings and the complete mesh submission breakdown across its four authored profiler rows.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenPublishingFrameTimingOverlay_UsesHighLevelAndMeshProfilingLabels() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int overlayLineIndex = source.IndexOf("FrameTimingOverlayLine1 =", StringComparison.Ordinal);
+        Assert.True(overlayLineIndex >= 0, "Expected PS2 timing overlay composition.");
+        string overlayRows = source.Substring(overlayLineIndex, Math.Min(2800, source.Length - overlayLineIndex));
+
+        Assert.Contains("FrameTimingOverlayBuildNumber", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Phy ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("3D ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("2D ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Set ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Sync ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Plan ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Bld ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Setup ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Enc ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Prep ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Emit ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Lit ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Pay ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Asm ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Vif ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Sub ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Gif ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Tri ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Bat ", overlayRows, StringComparison.Ordinal);
+        Assert.Contains("Bytes ", overlayRows, StringComparison.Ordinal);
+
+        int overlayLine2Index = source.IndexOf("FrameTimingOverlayLine2 =", overlayLineIndex, StringComparison.Ordinal);
+        int overlayDetailLineIndex = source.IndexOf("FrameTimingOverlayDetailLine =", overlayLine2Index, StringComparison.Ordinal);
+        string overlayLine1 = source.Substring(overlayLineIndex, overlayLine2Index - overlayLineIndex);
+        string overlayLine2 = source.Substring(overlayLine2Index, overlayDetailLineIndex - overlayLine2Index);
+        int overlayAdditionalTextIndex = source.IndexOf("FrameTimingOverlayAdditionalText =", overlayDetailLineIndex, StringComparison.Ordinal);
+        string overlayDetailLine = source.Substring(overlayDetailLineIndex, overlayAdditionalTextIndex - overlayDetailLineIndex);
+        string overlayAdditionalText = source.Substring(overlayAdditionalTextIndex, Math.Min(1000, source.Length - overlayAdditionalTextIndex));
+
+        Assert.Contains("Set ", overlayLine1, StringComparison.Ordinal);
+        Assert.Contains("Sync ", overlayLine1, StringComparison.Ordinal);
+        Assert.Contains("Plan ", overlayLine2, StringComparison.Ordinal);
+        Assert.Contains("Bld ", overlayLine2, StringComparison.Ordinal);
+        Assert.Contains("Setup ", overlayLine2, StringComparison.Ordinal);
+        Assert.Contains("Enc ", overlayLine2, StringComparison.Ordinal);
+        Assert.Contains("Prep ", overlayLine2, StringComparison.Ordinal);
+        Assert.Contains("Emit ", overlayDetailLine, StringComparison.Ordinal);
+        Assert.Contains("Lit ", overlayDetailLine, StringComparison.Ordinal);
+        Assert.Contains("Pay ", overlayDetailLine, StringComparison.Ordinal);
+        Assert.Contains("Asm ", overlayDetailLine, StringComparison.Ordinal);
+        Assert.Contains("Vif ", overlayDetailLine, StringComparison.Ordinal);
+        Assert.Contains("Sub ", overlayDetailLine, StringComparison.Ordinal);
+        Assert.Contains("Gif ", overlayAdditionalText, StringComparison.Ordinal);
+        Assert.Contains("Tri ", overlayAdditionalText, StringComparison.Ordinal);
+        Assert.Contains("Bat ", overlayAdditionalText, StringComparison.Ordinal);
+        Assert.Contains("Bytes ", overlayAdditionalText, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures consecutive unclipped text glyphs share one GS texture-state submission instead of emitting one textured sprite packet per character.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenDrawingConsecutiveGlyphQuads_BatchesThemIntoOneTexturedSpriteList() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int drawMethodIndex = source.IndexOf("void Draw() override", StringComparison.Ordinal);
+        int drawSpriteMethodIndex = source.IndexOf("void DrawSprite(", drawMethodIndex, StringComparison.Ordinal);
+        Assert.True(drawMethodIndex >= 0, "Expected PS2 2D renderer draw method.");
+        Assert.True(drawSpriteMethodIndex > drawMethodIndex, "Expected PS2 2D renderer draw method boundary.");
+
+        string drawMethod = source.Substring(drawMethodIndex, drawSpriteMethodIndex - drawMethodIndex);
+        Assert.Contains("AppendGlyphQuadToBatch(", drawMethod, StringComparison.Ordinal);
+        Assert.Contains("FlushGlyphBatch();", drawMethod, StringComparison.Ordinal);
+        Assert.Contains("gskit_prim_list_sprite_texture_uv_3d(", source, StringComparison.Ordinal);
+        Assert.Contains("std::vector<GSPRIMUVPOINT> GlyphBatchVertices;", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 2D path reports separate command-list build and native playback timings for performance diagnosis.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenProfiling2DRendering_ReportsCommandBuildAndPlaybackTimings() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        Assert.Contains("LastRender2dCommandBuildMilliseconds", source, StringComparison.Ordinal);
+        Assert.Contains("LastRender2dCommandPlaybackMilliseconds", source, StringComparison.Ordinal);
+        Assert.Contains("draw2dBuildMs=", source, StringComparison.Ordinal);
+        Assert.Contains("draw2dPlaybackMs=", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the shared 2D command builder can reuse an unchanged all-text command stream instead of regenerating every glyph every frame.
+    /// </summary>
+    [Fact]
+    public void RenderCommandListBuilder2D_WhenAllTextStateIsUnchanged_CachesTheResolvedCommandList() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "..", "helengine", "engine", "helengine.core", "managers", "rendering", "RenderCommandListBuilder2D.cs");
+        Assert.True(File.Exists(sourcePath), $"Expected shared 2D command builder source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("CachedStaticTextRenderQueue", source, StringComparison.Ordinal);
+        Assert.Contains("TryResolveStaticTextRenderQueueSignature", source, StringComparison.Ordinal);
+        Assert.Contains("ReferenceEquals(renderQueue, CachedStaticTextRenderQueue)", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the steady-state PS2 presentation path uses compact double buffering and swaps completed frames without imposing a vblank frame-rate cap.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenUsingCompactDoubleBufferPresentation_FlipsWithoutWaitingForVblank() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int initializeGraphicsIndex = source.IndexOf("bool Ps2BootHost::InitializeGraphics()", StringComparison.Ordinal);
+        int presentBootFrameIndex = source.IndexOf("void Ps2BootHost::PresentBootFrame()", StringComparison.Ordinal);
+        int presentMethodEndIndex = source.Length;
+        string initializeGraphicsMethod = source.Substring(initializeGraphicsIndex, presentBootFrameIndex - initializeGraphicsIndex);
+        string presentBootFrameMethod = source.Substring(presentBootFrameIndex, presentMethodEndIndex - presentBootFrameIndex);
+        int steadyStatePresentStartIndex = presentBootFrameMethod.IndexOf("P1 before queue_exec", StringComparison.Ordinal);
+        int steadyStatePresentEndIndex = presentBootFrameMethod.IndexOf("FirstFramePresentCheckpointLogged = true;", steadyStatePresentStartIndex, StringComparison.Ordinal);
+        string steadyStatePresentBlock = presentBootFrameMethod.Substring(steadyStatePresentStartIndex, steadyStatePresentEndIndex - steadyStatePresentStartIndex);
+
+        Assert.True(initializeGraphicsIndex >= 0, "Expected PS2 graphics initialization.");
+        Assert.True(presentBootFrameIndex >= 0, "Expected PS2 steady-state presentation method.");
+        Assert.True(steadyStatePresentStartIndex >= 0, "Expected the steady-state present block start checkpoint.");
+        Assert.True(steadyStatePresentEndIndex > steadyStatePresentStartIndex, "Expected the steady-state present block completion checkpoint.");
+        Assert.Contains("GsGlobal->PSM = GS_PSM_CT16;", initializeGraphicsMethod, StringComparison.Ordinal);
+        Assert.Contains("GsGlobal->PSMZ = GS_PSMZ_16;", initializeGraphicsMethod, StringComparison.Ordinal);
+        Assert.Contains("GsGlobal->DoubleBuffering = GS_SETTING_ON;", initializeGraphicsMethod, StringComparison.Ordinal);
+        Assert.Contains("gsKit_finish();", steadyStatePresentBlock, StringComparison.Ordinal);
+        Assert.Contains("gsKit_display_buffer(GsGlobal);", steadyStatePresentBlock, StringComparison.Ordinal);
+        Assert.Contains("GsGlobal->ActiveBuffer ^= 1;", steadyStatePresentBlock, StringComparison.Ordinal);
+        Assert.Contains("gsKit_setactive(GsGlobal);", steadyStatePresentBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("gsKit_vsync_wait();", steadyStatePresentBlock, StringComparison.Ordinal);
+        Assert.DoesNotContain("gsKit_sync_flip(GsGlobal);", steadyStatePresentBlock, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the PS2 clear command reaches the GIF before the VU renderer submits its direct 3D draw work.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenUsingSingleBufferPresentation_SubmitsClearBeforeSceneDraw() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        Assert.True(File.Exists(sourcePath), $"Expected PS2 boot host source at '{sourcePath}'.");
+
+        string source = File.ReadAllText(sourcePath);
+        int clearIndex = source.IndexOf("const u64 clearColor =", StringComparison.Ordinal);
+        int engineDrawIndex = source.IndexOf("EngineCore->Draw();", clearIndex, StringComparison.Ordinal);
+        int diagnosticDrawIndex = source.IndexOf("if (EnableCubeTriangle3dDiagnostics)", clearIndex, StringComparison.Ordinal);
+        string clearSetupBlock = source.Substring(clearIndex, diagnosticDrawIndex - clearIndex);
+
+        Assert.True(clearIndex >= 0, "Expected the PS2 frame clear setup.");
+        Assert.True(engineDrawIndex > clearIndex, "Expected the engine scene draw after the PS2 frame clear setup.");
+        Assert.True(diagnosticDrawIndex > clearIndex, "Expected diagnostic rendering to follow normal PS2 frame clear setup.");
+        Assert.Contains("gsKit_queue_exec(GsGlobal);", clearSetupBlock, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Resolves the PS2 repository root from the executing test binary directory.
     /// </summary>
     /// <returns>Absolute PS2 repository root path.</returns>
