@@ -159,7 +159,7 @@ namespace {
     constexpr bool EnablePackagedPhysics3DRegistration = true;
     constexpr bool EnablePhysicsWarmupTrace = true;
     constexpr UpdatePhaseDiagnosticMode ActiveUpdatePhaseDiagnosticMode = UpdatePhaseDiagnosticMode::Full;
-    constexpr const char* StartupSceneDiagnosticOverrideId = nullptr;
+    constexpr const char* StartupSceneDiagnosticOverrideId = "colored_cube_grid";
     constexpr bool EnableStartupSceneLoadTimingDiagnostic = true;
     constexpr bool EnableStartupScenePreRenderHalt = false;
     constexpr const char* BootLogHostFilePath = "host:ps2_bootlog.txt";
@@ -185,7 +185,7 @@ namespace {
     constexpr float CubeTriangle2dVertexB2X = 428.156738f;
     constexpr float CubeTriangle2dVertexB2Y = 115.843239f;
     constexpr float CubeTriangle3dDiagnosticDepth = 1.0f;
-    constexpr const char* FrameTimingOverlayBuildNumber = "B222";
+    constexpr const char* FrameTimingOverlayBuildNumber = "B245";
     bool DebugConsoleReady = false;
     bool CubeDiagnosticsShown = false;
     bool CubeRuntimeDiagnosticsCompleted = false;
