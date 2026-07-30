@@ -21,6 +21,14 @@ The B280 textured microprogram transforms each source vertex to homogeneous clip
 
 The engine uses a right-handed DirectX-style projection matrix. Its valid homogeneous near half-space is `clipZ >= 0`, and the exact near-plane boundary is `clipZ = 0`. Clipping can therefore be performed directly in homogeneous clip space before any reciprocal-W operation.
 
+## Hardware Clip-Flag Triangle-Drop Diagnostic
+
+The B295 diagnostic proved that the clipping microprogram's manual `FMAND` safety checks can accept an unsafe vertex and still allow reciprocal-W projection to explode. The next diagnostic therefore follows Athena's established VU1 pattern and uses the hardware `CLIPW` instruction with clip-flag reads instead of manually composing homogeneous side-plane signs from MAC flags.
+
+The existing fast textured microprogram remains unchanged. Only slices already routed to the clipping microprogram use this diagnostic. For each triangle, the clipping program transforms all three vertices, evaluates each vertex with hardware clip flags, and discards the entire triangle before `DIV` when any vertex is outside X/Y/W safety or behind the DirectX-style near plane. Safe triangles continue through the proven compact emitter.
+
+This diagnostic intentionally does not interpolate crossing edges or generate a triangle fan. Its accepted visual compromise is localized triangle popping at the camera plane. Vertex explosion, invalid reciprocal-W projection, whole-slice disappearance, and normal-view fast-path regression are not accepted. If this diagnostic is stable, hardware clip flags become the trusted classifier for the final geometric clipper; triangle dropping itself remains a fallback rather than replacing the design's final clipping requirement.
+
 ## Architecture
 
 The renderer will use two textured VU1 routes:
