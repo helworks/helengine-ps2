@@ -11,6 +11,7 @@
 #include "float4x4.hpp"
 #include "platform/ps2/rendering/vu/Ps2VuOpaqueBatch.hpp"
 #include "platform/ps2/rendering/vu/Ps2VuOpaqueBatchSlice.hpp"
+#include "platform/ps2/rendering/vu/Ps2VuTexturedPacketCache.hpp"
 
 typedef struct gsGlobal GSGLOBAL;
 typedef struct gsTexture GSTEXTURE;
@@ -37,10 +38,12 @@ namespace helengine::ps2 {
             const ::float4x4& view,
             const ::float4x4& projection,
             const ::float4& viewport,
+            const ::float3& lightDirection,
             GSGLOBAL* gsGlobal,
             const std::vector<GSTEXTURE*>& textures,
             const std::vector<int>& textureWidths,
             const std::vector<int>& textureHeights);
+        static std::size_t GetMaximumTexturedVuSourceBatchCount();
         void AddOpaqueTexturedBatches(
             const std::vector<Ps2VuOpaqueBatchSlice>& batches,
             const std::vector<::float4x4>& worlds,
@@ -79,6 +82,8 @@ namespace helengine::ps2 {
     private:
         packet2_t* Packet = nullptr;
         std::vector<std::uint8_t> GifPacketBytes;
+        std::vector<std::uint64_t> DirectGifPacketWords;
+        Ps2VuTexturedPacketCache TexturedPacketCache;
         std::uint32_t LastCompletedPhase = 0;
         double LastTriangleSetupMilliseconds = 0.0;
         double LastPacketAssemblyMilliseconds = 0.0;

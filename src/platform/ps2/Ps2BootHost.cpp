@@ -159,9 +159,10 @@ namespace {
     constexpr bool EnablePackagedPhysics3DRegistration = true;
     constexpr bool EnablePhysicsWarmupTrace = true;
     constexpr UpdatePhaseDiagnosticMode ActiveUpdatePhaseDiagnosticMode = UpdatePhaseDiagnosticMode::Full;
-    constexpr const char* StartupSceneDiagnosticOverrideId = "colored_cube_grid";
+    constexpr const char* StartupSceneDiagnosticOverrideId = "test_scene_tilt_trial_level_01_render";
     constexpr bool EnableStartupSceneLoadTimingDiagnostic = true;
     constexpr bool EnableStartupScenePreRenderHalt = false;
+    constexpr bool EnableFrameBoundaryHeartbeatDiagnostics = false;
     constexpr const char* BootLogHostFilePath = "host:ps2_bootlog.txt";
     constexpr const char* BootLogHostFallbackFilePath = "host0:ps2_bootlog.txt";
     constexpr int BootLogHistoryMaxEntries = 64;
@@ -185,7 +186,7 @@ namespace {
     constexpr float CubeTriangle2dVertexB2X = 428.156738f;
     constexpr float CubeTriangle2dVertexB2Y = 115.843239f;
     constexpr float CubeTriangle3dDiagnosticDepth = 1.0f;
-    constexpr const char* FrameTimingOverlayBuildNumber = "B245";
+    constexpr const char* FrameTimingOverlayBuildNumber = "B259";
     bool DebugConsoleReady = false;
     bool CubeDiagnosticsShown = false;
     bool CubeRuntimeDiagnosticsCompleted = false;
@@ -2955,8 +2956,13 @@ namespace helengine::ps2 {
 
         bool loggedFirstUpdateComplete = false;
         bool loggedFirstDrawComplete = false;
+        std::uint32_t frameHeartbeatIndex = 0u;
         while (true) {
             try {
+                const std::uint32_t frameHeartbeat = frameHeartbeatIndex++;
+                if (EnableFrameBoundaryHeartbeatDiagnostics) {
+                    BootLog(std::string("frame heartbeat=") + std::to_string(frameHeartbeat) + " stage=Begin");
+                }
                 const std::clock_t frameUpdateStartTicks = std::clock();
                 std::clock_t frameUpdateEndTicks = frameUpdateStartTicks;
                 std::clock_t frameDraw3dEndTicks = frameUpdateStartTicks;
@@ -3102,6 +3108,9 @@ namespace helengine::ps2 {
                     }
                 }
                 frameUpdateEndTicks = std::clock();
+                if (EnableFrameBoundaryHeartbeatDiagnostics) {
+                    BootLog(std::string("frame heartbeat=") + std::to_string(frameHeartbeat) + " stage=AfterUpdate");
+                }
 
                 const u64 clearColor = GS_SETREG_RGBAQ(0x10, 0x10, 0x10, 0x00, 0x00);
                 gsKit_clear(GsGlobal, clearColor);
@@ -3170,6 +3179,9 @@ namespace helengine::ps2 {
                         while (true) {
                         }
                     }
+                    if (EnableFrameBoundaryHeartbeatDiagnostics) {
+                        BootLog(std::string("frame heartbeat=") + std::to_string(frameHeartbeat) + " stage=AfterDraw3d");
+                    }
                     frameDraw3dEndTicks = std::clock();
 
                     // VU opaque rendering emits GIF work through VIF1. Complete VIF1 first so the
@@ -3194,6 +3206,9 @@ namespace helengine::ps2 {
                     frameGifWaitEndTicks = std::clock();
                     RenderManager3DBackend.SetLastGifDrainMilliseconds(
                         ResolveMillisecondsFromClockTicks(frameVifWaitEndTicks, frameGifWaitEndTicks));
+                    if (EnableFrameBoundaryHeartbeatDiagnostics) {
+                        BootLog(std::string("frame heartbeat=") + std::to_string(frameHeartbeat) + " stage=AfterVifWait");
+                    }
 
                     if (EnableCubeRuntimeDiagnostics
                         && !CubeDiagnosticsShown
@@ -3304,6 +3319,9 @@ namespace helengine::ps2 {
                         }
                     }
                 }
+                if (EnableFrameBoundaryHeartbeatDiagnostics) {
+                    BootLog(std::string("frame heartbeat=") + std::to_string(frameHeartbeat) + " stage=AfterDraw2d");
+                }
                 if (frameGifWaitEndTicks == frameUpdateStartTicks) {
                     frameGifWaitEndTicks = std::clock();
                 }
@@ -3340,6 +3358,9 @@ namespace helengine::ps2 {
                     }
                 }
                 framePresentEndTicks = std::clock();
+                if (EnableFrameBoundaryHeartbeatDiagnostics) {
+                    BootLog(std::string("frame heartbeat=") + std::to_string(frameHeartbeat) + " stage=AfterPresent");
+                }
                 if (FrameTimingOverlayPending) {
                     FrameTimingOverlayPresented = true;
                 }
