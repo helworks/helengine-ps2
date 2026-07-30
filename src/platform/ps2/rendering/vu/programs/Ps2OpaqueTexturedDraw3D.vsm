@@ -17,6 +17,7 @@ __ps2_opaque_textured_draw_3d:
          NOP                                                        lq VF06, 5(VI02)
          NOP                                                        lq VF07, 6(VI02)
          NOP                                                        ilw.x VI01, 7(VI02)
+         NOP                                                        ilw.y VI08, 7(VI02)
          NOP                                                        lq VF11, 8(VI02)
          NOP                                                        lq VF12, 9(VI02)
          NOP                                                        lq VF13, 10(VI02)
@@ -25,6 +26,8 @@ __ps2_opaque_textured_draw_3d:
          NOP                                                        iaddiu VI04, VI03, 0x00000000
          NOP                                                        iaddiu VI05, VI02, 0x00000015
          NOP                                                        iaddiu VI06, VI00, 0x00000000
+         NOP                                                        iaddiu VI09, VI00, 0x00007fff
+         NOP                                                        iaddiu VI09, VI09, 0x00000001
          NOP                                                        lq VF08, 13(VI02)
          NOP                                                        sq VF08, 0(VI03)
          NOP                                                        lq VF08, 14(VI02)
@@ -83,6 +86,7 @@ texturedTriangleLoop:
          mulq.xy       VF09, VF09, Q                                waitq
          addq.z        VF09, VF00, Q                                NOP
          mulq.xyz      VF08, VF08, Q                                NOP
+         add.xy        VF18, VF08, VF00                              NOP
          mul.xyz       VF08, VF08, VF05                             NOP
          add.xyz       VF08, VF08, VF06                             NOP
          ftoi4.xy      VF08, VF08                                   NOP
@@ -110,6 +114,7 @@ texturedTriangleLoop:
          mulq.xy       VF09, VF09, Q                                waitq
          addq.z        VF09, VF00, Q                                NOP
          mulq.xyz      VF08, VF08, Q                                NOP
+         add.xy        VF19, VF08, VF00                              NOP
          mul.xyz       VF08, VF08, VF05                             NOP
          add.xyz       VF08, VF08, VF06                             NOP
          ftoi4.xy      VF08, VF08                                   NOP
@@ -137,6 +142,7 @@ texturedTriangleLoop:
          mulq.xy       VF09, VF09, Q                                waitq
          addq.z        VF09, VF00, Q                                NOP
          mulq.xyz      VF08, VF08, Q                                NOP
+         add.xy        VF20, VF08, VF00                              NOP
          mul.xyz       VF08, VF08, VF05                             NOP
          add.xyz       VF08, VF08, VF06                             NOP
          ftoi4.xy      VF08, VF08                                   NOP
@@ -146,11 +152,48 @@ texturedTriangleLoop:
          NOP                                                        sq VF17, 7(VI03)
          NOP                                                        sq VF08, 8(VI03)
          NOP                                                        isw.w VI06, 8(VI03)
-         NOP                                                        iaddiu VI05, VI05, 0x00000007
+         NOP                                                        ibne VI08, VI00, texturedTriangleAccepted
+         NOP                                                        NOP
+         sub.xy       VF21, VF19, VF18                              NOP
+         sub.xy       VF22, VF20, VF18                              NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         opmula.xyz    ACC, VF21xyz, VF22xyz                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         opmsub.xyz    VF23xyz, VF22xyz, VF21xyz                    NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         ftoi12.z     VF23, VF23                                    NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        mtir VI07, VF23z
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        ibgez VI07, texturedTriangleAccepted
+         NOP                                                        NOP
+         NOP                                                        b texturedTriangleLoopTail
+         NOP                                                        NOP
+texturedTriangleAccepted:
          NOP                                                        iaddiu VI03, VI03, 0x00000009
+         NOP                                                        iaddiu VI06, VI06, 0x00000001
+texturedTriangleLoopTail:
+         NOP                                                        iaddiu VI05, VI05, 0x00000007
          NOP                                                        isubiu VI01, VI01, 0x00000001
          NOP                                                        ibne VI01, VI00, texturedTriangleLoop
          NOP                                                        NOP
+         NOP                                                        iadd VI07, VI06, VI06
+         NOP                                                        iadd VI07, VI07, VI06
+         NOP                                                        iadd VI07, VI07, VI09
+         NOP                                                        isw.x VI07, 7(VI04)
          NOP                                                        xgkick VI04
          NOP[E]                                                     NOP
          NOP                                                        NOP

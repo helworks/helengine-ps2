@@ -2330,6 +2330,7 @@ namespace helengine::ps2 {
                 cachedSharedState.MaterialLighting[1] = static_cast<float>(lightingConstants.BaseColorG) / 255.0f;
                 cachedSharedState.MaterialLighting[2] = static_cast<float>(lightingConstants.BaseColorB) / 255.0f;
                 cachedSharedState.MaterialLighting[3] = static_cast<float>(lightingConstants.DiffuseScale) * DirectionalLightDiffuseIntensity;
+                cachedSharedState.TriangleCount[1] = batch->Material->GetDoubleSided() ? 1u : 0u;
                 CopyMatrixWords(worlds[batchIndex], cachedSharedState.WorldNormalMatrix);
                 cachedSharedState.WorldLightDirection[0] = normalizedLightDirection.X;
                 cachedSharedState.WorldLightDirection[1] = normalizedLightDirection.Y;
