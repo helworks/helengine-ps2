@@ -25,7 +25,10 @@
 #include "platform/ps2/rendering/Ps2RuntimeMaterial.hpp"
 #include "platform/ps2/rendering/Ps2RenderProxy.hpp"
 #include "platform/ps2/rendering/Ps2RuntimeModel.hpp"
+#include "platform/ps2/rendering/vu/Ps2VuMicroProgramAddresses.hpp"
+#include "platform/ps2/rendering/vu/Ps2VuNearPlaneSliceClassifier.hpp"
 #include "platform/ps2/rendering/vu/Ps2VuPackedModel.hpp"
+#include "platform/ps2/rendering/vu/Ps2VuTexturedSourceLimits.hpp"
 namespace helengine::ps2 {
     namespace {
         constexpr std::uint32_t XtopGifPacketAddress = 0;
@@ -50,6 +53,9 @@ namespace helengine::ps2 {
         constexpr bool EnableVuPerTriangleTimingDiagnostics = false;
         constexpr bool EnableTexturedVuAssemblyPhaseDiagnostics = false;
         constexpr bool EnableTexturedVuPerSliceTimingDiagnostics = false;
+        constexpr bool DropClippedTexturedSlicesForDiagnostics = false;
+        constexpr bool UseFastProgramForClippedSliceDiagnostics = false;
+        constexpr bool ForceAllTexturedSlicesThroughClipProgramDiagnostics = true;
         constexpr std::size_t TriangleGifPacketTemplateQwordCount = 11u;
         constexpr std::size_t TriangleGifPacketTemplateByteCount = TriangleGifPacketTemplateQwordCount * 16u;
         constexpr std::size_t UntexturedTriangleDirectGifPacketWordCount = 18u;
@@ -58,14 +64,11 @@ namespace helengine::ps2 {
         constexpr std::size_t DirectGifOpaqueTriangleVertexWordCount = 6u;
         constexpr std::size_t TexturedTrianglePacketWordCount = 22u;
         constexpr std::size_t TexturedTrianglePacketByteCount = TexturedTrianglePacketWordCount * sizeof(std::uint64_t);
-        constexpr std::size_t MaximumTexturedVuSourceTriangleCount = 32u;
         constexpr bool UseCachedTexturedVuSourceReferences = true;
         constexpr std::size_t UntexturedTriangleSourceQwordCount = 3u;
         constexpr std::size_t UntexturedTriangleGifPacketQwordOffset = UntexturedTriangleSourceQwordCount;
         constexpr std::size_t UntexturedTriangleRecordQwordCount = UntexturedTriangleGifPacketQwordOffset + TriangleGifPacketTemplateQwordCount;
         constexpr std::size_t UntexturedTriangleSharedStateQwordOffset = UntexturedTriangleRecordQwordCount;
-        constexpr std::uint16_t UntexturedMicroProgramAddress = 0u;
-        constexpr std::uint16_t TexturedMicroProgramAddress = 64u;
         constexpr std::uint64_t UntexturedTriangleRegisterList = static_cast<std::uint64_t>(GIF_REG_RGBAQ) << 0u
             | (static_cast<std::uint64_t>(GIF_REG_XYZ2) << 4u);
         constexpr std::uint32_t TexturedVuDiagnosticLogLimit = 16u;
@@ -259,15 +262,23 @@ namespace helengine::ps2 {
         static_assert((sizeof(Ps2VuUntexturedSharedState) % 16u) == 0u);
         static_assert((sizeof(Ps2VuUntexturedTrianglePayload) % 16u) == 0u);
         static_assert((sizeof(Ps2VuTexturedSourceTriangle) % 16u) == 0u);
+        static_assert(sizeof(Ps2VuTexturedSourceTriangle) == sizeof(Ps2VuTexturedPackedTriangleSource));
         static_assert((sizeof(Ps2VuTexturedSharedState) % 16u) == 0u);
         static_assert((offsetof(Ps2VuUntexturedTriangleRecord, SourceTriangle) / 16u) == 0u);
         static_assert((offsetof(Ps2VuUntexturedTriangleRecord, GifPacketTemplate) / 16u) == UntexturedTriangleGifPacketQwordOffset);
         static_assert((offsetof(Ps2VuUntexturedTrianglePayload, TriangleRecord) / 16u) == 0u);
         static_assert((offsetof(Ps2VuUntexturedTrianglePayload, SharedState) / 16u) == UntexturedTriangleSharedStateQwordOffset);
 
-        constexpr std::size_t TexturedVuSourceBatchPayloadQwordCount =
-            (sizeof(Ps2VuTexturedSharedState) + (sizeof(Ps2VuTexturedSourceTriangle) * MaximumTexturedVuSourceTriangleCount)) / 16u;
         constexpr std::size_t TexturedVuSourceBatchSubmissionOverheadQwordCount = 2u;
+        constexpr std::size_t TexturedVuSharedStateQwordCount = sizeof(Ps2VuTexturedSharedState) / 16u;
+        constexpr std::size_t TexturedVuSourceTriangleQwordCount = sizeof(Ps2VuTexturedSourceTriangle) / 16u;
+        constexpr std::size_t TexturedVuMaximumClippedSubmissionsPerSourceBatch =
+            (TexturedVuSourceTriangleCapacity + TexturedVuClippedSourceTriangleCapacity - 1u)
+            / TexturedVuClippedSourceTriangleCapacity;
+        constexpr std::size_t TexturedVuMaximumSourceBatchPacketQwordCount =
+            (TexturedVuSourceTriangleCapacity * TexturedVuSourceTriangleQwordCount)
+            + (TexturedVuMaximumClippedSubmissionsPerSourceBatch
+                * (TexturedVuSharedStateQwordCount + TexturedVuSourceBatchSubmissionOverheadQwordCount));
 
         void CopyMatrixWords(const ::float4x4& matrix, float* destinationWords) {
             destinationWords[0] = matrix.M11;
@@ -1310,6 +1321,9 @@ namespace helengine::ps2 {
         LastTrianglePayloadFillMilliseconds = 0.0;
         LastTexturedVuStateBuildMilliseconds = 0.0;
         LastTexturedVuCommandEncodeMilliseconds = 0.0;
+        FastTexturedSliceCount = 0u;
+        ClippedTexturedSliceCount = 0u;
+        RejectedTexturedSliceCount = 0u;
         SubmittedTriangleCount = 0;
         SubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         SubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -2212,7 +2226,7 @@ namespace helengine::ps2 {
 
     std::size_t Ps2VuVifPacketBuilder::GetMaximumTexturedVuSourceBatchCount() {
         return (0xFFFFu - MinimumVifPacketOverheadQwords)
-            / (TexturedVuSourceBatchPayloadQwordCount + TexturedVuSourceBatchSubmissionOverheadQwordCount);
+            / TexturedVuMaximumSourceBatchPacketQwordCount;
     }
 
     void Ps2VuVifPacketBuilder::AddOpaqueTexturedVuBatches(
@@ -2246,7 +2260,7 @@ namespace helengine::ps2 {
         const ::float3 normalizedLightDirection = NormalizeOrFallback(lightDirection, ::float3(0.0f, 0.0f, -1.0f));
 
         const std::size_t maximumPacketQwordCount = MinimumVifPacketOverheadQwords
-            + (batchCount * (TexturedVuSourceBatchPayloadQwordCount + TexturedVuSourceBatchSubmissionOverheadQwordCount));
+            + (batchCount * TexturedVuMaximumSourceBatchPacketQwordCount);
         if (maximumPacketQwordCount > 0xFFFFu) {
             throw std::runtime_error("PS2 textured VU source packet exceeds packet2 qword capacity.");
         }
@@ -2254,6 +2268,7 @@ namespace helengine::ps2 {
         std::unique_ptr<packet2_t, decltype(&packet2_free)> packet(CreatePacketOrThrow(static_cast<std::uint16_t>(maximumPacketQwordCount), P2_MODE_CHAIN), &packet2_free);
         const std::clock_t packetAssemblyStartTicks = std::clock();
         Ps2VuTexturedSharedState cachedSharedState {};
+        ::float4x4 cachedWorldViewProjection;
         const Ps2VuOpaqueBatch* cachedSharedStateBatch = nullptr;
         const Ps2VuOpaqueBatch* cachedSourceBatch = nullptr;
         const std::vector<Ps2VuTexturedPackedTriangleSource>* cachedSourceTrianglesForBatch = nullptr;
@@ -2271,14 +2286,13 @@ namespace helengine::ps2 {
             if (texture == nullptr || textureWidth <= 0 || textureHeight <= 0) {
                 throw std::invalid_argument("PS2 textured VU source packing requires a resolved texture.");
             }
-            if (batchSlice.SourceTriangleCount == 0u || batchSlice.SourceTriangleCount > MaximumTexturedVuSourceTriangleCount) {
+            if (batchSlice.SourceTriangleCount == 0u || batchSlice.SourceTriangleCount > TexturedVuSourceTriangleCapacity) {
                 throw std::invalid_argument("PS2 textured VU source packing received an unsupported triangle count.");
             }
 
-            const std::size_t firstSourceVertex = batchSlice.FirstSourceTriangle * 3u;
-            const std::size_t sourceVertexCount = batchSlice.SourceTriangleCount * 3u;
-            const std::size_t finalSourceVertex = firstSourceVertex + sourceVertexCount;
-            if (finalSourceVertex > batch->Model->GetTriangleVertexCount()) {
+            const std::size_t firstSourceTriangle = batchSlice.FirstSourceTriangle;
+            const std::size_t finalSourceTriangle = firstSourceTriangle + batchSlice.SourceTriangleCount;
+            if ((finalSourceTriangle * 3u) > batch->Model->GetTriangleVertexCount()) {
                 throw std::out_of_range("PS2 textured VU source packing exceeds packed model triangle data.");
             }
 
@@ -2292,18 +2306,8 @@ namespace helengine::ps2 {
                 cachedSourceBatch = batch;
             }
             const std::vector<Ps2VuTexturedPackedTriangleSource>& cachedSourceTriangles = *cachedSourceTrianglesForBatch;
-            const std::size_t firstSourceTriangle = batchSlice.FirstSourceTriangle;
-            const std::size_t finalSourceTriangle = firstSourceTriangle + batchSlice.SourceTriangleCount;
             if (finalSourceTriangle > cachedSourceTriangles.size()) {
                 throw std::out_of_range("PS2 textured VU source packing exceeds immutable triangle source data.");
-            }
-            const Ps2VuTexturedPackedTriangleSource* sourceSlice = cachedSourceTriangles.data() + firstSourceTriangle;
-            const std::size_t sourceSliceByteCount = batchSlice.SourceTriangleCount * sizeof(Ps2VuTexturedPackedTriangleSource);
-            const std::size_t sourceSliceQwordCount = sourceSliceByteCount / 16u;
-            if (sourceSliceByteCount == 0u
-                || (sourceSliceByteCount % 16u) != 0u
-                || (reinterpret_cast<std::uintptr_t>(sourceSlice) % 16u) != 0u) {
-                throw std::invalid_argument("PS2 textured VU source references require an aligned non-empty qword slice.");
             }
 
             if (cachedSharedStateBatch != batch) {
@@ -2315,6 +2319,7 @@ namespace helengine::ps2 {
                 ::float4x4 worldViewProjection;
                 ::float4x4::Multiply__ref0_ref1_out2(worldCopy, viewCopy, worldView);
                 ::float4x4::Multiply__ref0_ref1_out2(worldView, projectionCopy, worldViewProjection);
+                cachedWorldViewProjection = worldViewProjection;
                 CopyMatrixWords(worldViewProjection, cachedSharedState.WorldViewProjectionMatrix);
                 cachedSharedState.GsScale[0] = viewport.Z * 0.5f;
                 cachedSharedState.GsScale[1] = viewport.W * -0.5f;
@@ -2362,39 +2367,94 @@ namespace helengine::ps2 {
                     LastTexturedVuStateBuildMilliseconds += ResolveMillisecondsFromClockTicks(sharedStateBuildStartTicks, std::clock());
                 }
             }
-            Ps2VuTexturedSharedState sharedState = cachedSharedState;
-            sharedState.TriangleCount[0] = static_cast<std::uint32_t>(batchSlice.SourceTriangleCount);
-            sharedState.StateTemplate[7].Low = GIF_SET_TAG(static_cast<std::uint32_t>(batchSlice.SourceTriangleCount * 3u), 1, 0, 0, GIF_FLG_PACKED, 3);
+            const Ps2VuSourceSliceBounds& bounds = batch->Model->GetTexturedSourceSliceBounds(
+                batchSlice.FirstSourceTriangle,
+                batchSlice.SourceTriangleCount);
+            const Ps2VuNearPlaneRoute classifiedRoute = Ps2VuNearPlaneSliceClassifier::Classify(
+                bounds,
+                cachedWorldViewProjection);
+            const Ps2VuNearPlaneRoute route = ForceAllTexturedSlicesThroughClipProgramDiagnostics
+                ? Ps2VuNearPlaneRoute::Clipped
+                : classifiedRoute;
+            if (route == Ps2VuNearPlaneRoute::Rejected) {
+                RejectedTexturedSliceCount++;
+                continue;
+            }
+            if (DropClippedTexturedSlicesForDiagnostics && route == Ps2VuNearPlaneRoute::Clipped) {
+                ClippedTexturedSliceCount++;
+                continue;
+            }
+            const bool useClippingMicroProgram = route == Ps2VuNearPlaneRoute::Clipped
+                && !UseFastProgramForClippedSliceDiagnostics;
+            const std::uint16_t microProgramAddress = useClippingMicroProgram
+                ? TexturedClipMicroProgramAddress
+                : TexturedMicroProgramAddress;
+            const std::size_t submissionSourceTriangleCapacity = route == Ps2VuNearPlaneRoute::Clipped
+                ? TexturedVuClippedSourceTriangleCapacity
+                : TexturedVuSourceTriangleCapacity;
+            for (std::size_t submissionSourceOffset = 0u;
+                submissionSourceOffset < batchSlice.SourceTriangleCount;
+                submissionSourceOffset += submissionSourceTriangleCapacity) {
+                const std::size_t submissionSourceTriangleCount = std::min(
+                    submissionSourceTriangleCapacity,
+                    batchSlice.SourceTriangleCount - submissionSourceOffset);
+                const std::size_t submissionFirstSourceTriangle = firstSourceTriangle + submissionSourceOffset;
+                const Ps2VuTexturedPackedTriangleSource* sourceSlice = cachedSourceTriangles.data()
+                    + submissionFirstSourceTriangle;
+                const std::size_t sourceSliceByteCount = submissionSourceTriangleCount
+                    * sizeof(Ps2VuTexturedPackedTriangleSource);
+                const std::size_t sourceSliceQwordCount = sourceSliceByteCount / 16u;
+                if (sourceSliceByteCount == 0u
+                    || (sourceSliceByteCount % 16u) != 0u
+                    || (reinterpret_cast<std::uintptr_t>(sourceSlice) % 16u) != 0u) {
+                    throw std::invalid_argument("PS2 textured VU source references require an aligned non-empty qword slice.");
+                }
 
-            const std::clock_t sourcePayloadFillStartTicks = EnableTexturedVuPerSliceTimingDiagnostics ? std::clock() : 0;
-            packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
-            std::memcpy(packet.get()->next, &sharedState, sizeof(sharedState));
-            packet2_advance_next(packet.get(), sizeof(sharedState));
-            packet2_utils_vu_close_unpack(packet.get());
-            if (useCachedSourceReference) {
-                packet2_utils_vu_add_unpack_data(
-                    packet.get(),
-                    XtopGifPacketAddress + (sizeof(Ps2VuTexturedSharedState) / 16u),
-                    const_cast<Ps2VuTexturedPackedTriangleSource*>(sourceSlice),
-                    static_cast<std::uint32_t>(sourceSliceQwordCount),
-                    1);
-            } else {
-                packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress + (sizeof(Ps2VuTexturedSharedState) / 16u), 1);
-                std::memcpy(packet.get()->next, sourceSlice, sourceSliceByteCount);
-                packet2_advance_next(packet.get(), sourceSliceByteCount);
+                if (route == Ps2VuNearPlaneRoute::Clipped) {
+                    ClippedTexturedSliceCount++;
+                } else {
+                    FastTexturedSliceCount++;
+                }
+                Ps2VuTexturedSharedState sharedState = cachedSharedState;
+                sharedState.TriangleCount[0] = static_cast<std::uint32_t>(submissionSourceTriangleCount);
+                sharedState.StateTemplate[7].Low = GIF_SET_TAG(
+                    static_cast<std::uint32_t>(submissionSourceTriangleCount * 3u),
+                    1,
+                    0,
+                    0,
+                    GIF_FLG_PACKED,
+                    3);
+
+                const std::clock_t sourcePayloadFillStartTicks = EnableTexturedVuPerSliceTimingDiagnostics ? std::clock() : 0;
+                packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);
+                std::memcpy(packet.get()->next, &sharedState, sizeof(sharedState));
+                packet2_advance_next(packet.get(), sizeof(sharedState));
                 packet2_utils_vu_close_unpack(packet.get());
+                if (useCachedSourceReference) {
+                    packet2_utils_vu_add_unpack_data(
+                        packet.get(),
+                        XtopGifPacketAddress + (sizeof(Ps2VuTexturedSharedState) / 16u),
+                        const_cast<Ps2VuTexturedPackedTriangleSource*>(sourceSlice),
+                        static_cast<std::uint32_t>(sourceSliceQwordCount),
+                        1);
+                } else {
+                    packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress + (sizeof(Ps2VuTexturedSharedState) / 16u), 1);
+                    std::memcpy(packet.get()->next, sourceSlice, sourceSliceByteCount);
+                    packet2_advance_next(packet.get(), sourceSliceByteCount);
+                    packet2_utils_vu_close_unpack(packet.get());
+                }
+                if (EnableTexturedVuPerSliceTimingDiagnostics) {
+                    LastTrianglePayloadFillMilliseconds += ResolveMillisecondsFromClockTicks(sourcePayloadFillStartTicks, std::clock());
+                }
+                packet2_chain_open_cnt(packet.get(), 0, 0, 0);
+                packet2_vif_flush(packet.get(), 0);
+                packet2_vif_mscal(packet.get(), microProgramAddress, 0);
+                packet2_chain_close_tag(packet.get());
+                if (EnableTexturedVuAssemblyPhaseDiagnostics) {
+                    LastTexturedVuCommandEncodeMilliseconds += ResolveMillisecondsFromClockTicks(sourcePayloadFillStartTicks, std::clock());
+                }
+                SubmittedTriangleCount += submissionSourceTriangleCount;
             }
-            if (EnableTexturedVuPerSliceTimingDiagnostics) {
-                LastTrianglePayloadFillMilliseconds += ResolveMillisecondsFromClockTicks(sourcePayloadFillStartTicks, std::clock());
-            }
-            packet2_chain_open_cnt(packet.get(), 0, 0, 0);
-            packet2_vif_flush(packet.get(), 0);
-            packet2_vif_mscal(packet.get(), TexturedMicroProgramAddress, 0);
-            packet2_chain_close_tag(packet.get());
-            if (EnableTexturedVuAssemblyPhaseDiagnostics) {
-                LastTexturedVuCommandEncodeMilliseconds += ResolveMillisecondsFromClockTicks(sourcePayloadFillStartTicks, std::clock());
-            }
-            SubmittedTriangleCount += batchSlice.SourceTriangleCount;
         }
 
         packet2_chain_open_end(packet.get(), 0, 0);
@@ -2941,6 +3001,18 @@ namespace helengine::ps2 {
 
     double Ps2VuVifPacketBuilder::GetLastTexturedVuCommandEncodeMilliseconds() const {
         return LastTexturedVuCommandEncodeMilliseconds;
+    }
+
+    std::size_t Ps2VuVifPacketBuilder::GetFastTexturedSliceCount() const {
+        return FastTexturedSliceCount;
+    }
+
+    std::size_t Ps2VuVifPacketBuilder::GetClippedTexturedSliceCount() const {
+        return ClippedTexturedSliceCount;
+    }
+
+    std::size_t Ps2VuVifPacketBuilder::GetRejectedTexturedSliceCount() const {
+        return RejectedTexturedSliceCount;
     }
 
     std::size_t Ps2VuVifPacketBuilder::GetSubmittedTriangleCount() const {

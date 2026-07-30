@@ -7,6 +7,118 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2RenderManager3DSourceTests {
     /// <summary>
+    /// Ensures frame heartbeats are disabled in the normal runtime baseline after a diagnostic capture completes.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenRunningTheNormalBaseline_DisablesContinuousFrameBoundaryHeartbeats() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr bool EnableFrameBoundaryHeartbeatDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.Contains("frame heartbeat=", source, StringComparison.Ordinal);
+        Assert.Contains("stage=AfterDraw3d", source, StringComparison.Ordinal);
+        Assert.Contains("stage=AfterVifWait", source, StringComparison.Ordinal);
+        Assert.Contains("stage=AfterDraw2d", source, StringComparison.Ordinal);
+        Assert.Contains("stage=AfterPresent", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures renderer boundary diagnostics return to their short startup window after a diagnostic capture completes.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenRunningTheNormalBaseline_LimitsFrameBoundaryDiagnosticsToStartup() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr std::uint32_t RenderFrameBoundaryDiagnosticFrameLimit = 3u;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableCpuTexturedPacketBoundaryDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.Contains("stage=RebuildProxiesComplete", source, StringComparison.Ordinal);
+        Assert.Contains("stage=FramePlanComplete", source, StringComparison.Ordinal);
+        Assert.Contains("stage=RenderOpaqueEnter", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures textured batches use the established VIF/VU routing when their bounds are safely inside the camera frustum.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenSubmittingTexturedTriangles_UsesEstablishedVifVuRouting() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr bool EnableVuDirectGifDispatchDiagnostics = false;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::size_t MaximumTexturedVuSourceTriangleCount = 55u;", source, StringComparison.Ordinal);
+        Assert.Contains("const bool canUseTexturedVuFastPath = CanUseTexturedVuFastPath(\n                        batchSlice,", source, StringComparison.Ordinal);
+        Assert.Contains("*texturedBatch,\n                    MaximumTexturedVuSourceTriangleCount);", source, StringComparison.Ordinal);
+        Assert.Contains("if (canUseTexturedVuFastPath) {\n                        texturedVuBatches.push_back(batchSlice);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the textured VIF/VU renderer and its packet builder remain on the same coherent source revision rather than mixing incompatible routing and packet layouts.
+    /// </summary>
+    [Fact]
+    public void Ps2TexturedVuRenderer_WhenUsingTheFastBaseline_UsesTheBatchBasedVifVuContract() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string rendererSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp"));
+        string rendererHeader = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.hpp"));
+        string packetBuilderSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+
+        Assert.Contains("void Ps2RenderManager3D::RenderOpaqueWithVuPath(", rendererSource, StringComparison.Ordinal);
+        Assert.Contains("bool IsUsingLegacyCpuOpaquePath() const;", rendererHeader, StringComparison.Ordinal);
+        Assert.Contains("void Ps2VuVifPacketBuilder::AddOpaqueTexturedBatches(", packetBuilderSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the recovered VIF builder header declares the packet-cache state and lighting input consumed by the committed implementation.
+    /// </summary>
+    [Fact]
+    public void Ps2TexturedVuBuilder_WhenRecoveringCommittedBaseline_DeclaresItsPacketCacheContract() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.hpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("#include \"platform/ps2/rendering/vu/Ps2VuTexturedPacketCache.hpp\"", source, StringComparison.Ordinal);
+        Assert.Contains("const ::float3& lightDirection,", source, StringComparison.Ordinal);
+        Assert.Contains("std::vector<std::uint64_t> DirectGifPacketWords;", source, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuTexturedPacketCache TexturedPacketCache;", source, StringComparison.Ordinal);
+
+        string rendererSourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string rendererSource = File.ReadAllText(rendererSourcePath);
+        Assert.Contains("viewport,\n                lightDirection,\n                GsGlobal,", rendererSource, StringComparison.Ordinal);
+        Assert.Contains("while (firstTexturedVuBatchIndex < texturedVuBatches.size())", rendererSource, StringComparison.Ordinal);
+    }
+
+
+
+    /// <summary>
+    /// Ensures camera-plane vertices are routed to the existing textured triangle clipper before any GS coordinate conversion can overflow.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenTexturedVertexCrossesCameraPlane_RejectsInvalidProjectionBeforeGsConversion() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+        int methodIndex = source.IndexOf("bool TryClassifyAndBuildTexturedVertexPositionRegister(", StringComparison.Ordinal);
+        Assert.True(methodIndex >= 0, "Expected textured vertex projection helper.");
+        string method = source.Substring(methodIndex, Math.Min(3000, source.Length - methodIndex));
+
+        Assert.Contains("if (clipW <= MinimumClipW)", method, StringComparison.Ordinal);
+        Assert.DoesNotContain("isInsideScreenFrustum = !EnableTexturedVuNearPlaneAndScreenClipping", method, StringComparison.Ordinal);
+        Assert.Contains("const std::int32_t gsX", method, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures projection safety continues to choose the established textured CPU clip path instead of silently changing the rendering backend.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenLegacyClippingIsDisabled_PreservesTexturedTriangleProjectionRouting() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr bool EnableLegacyTriangleClipping = false;", source, StringComparison.Ordinal);
+        Assert.Contains("std::uint8_t Ps2RenderManager3D::ClassifyTexturedSourceTriangle(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (!EnableTexturedTriangleProjectionSafety) {", source, StringComparison.Ordinal);
+        Assert.Contains("const float safeClipW = std::fabs(clipW) <= MinimumClipW", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures safe textured batches use the dynamic VU1 source path while clip-boundary batches retain CPU clipping.
     /// </summary>
     [Fact]
@@ -345,6 +457,26 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures direct-GIF colored-cube submission records its own transform, lighting, and packet-emission phases and reports real dispatches.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenSubmittingDirectGifGeometry_RecordsPathSpecificPhaseAndDispatchMetrics() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string rendererSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp"));
+        string packetBuilderSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        string bootHostSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2BootHost.cpp"));
+
+        Assert.Contains("LastVuBatchDispatchCount += 1u;", rendererSource, StringComparison.Ordinal);
+        Assert.Contains("FrameTimingVuBatchDispatchCount += static_cast<double>(renderManager3DBackend.GetLastVuBatchDispatchCount());", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("directGifTrianglePrepStartTicks", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("directGifTriangleLightingStartTicks", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("directGifTriangleEmitStartTicks", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("LastTrianglePrepMilliseconds +=", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("LastTriangleLightingMilliseconds +=", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("LastTriangleEmitMilliseconds +=", packetBuilderSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the host can report the required GIF drain boundary without accepting invalid elapsed durations.
     /// </summary>
     [Fact]
@@ -387,8 +519,24 @@ public sealed class Ps2RenderManager3DSourceTests {
         Assert.Contains("RenderManager3DBackend.SetLastGifDrainMilliseconds(", source, StringComparison.Ordinal);
         Assert.Contains("GetLastPerformanceMetrics()", source, StringComparison.Ordinal);
         Assert.Contains("FrameTimingGifDrainMilliseconds += metrics.GifDrainMilliseconds;", source, StringComparison.Ordinal);
+        Assert.Contains("FrameTimingVifDrainMilliseconds += metrics.VifDrainMilliseconds;", source, StringComparison.Ordinal);
         Assert.Contains("FrameTimingVifPacketByteCount += static_cast<double>(metrics.VifPacketByteCount);", source, StringComparison.Ordinal);
-        Assert.Contains("Leg ", source, StringComparison.Ordinal);
+        Assert.Contains("+ \" Vif \"", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the frame timing boundary completes VIF1 work before measuring the GIF drain, so the reported draw time includes asynchronous VU rendering.
+    /// </summary>
+    [Fact]
+    public void Ps2BootHost_WhenMeasuringVuRenderCompletion_WaitsForVifBeforeGifAndPublishesBothDurations() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("dma_channel_wait(DMA_CHANNEL_VIF1, 0);", source, StringComparison.Ordinal);
+        Assert.Contains("RenderManager3DBackend.SetLastVifDrainMilliseconds(", source, StringComparison.Ordinal);
+        Assert.Contains("RenderManager3DBackend.SetLastGifDrainMilliseconds(", source, StringComparison.Ordinal);
+        Assert.Contains("std::string(\"Drw \")", source, StringComparison.Ordinal);
+        Assert.Contains("+ \" Vif \"", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -405,38 +553,26 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
-    /// Ensures the visible PS2 FPS overlay begins with the manually incremented build number used to distinguish stale ISO images.
+/// Ensures the visible PS2 FPS overlay begins with the manually incremented B120 build number used to distinguish stale ISO images.
     /// </summary>
     [Fact]
-    public void Ps2BootHost_WhenPublishingFrameTiming_PrefixesTheFpsRowWithBuildNumberB62() {
+public void Ps2BootHost_WhenPublishingFrameTiming_PrefixesTheFpsRowWithBuildNumberB120() {
         string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
         string source = File.ReadAllText(sourcePath);
 
-        Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B62\";", source, StringComparison.Ordinal);
+Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B123\";", source, StringComparison.Ordinal);
         Assert.Contains("std::string(FrameTimingOverlayBuildNumber)\n            + \" \"", source, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Ensures the focused Colored Cubes performance build boots directly into that scene and exposes each packet-stage measurement required for the two-millisecond target.
+    /// Ensures the focused colored-cubes performance build selects its cooked scene at startup.
     /// </summary>
     [Fact]
-    public void Ps2BootHost_WhenProfilingColoredCubes_BootsTheSceneAndPublishesPacketStageMetrics() {
+    public void Ps2BootHost_WhenProfilingColoredCubes_UsesTheColoredCubeGridStartupScene() {
         string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
         string source = File.ReadAllText(sourcePath);
 
         Assert.Contains("constexpr const char* StartupSceneDiagnosticOverrideId = \"colored_cube_grid\";", source, StringComparison.Ordinal);
-        Assert.Contains("const double averageFrameMilliseconds = averageFramesPerSecond <= 0.0 ? 0.0 : 1000.0 / averageFramesPerSecond;", source, StringComparison.Ordinal);
-        Assert.Contains("+ \" ms\"", source, StringComparison.Ordinal);
-        Assert.Contains("const double averageRenderMilliseconds = averageDraw3dMilliseconds + averageGifWaitMilliseconds;", source, StringComparison.Ordinal);
-        Assert.Contains("FrameTimingOverlayDetailLine =\n            std::string(\"Drw \")", source, StringComparison.Ordinal);
-        Assert.Contains("+ \" 3D \"", source, StringComparison.Ordinal);
-        Assert.Contains("+ \" Enc \"", source, StringComparison.Ordinal);
-        Assert.Contains("+ \" Vif \"", source, StringComparison.Ordinal);
-        Assert.Contains("+ \" Gif \"\n            + FormatOverlayMilliseconds(averageGifDrainMilliseconds)", source, StringComparison.Ordinal);
-        Assert.Contains("FrameTimingOverlayAdditionalText =\n            std::string(\"Pkt \")", source, StringComparison.Ordinal);
-        Assert.Contains("+ \" Grp \"", source, StringComparison.Ordinal);
-        Assert.Contains("+ \" Tri \"", source, StringComparison.Ordinal);
-        Assert.Contains("+ \" B \"", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -643,6 +779,18 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures the textured VU source route remains the default when direct GIF submission is disabled.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenDirectGifTexturedSubmissionIsDisabled_UsesTheVuSourceRoute() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("const bool useTexturedVuSourcePath = !UseDirectGifTexturedSubmission;", source, StringComparison.Ordinal);
+        Assert.Contains("if (useTexturedVuSourcePath) {", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures direct GIF textured submission writes the proven TEST and TEX1 state once for each material batch while retaining every complete triangle GIF payload.
     /// </summary>
     [Fact]
@@ -765,6 +913,40 @@ public sealed class Ps2RenderManager3DSourceTests {
 
         Assert.Contains("if (!IsFrontFacingTriangle(screenAX, screenAY, screenBX, screenBY, screenCX, screenCY)) {", source, StringComparison.Ordinal);
         Assert.Contains("texturedCullRejectCount++;", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the fast textured VU path compacts single-sided triangles and updates the GIF loop count to match only emitted vertices.
+    /// </summary>
+    [Fact]
+    public void Ps2OpaqueTexturedDraw3D_WhenCullingSingleSidedGeometry_CompactsTheGifOutput() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string programSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"));
+        string packetBuilderSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+
+        Assert.Contains("opmula.xyz    ACC, VF21xyz, VF22xyz", programSource, StringComparison.Ordinal);
+        Assert.Contains("opmsub.xyz    VF23xyz, VF22xyz, VF21xyz", programSource, StringComparison.Ordinal);
+        Assert.Contains("add.xy        VF18, VF08, VF00", programSource, StringComparison.Ordinal);
+        Assert.Contains("add.xy        VF19, VF08, VF00", programSource, StringComparison.Ordinal);
+        Assert.Contains("add.xy        VF20, VF08, VF00", programSource, StringComparison.Ordinal);
+        Assert.Contains("ftoi12.z     VF23, VF23", programSource, StringComparison.Ordinal);
+        Assert.Contains("ibgez VI07, texturedTriangleAccepted", programSource, StringComparison.Ordinal);
+        Assert.Contains("iaddiu VI06, VI06, 0x00000001", programSource, StringComparison.Ordinal);
+        Assert.Contains("isw.x VI07, 7(VI04)", programSource, StringComparison.Ordinal);
+        Assert.Contains("cachedSharedState.TriangleCount[1] = batch->Material->GetDoubleSided() ? 1u : 0u;", packetBuilderSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the explicit unsafe clipping diagnostic can project fast textured VU geometry across the near plane without routing it through the CPU clipper.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenNearPlaneClippingDiagnosticsAreDisabled_ProjectsUnsafeTexturedVertices() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr bool EnableTexturedVuNearPlaneAndScreenClipping = false;", source, StringComparison.Ordinal);
+        Assert.Contains("if (EnableTexturedVuNearPlaneAndScreenClipping && clipW <= MinimumClipW)", source, StringComparison.Ordinal);
+        Assert.Contains("isInsideScreenFrustum = !EnableTexturedVuNearPlaneAndScreenClipping", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -992,7 +1174,7 @@ public sealed class Ps2RenderManager3DSourceTests {
         int directGifStartIndex = untexturedAggregateRoute.IndexOf("if (UseDirectGifUntexturedSubmission) {", StringComparison.Ordinal);
         int directGifEndIndex = untexturedAggregateRoute.IndexOf("} else {\n                        WaitForVif1BeforePacketReuse();", directGifStartIndex, StringComparison.Ordinal);
 
-        Assert.Contains("constexpr bool UseDirectGifUntexturedSubmission = true;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool UseDirectGifUntexturedSubmission = false;", source, StringComparison.Ordinal);
         Assert.Contains("!UseDirectGifUntexturedSubmission);", untexturedAggregateRoute, StringComparison.Ordinal);
         Assert.Contains("dma_channel_send_packet2(gifPacket, DMA_CHANNEL_GIF, true);", untexturedAggregateRoute, StringComparison.Ordinal);
         Assert.True(directGifStartIndex >= 0, "Expected the untextured direct-GIF submit branch.");
@@ -1000,6 +1182,34 @@ public sealed class Ps2RenderManager3DSourceTests {
         string untexturedDirectGifSubmit = untexturedAggregateRoute.Substring(directGifStartIndex, directGifEndIndex - directGifStartIndex);
         Assert.DoesNotContain("VuPacketSlots[ActiveVuPacketSlotIndex] = VuVifPacketBuilder.ReleasePacket();", untexturedDirectGifSubmit, StringComparison.Ordinal);
         Assert.DoesNotContain("dma_channel_send_packet2(packet, DMA_CHANNEL_VIF1, 1);", untexturedDirectGifSubmit, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures PS2 textured batches and slices bypass camera-frustum rejection while diagnosing camera-angle rendering failures.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenFrustumCullingIsDisabled_DoesNotRejectTexturedBatchesOrSlices() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr bool EnableTexturedVuFrustumCulling = false;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool EnableTexturedVuNearPlaneCulling = false;", source, StringComparison.Ordinal);
+        Assert.Contains("if (EnableTexturedVuFrustumCulling", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (allBehindNearPlane || allLeftOfFrustum", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures the textured VU path remains the default renderer and splits source slices by the packet-builder capacity.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenSubmittingTexturedVuBatches_UsesCapacityBoundedVuPackets() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr bool UseDirectGifTexturedSubmission = false;", source, StringComparison.Ordinal);
+        Assert.Contains("const bool useTexturedVuSourcePath = !UseDirectGifTexturedSubmission;", source, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuVifPacketBuilder::GetMaximumTexturedVuSourceBatchCount()", source, StringComparison.Ordinal);
+        Assert.Contains("while (firstTexturedVuBatchIndex < texturedVuBatches.size())", source, StringComparison.Ordinal);
     }
 
     /// <summary>

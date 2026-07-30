@@ -10,6 +10,7 @@ namespace helengine::ps2 {
         double PacketEncodeMilliseconds = 0.0;
         double VifReuseWaitMilliseconds = 0.0;
         double VifSubmitMilliseconds = 0.0;
+        double VifDrainMilliseconds = 0.0;
         double GifDrainMilliseconds = 0.0;
         double LegacyOpaqueMilliseconds = 0.0;
         std::size_t SubmittedTriangleCount = 0u;

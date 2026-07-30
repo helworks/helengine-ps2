@@ -356,7 +356,7 @@ public static class Ps2PlatformDefinitionFactory {
                             "load-native-runtime-metadata",
                             "Load Native Runtime Metadata",
                             PlatformSettingKind.Boolean,
-                            "true",
+                            "false",
                             true,
                             []),
                         new PlatformSettingDefinition(

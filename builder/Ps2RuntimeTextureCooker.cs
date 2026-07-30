@@ -56,7 +56,7 @@ public sealed class Ps2RuntimeTextureCooker {
                 PixelStorageMode = Ps2TexturePixelStorageMode.PsmCt32,
                 ClutPixelStorageMode = Ps2TexturePixelStorageMode.PsmCt32,
                 AlphaMode = Ps2TextureAlphaMode.Full,
-                PixelData = [.. processedTexture.Colors],
+                PixelData = ConvertRgbaAlphaToGsRange(processedTexture.Colors),
                 PaletteData = Array.Empty<byte>()
             };
         }
@@ -70,7 +70,7 @@ public sealed class Ps2RuntimeTextureCooker {
                 ClutPixelStorageMode = Ps2TexturePixelStorageMode.PsmCt32,
                 AlphaMode = Ps2TextureAlphaMode.Full,
                 PixelData = [.. processedTexture.Colors],
-                PaletteData = SwizzlePaletteDataForPs2(processedTexture.PaletteColors)
+                PaletteData = SwizzlePaletteDataForPs2(ConvertRgbaAlphaToGsRange(processedTexture.PaletteColors))
             };
         }
 
@@ -83,12 +83,35 @@ public sealed class Ps2RuntimeTextureCooker {
                 ClutPixelStorageMode = Ps2TexturePixelStorageMode.PsmCt32,
                 AlphaMode = Ps2TextureAlphaMode.Full,
                 PixelData = [.. processedTexture.Colors],
-                PaletteData = SwizzlePaletteDataForPs2(processedTexture.PaletteColors)
+                PaletteData = SwizzlePaletteDataForPs2(ConvertRgbaAlphaToGsRange(processedTexture.PaletteColors))
             };
         }
 
         throw new InvalidOperationException(
             $"PS2 does not support texture settings '{processedTexture.ColorFormat}' + '{processedTexture.AlphaPrecision}'.");
+    }
+
+    /// <summary>
+    /// Converts RGBA8 alpha channels into the GS source-alpha range used by PS2 source-over blending.
+    /// </summary>
+    /// <param name="rgbaBytes">RGBA32 texel or palette-entry bytes that use the standard zero-through-255 alpha range.</param>
+    /// <returns>Independent RGBA bytes whose alpha channels use the PS2 zero-through-128 range.</returns>
+    static byte[] ConvertRgbaAlphaToGsRange(byte[] rgbaBytes) {
+        if (rgbaBytes == null) {
+            throw new ArgumentNullException(nameof(rgbaBytes));
+        } else if ((rgbaBytes.Length % PaletteEntryByteCount) != 0) {
+            throw new InvalidOperationException("RGBA payloads must be aligned to four-byte texel or palette-entry boundaries.");
+        }
+
+        byte[] convertedBytes = [.. rgbaBytes];
+        for (int byteIndex = 3; byteIndex < convertedBytes.Length; byteIndex += PaletteEntryByteCount) {
+            convertedBytes[byteIndex] = (byte)Math.Clamp(
+                (int)Math.Round((double)convertedBytes[byteIndex] * 128d / 255d),
+                0,
+                128);
+        }
+
+        return convertedBytes;
     }
 
     /// <summary>

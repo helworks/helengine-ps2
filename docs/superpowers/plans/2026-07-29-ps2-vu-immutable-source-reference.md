@@ -215,3 +215,57 @@ launch its `game.iso` through `launch_in_emulator.ps1`.
 Expected: all textured slices render stably with lower `Enc` and `Asm` than
 B251. A crash, FPS N/A, or geometry/lighting corruption rejects this expansion
 and returns the normal route to B251's copied source path.
+
+### Task 5: Prime shared state for two consecutive referenced slices
+
+**Files:**
+- Modify: `src/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp`
+- Modify: `builder.tests/Ps2TexturedVuReferencePayloadSourceTests.cs`
+- Modify: `src/platform/ps2/Ps2BootHost.cpp`
+
+- [ ] **Step 1: Write the failing two-slice priming contract**
+
+```csharp
+Assert.Contains("constexpr std::size_t MaximumPrimedTexturedVuSourceSliceCount = 2u;", source);
+Assert.Contains("packet2_utils_vu_open_unpack(packet.get(), VuDoubleBufferBaseAddress, 0);", source);
+Assert.Contains("packet2_utils_vu_open_unpack(packet.get(), VuDoubleBufferAlternateAddress, 0);", source);
+```
+
+- [ ] **Step 2: Run the source-contract test and verify it fails**
+
+Run:
+
+```powershell
+rtk dotnet test builder.tests --filter FullyQualifiedName~Ps2TexturedVuReferencePayloadSourceTests --no-restore
+```
+
+Expected: FAIL because B253 still uploads shared state through TOP for every slice.
+
+- [ ] **Step 3: Add the fixed double-buffer shared-state addresses**
+
+```cpp
+constexpr std::uint32_t VuDoubleBufferBaseAddress = 8u;
+constexpr std::uint32_t VuDoubleBufferAlternateAddress = 504u;
+constexpr std::size_t MaximumPrimedTexturedVuSourceSliceCount = 2u;
+```
+
+For the first two consecutive slices of one batch, upload `Ps2VuTexturedSharedState`
+once to both absolute VU input addresses with `use_top` set to zero. Continue to
+upload each source REF to `XtopGifPacketAddress + SharedStateQwordCount` with
+`use_top` set to one, then append the unchanged FLUSH/MSCAL tag.
+
+- [ ] **Step 4: Keep B253 route for every other slice**
+
+The proof must select the primed route only for the first contiguous two-slice
+batch group. All remaining slices retain their B253 shared-state TOP upload and
+source REF submission. Increment the diagnostic count only after both source
+slices are emitted.
+
+- [ ] **Step 5: Run focused tests, build B254, and launch**
+
+Set the overlay build number to `"B254"`. Run the three focused VU source tests,
+package `C:\dev\helworks\builds\demodisc\ps2\B254-tilt-play-vu-primed-state`,
+and launch its `game.iso` with `launch_in_emulator.ps1`.
+
+Expected: stable geometry/lighting and a lower `Enc`/`Asm` than B253 for the
+same camera view. A failure rejects the primed route without changing B253.

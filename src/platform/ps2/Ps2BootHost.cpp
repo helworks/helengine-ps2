@@ -16,8 +16,10 @@
 #include <cstring>
 #include <cstdio>
 #include <cmath>
+#include <cstdint>
 #include <exception>
 #include <limits>
+#include <stdexcept>
 #include <unordered_map>
 #include <unistd.h>
 #include <vector>
@@ -69,6 +71,7 @@
 #include "platform/ps2/Ps2InputBackend.hpp"
 #include "platform/ps2/rendering/Ps2RenderManager3D.hpp"
 #include "platform/ps2/rendering/Ps2RuntimeMaterial.hpp"
+#include "platform/ps2/rendering/vu/Ps2VuMicroProgramAddresses.hpp"
 #include "TextureUtils.hpp"
 #include "RenderManager2D.hpp"
 #include "RenderManager3D.hpp"
@@ -116,6 +119,8 @@ extern "C" {
     extern u32 Ps2OpaqueDraw3D_CodeEnd __attribute__((section(".vudata")));
     extern u32 Ps2OpaqueTexturedDraw3D_CodeStart __attribute__((section(".vudata")));
     extern u32 Ps2OpaqueTexturedDraw3D_CodeEnd __attribute__((section(".vudata")));
+    extern u32 Ps2OpaqueTexturedClipDraw3D_CodeStart __attribute__((section(".vudata")));
+    extern u32 Ps2OpaqueTexturedClipDraw3D_CodeEnd __attribute__((section(".vudata")));
 }
 
 namespace {
@@ -186,7 +191,7 @@ namespace {
     constexpr float CubeTriangle2dVertexB2X = 428.156738f;
     constexpr float CubeTriangle2dVertexB2Y = 115.843239f;
     constexpr float CubeTriangle3dDiagnosticDepth = 1.0f;
-        constexpr const char* FrameTimingOverlayBuildNumber = "B280";
+        constexpr const char* FrameTimingOverlayBuildNumber = "B297";
     bool DebugConsoleReady = false;
     bool CubeDiagnosticsShown = false;
     bool CubeRuntimeDiagnosticsCompleted = false;
@@ -216,6 +221,9 @@ namespace {
     double FrameTimingFramePlanMilliseconds = 0.0;
     double FrameTimingVuBatchBuildMilliseconds = 0.0;
     double FrameTimingVuBatchDispatchCount = 0.0;
+    double FrameTimingFastTexturedSliceCount = 0.0;
+    double FrameTimingClippedTexturedSliceCount = 0.0;
+    double FrameTimingRejectedTexturedSliceCount = 0.0;
     double FrameTimingVuTriangleSetupMilliseconds = 0.0;
     double FrameTimingVuTrianglePrepMilliseconds = 0.0;
     double FrameTimingVuTriangleEmitMilliseconds = 0.0;
@@ -701,6 +709,9 @@ namespace {
         FrameTimingFramePlanMilliseconds += metrics.FramePlanMilliseconds;
         FrameTimingVuBatchBuildMilliseconds += metrics.VuBatchBuildMilliseconds;
         FrameTimingVuBatchDispatchCount += static_cast<double>(renderManager3DBackend.GetLastVuBatchDispatchCount());
+        FrameTimingFastTexturedSliceCount += static_cast<double>(renderManager3DBackend.GetLastFastTexturedSliceCount());
+        FrameTimingClippedTexturedSliceCount += static_cast<double>(renderManager3DBackend.GetLastClippedTexturedSliceCount());
+        FrameTimingRejectedTexturedSliceCount += static_cast<double>(renderManager3DBackend.GetLastRejectedTexturedSliceCount());
         FrameTimingVuTriangleSetupMilliseconds += renderManager3DBackend.GetLastVuTriangleSetupMilliseconds();
         FrameTimingVuTrianglePrepMilliseconds += renderManager3DBackend.GetLastVuTrianglePrepMilliseconds();
         FrameTimingVuTriangleEmitMilliseconds += renderManager3DBackend.GetLastVuTriangleEmitMilliseconds();
@@ -768,6 +779,9 @@ namespace {
         const double averageFramePlanMilliseconds = FrameTimingFramePlanMilliseconds / sampledFrameCount;
         const double averageVuBatchBuildMilliseconds = FrameTimingVuBatchBuildMilliseconds / sampledFrameCount;
         const double averageVuBatchDispatchCount = FrameTimingVuBatchDispatchCount / sampledFrameCount;
+        const double averageFastTexturedSliceCount = FrameTimingFastTexturedSliceCount / sampledFrameCount;
+        const double averageClippedTexturedSliceCount = FrameTimingClippedTexturedSliceCount / sampledFrameCount;
+        const double averageRejectedTexturedSliceCount = FrameTimingRejectedTexturedSliceCount / sampledFrameCount;
         const double averageVuTriangleSetupMilliseconds = FrameTimingVuTriangleSetupMilliseconds / sampledFrameCount;
         const double averageVuTrianglePrepMilliseconds = FrameTimingVuTrianglePrepMilliseconds / sampledFrameCount;
         const double averageVuTriangleEmitMilliseconds = FrameTimingVuTriangleEmitMilliseconds / sampledFrameCount;
@@ -899,8 +913,12 @@ namespace {
             + " Sub "
             + FormatOverlayMilliseconds(averageVuSubmitMilliseconds);
         FrameTimingOverlayAdditionalText =
-            std::string("Gif ")
-            + FormatOverlayMilliseconds(averageGifDrainMilliseconds)
+            std::string("Fast ")
+            + std::to_string(static_cast<int>(averageFastTexturedSliceCount))
+            + " Clip "
+            + std::to_string(static_cast<int>(averageClippedTexturedSliceCount))
+            + " Rej "
+            + std::to_string(static_cast<int>(averageRejectedTexturedSliceCount))
             + " Tri "
             + std::to_string(static_cast<int>(averageSubmittedTriangleCount))
             + " Bat "
@@ -923,6 +941,9 @@ namespace {
         FrameTimingFramePlanMilliseconds = 0.0;
         FrameTimingVuBatchBuildMilliseconds = 0.0;
         FrameTimingVuBatchDispatchCount = 0.0;
+        FrameTimingFastTexturedSliceCount = 0.0;
+        FrameTimingClippedTexturedSliceCount = 0.0;
+        FrameTimingRejectedTexturedSliceCount = 0.0;
         FrameTimingVuTriangleSetupMilliseconds = 0.0;
         FrameTimingVuTrianglePrepMilliseconds = 0.0;
         FrameTimingVuTriangleEmitMilliseconds = 0.0;
@@ -1736,11 +1757,44 @@ namespace {
     }
 
     void UploadVuOpaqueMicroProgram() {
-        const u32 untexturedPacketSize = packet2_utils_get_packet_size_for_program(&Ps2OpaqueDraw3D_CodeStart, &Ps2OpaqueDraw3D_CodeEnd) + 1;
-        const u32 texturedPacketSize = packet2_utils_get_packet_size_for_program(&Ps2OpaqueTexturedDraw3D_CodeStart, &Ps2OpaqueTexturedDraw3D_CodeEnd) + 1;
-        packet2_t* packet2 = packet2_create(untexturedPacketSize + texturedPacketSize, P2_TYPE_NORMAL, P2_MODE_CHAIN, 1);
-        packet2_vif_add_micro_program(packet2, 0, &Ps2OpaqueDraw3D_CodeStart, &Ps2OpaqueDraw3D_CodeEnd);
-        packet2_vif_add_micro_program(packet2, 64, &Ps2OpaqueTexturedDraw3D_CodeStart, &Ps2OpaqueTexturedDraw3D_CodeEnd);
+        constexpr std::size_t Vu1MicroMemoryInstructionCount = 1024u;
+        const std::uintptr_t untexturedProgramByteCount = reinterpret_cast<std::uintptr_t>(&Ps2OpaqueDraw3D_CodeEnd)
+            - reinterpret_cast<std::uintptr_t>(&Ps2OpaqueDraw3D_CodeStart);
+        const std::uintptr_t texturedProgramByteCount = reinterpret_cast<std::uintptr_t>(&Ps2OpaqueTexturedDraw3D_CodeEnd)
+            - reinterpret_cast<std::uintptr_t>(&Ps2OpaqueTexturedDraw3D_CodeStart);
+        const std::uintptr_t texturedClipProgramByteCount = reinterpret_cast<std::uintptr_t>(&Ps2OpaqueTexturedClipDraw3D_CodeEnd)
+            - reinterpret_cast<std::uintptr_t>(&Ps2OpaqueTexturedClipDraw3D_CodeStart);
+        if ((untexturedProgramByteCount % 8u) != 0u
+            || (texturedProgramByteCount % 8u) != 0u
+            || (texturedClipProgramByteCount % 8u) != 0u) {
+            throw std::runtime_error("PS2 VU1 microprogram byte lengths must contain complete 64-bit instructions.");
+        }
+
+        const std::size_t untexturedProgramEndAddress = helengine::ps2::UntexturedMicroProgramAddress
+            + static_cast<std::size_t>(untexturedProgramByteCount / 8u);
+        const std::size_t texturedProgramEndAddress = helengine::ps2::TexturedMicroProgramAddress
+            + static_cast<std::size_t>(texturedProgramByteCount / 8u);
+        const std::size_t texturedClipProgramEndAddress = helengine::ps2::TexturedClipMicroProgramAddress
+            + static_cast<std::size_t>(texturedClipProgramByteCount / 8u);
+        if (untexturedProgramEndAddress > helengine::ps2::TexturedMicroProgramAddress) {
+            throw std::runtime_error("PS2 untextured VU1 microprogram overlaps the fast textured entry point.");
+        } else if (texturedProgramEndAddress > helengine::ps2::TexturedClipMicroProgramAddress) {
+            throw std::runtime_error("PS2 fast textured VU1 microprogram overlaps the near-plane clipping entry point.");
+        } else if (texturedClipProgramEndAddress > Vu1MicroMemoryInstructionCount) {
+            throw std::runtime_error("PS2 textured near-plane clipping microprogram exceeds VU1 micro memory.");
+        }
+
+        const u32 untexturedPacketSize = packet2_utils_get_packet_size_for_program(&Ps2OpaqueDraw3D_CodeStart, &Ps2OpaqueDraw3D_CodeEnd);
+        const u32 texturedPacketSize = packet2_utils_get_packet_size_for_program(&Ps2OpaqueTexturedDraw3D_CodeStart, &Ps2OpaqueTexturedDraw3D_CodeEnd);
+        const u32 texturedClipPacketSize = packet2_utils_get_packet_size_for_program(&Ps2OpaqueTexturedClipDraw3D_CodeStart, &Ps2OpaqueTexturedClipDraw3D_CodeEnd);
+        packet2_t* packet2 = packet2_create(untexturedPacketSize + texturedPacketSize + texturedClipPacketSize + 1u, P2_TYPE_NORMAL, P2_MODE_CHAIN, 1);
+        if (packet2 == nullptr) {
+            throw std::runtime_error("Failed to allocate the PS2 VU1 microprogram upload packet.");
+        }
+
+        packet2_vif_add_micro_program(packet2, helengine::ps2::UntexturedMicroProgramAddress, &Ps2OpaqueDraw3D_CodeStart, &Ps2OpaqueDraw3D_CodeEnd);
+        packet2_vif_add_micro_program(packet2, helengine::ps2::TexturedMicroProgramAddress, &Ps2OpaqueTexturedDraw3D_CodeStart, &Ps2OpaqueTexturedDraw3D_CodeEnd);
+        packet2_vif_add_micro_program(packet2, helengine::ps2::TexturedClipMicroProgramAddress, &Ps2OpaqueTexturedClipDraw3D_CodeStart, &Ps2OpaqueTexturedClipDraw3D_CodeEnd);
         packet2_utils_vu_add_end_tag(packet2);
         dma_channel_send_packet2(packet2, DMA_CHANNEL_VIF1, 1);
         dma_channel_wait(DMA_CHANNEL_VIF1, 0);

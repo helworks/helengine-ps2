@@ -72,6 +72,18 @@ namespace helengine::ps2 {
         double GetLastTrianglePayloadFillMilliseconds() const;
         double GetLastTexturedVuStateBuildMilliseconds() const;
         double GetLastTexturedVuCommandEncodeMilliseconds() const;
+        /// <summary>
+        /// Returns the number of fully visible textured slices dispatched to the unchanged fast microprogram.
+        /// </summary>
+        std::size_t GetFastTexturedSliceCount() const;
+        /// <summary>
+        /// Returns the number of intersecting textured slices dispatched to the near-plane clipping microprogram.
+        /// </summary>
+        std::size_t GetClippedTexturedSliceCount() const;
+        /// <summary>
+        /// Returns the number of fully hidden textured slices omitted before VIF packet submission.
+        /// </summary>
+        std::size_t GetRejectedTexturedSliceCount() const;
         std::size_t GetSubmittedTriangleCount() const;
         ::float4 GetSubmittedScreenBounds() const;
         ::float4 GetSubmittedTriangleBoundsA() const;
@@ -97,6 +109,18 @@ namespace helengine::ps2 {
         double LastTrianglePayloadFillMilliseconds = 0.0;
         double LastTexturedVuStateBuildMilliseconds = 0.0;
         double LastTexturedVuCommandEncodeMilliseconds = 0.0;
+        /// <summary>
+        /// Counts fully visible textured source slices in the current packet.
+        /// </summary>
+        std::size_t FastTexturedSliceCount = 0u;
+        /// <summary>
+        /// Counts camera-plane-intersecting textured source slices in the current packet.
+        /// </summary>
+        std::size_t ClippedTexturedSliceCount = 0u;
+        /// <summary>
+        /// Counts fully camera-hidden textured source slices omitted from the current packet.
+        /// </summary>
+        std::size_t RejectedTexturedSliceCount = 0u;
         std::size_t SubmittedTriangleCount = 0;
         ::float4 SubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         ::float4 SubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);

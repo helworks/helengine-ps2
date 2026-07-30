@@ -10,6 +10,30 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2RuntimeTextureCookerTests {
     /// <summary>
+    /// Ensures full-opacity source texels use the GS alpha range instead of doubling their contribution during source-over blending.
+    /// </summary>
+    [Fact]
+    public void Cook_WhenRgbaSourceUsesFullOpacity_ConvertsAlphaToGsRange() {
+        Ps2RuntimeTextureCooker cooker = new();
+        TextureAsset sourceTexture = new() {
+            Width = 1,
+            Height = 1,
+            ColorFormat = TextureAssetColorFormat.Rgba32,
+            AlphaPrecision = TextureAssetAlphaPrecision.A8,
+            Colors = [12, 34, 56, 255]
+        };
+        TextureAssetProcessorSettings settings = new() {
+            MaxResolution = 0,
+            ColorFormat = TextureAssetColorFormat.Rgba32,
+            AlphaPrecision = TextureAssetAlphaPrecision.A8
+        };
+
+        Ps2TextureAsset cookedTexture = cooker.Cook(sourceTexture, settings);
+
+        Assert.Equal(new byte[] { 12, 34, 56, 128 }, cookedTexture.PixelData);
+    }
+
+    /// <summary>
     /// Ensures one max-resolution cap resizes the larger source axis before the PS2-native texture payload is emitted.
     /// </summary>
     [Fact]

@@ -1,0 +1,554 @@
+; Textured opaque VU1 frustum-clipping microprogram.
+; The EE routes only source slices whose conservative bounds intersect clip Z = 0.
+; Every triangle is clipped against near, left, right, bottom, and top before reciprocal W.
+
+		.vu
+		.align 4
+		.global	Ps2OpaqueTexturedClipDraw3D_CodeStart
+		.global	Ps2OpaqueTexturedClipDraw3D_CodeEnd
+Ps2OpaqueTexturedClipDraw3D_CodeStart:
+__ps2_opaque_textured_clip_draw_3d:
+         NOP                                                        xtop VI02
+         NOP                                                        lq VF01, 0(VI02)
+         NOP                                                        lq VF02, 1(VI02)
+         NOP                                                        lq VF03, 2(VI02)
+         NOP                                                        lq VF04, 3(VI02)
+         NOP                                                        lq VF05, 4(VI02)
+         NOP                                                        lq VF06, 5(VI02)
+         NOP                                                        lq VF07, 6(VI02)
+         NOP                                                        ilw.x VI01, 7(VI02)
+         NOP                                                        ilw.y VI08, 7(VI02)
+         NOP                                                        lq VF11, 8(VI02)
+         NOP                                                        lq VF12, 9(VI02)
+         NOP                                                        lq VF13, 10(VI02)
+         NOP                                                        lq VF14, 12(VI02)
+         NOP                                                        iaddiu VI04, VI00, 0x00000100
+         NOP                                                        iaddiu VI03, VI04, 0x00000008
+         NOP                                                        iaddiu VI05, VI02, 0x00000015
+         NOP                                                        iaddiu VI06, VI00, 0x00000000
+         NOP                                                        iaddiu VI09, VI00, 0x00007fff
+         NOP                                                        iaddiu VI09, VI09, 0x00000001
+         NOP                                                        lq VF08, 13(VI02)
+         NOP                                                        sq VF08, 0(VI04)
+         NOP                                                        lq VF08, 14(VI02)
+         NOP                                                        sq VF08, 1(VI04)
+         NOP                                                        lq VF08, 15(VI02)
+         NOP                                                        sq VF08, 2(VI04)
+         NOP                                                        lq VF08, 16(VI02)
+         NOP                                                        sq VF08, 3(VI04)
+         NOP                                                        lq VF08, 17(VI02)
+         NOP                                                        sq VF08, 4(VI04)
+         NOP                                                        lq VF08, 18(VI02)
+         NOP                                                        sq VF08, 5(VI04)
+         NOP                                                        lq VF08, 19(VI02)
+         NOP                                                        sq VF08, 6(VI04)
+         NOP                                                        lq VF08, 20(VI02)
+         NOP                                                        sq VF08, 7(VI04)
+texturedClipTriangleLoop:
+         NOP                                                        lq VF18, 0(VI05)
+         NOP                                                        lq VF19, 1(VI05)
+         NOP                                                        lq VF20, 2(VI05)
+         NOP                                                        lq VF21, 3(VI05)
+         NOP                                                        lq VF22, 4(VI05)
+         NOP                                                        lq VF23, 5(VI05)
+         NOP                                                        lq VF10, 6(VI05)
+         mulax         ACC, VF11, VF10x                             NOP
+         madday        ACC, VF12, VF10y                             NOP
+         maddz.xyz     VF15, VF13, VF10z                            NOP
+         mul.xyz       VF16, VF15, VF15                             NOP
+         addy.x        VF16, VF16, VF16y                            NOP
+         addz.x        VF16, VF16, VF16z                            NOP
+         NOP                                                        ersqrt P, VF16x
+         NOP                                                        waitp
+         NOP                                                        mfp.w VF16, P
+         mulw.xyz      VF15, VF15, VF16w                            NOP
+         mul.xyz       VF16, VF15, VF14                             NOP
+         addy.x        VF16, VF16, VF16y                            NOP
+         addz.x        VF16, VF16, VF16z                            NOP
+         maxx.x        VF16, VF16, VF00x                            NOP
+         mulw.x        VF16, VF16, VF07w                            NOP
+         NOP                                                        loi 0x433f0000
+         muli.x        VF16, VF16, I                                NOP
+         NOP                                                        loi 0x42800000
+         addi.x        VF16, VF16, I                                NOP
+         mulw.w        VF17, VF00, VF10w                            NOP
+         mulx.xyz      VF17, VF07, VF16x                            NOP
+         ftoi0         VF17, VF17                                   NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         mulax         ACC, VF01, VF18x                             NOP
+         madday        ACC, VF02, VF18y                             NOP
+         maddaz        ACC, VF03, VF18z                             NOP
+         maddw         VF18, VF04, VF18w                            NOP
+         mulax         ACC, VF01, VF19x                             NOP
+         madday        ACC, VF02, VF19y                             NOP
+         maddaz        ACC, VF03, VF19z                             NOP
+         maddw         VF19, VF04, VF19w                            NOP
+         mulax         ACC, VF01, VF20x                             NOP
+         madday        ACC, VF02, VF20y                             NOP
+         maddaz        ACC, VF03, VF20z                             NOP
+         maddw         VF20, VF04, VF20w                            NOP
+texturedClipClassifyTriangle:
+texturedClipHardwareClipFlagDiagnostics:
+; FCAND writes VI01 on this PS2 assembler, so preserve the triangle loop count in VI10.
+         NOP                                                        iadd VI10, VI01, VI00
+         NOP                                                        fcset 0
+         NOP                                                        NOP
+         NOP                                                        NOP
+         clipw.xyz     VF18xyz, VF18w                               NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        fcand VI01, 63
+         NOP                                                        ibne VI01, VI00, texturedClipHardwareRejectTriangle
+         NOP                                                        NOP
+         mulw.xyzw     VF24, VF18, VF00w                            NOP
+         NOP                                                        loi 0x3727c5ac
+         subi.z        VF24, VF24, I                                NOP
+         addz.z        VF24, VF24, VF24z                            NOP
+         subw.z        VF24, VF24, VF18w                            NOP
+         clipw.xyz     VF24xyz, VF24w                               NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        fcand VI01, 32
+         NOP                                                        ibne VI01, VI00, texturedClipHardwareRejectTriangle
+         NOP                                                        NOP
+         clipw.xyz     VF19xyz, VF19w                               NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        fcand VI01, 63
+         NOP                                                        ibne VI01, VI00, texturedClipHardwareRejectTriangle
+         NOP                                                        NOP
+         mulw.xyzw     VF24, VF19, VF00w                            NOP
+         NOP                                                        loi 0x3727c5ac
+         subi.z        VF24, VF24, I                                NOP
+         addz.z        VF24, VF24, VF24z                            NOP
+         subw.z        VF24, VF24, VF19w                            NOP
+         clipw.xyz     VF24xyz, VF24w                               NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        fcand VI01, 32
+         NOP                                                        ibne VI01, VI00, texturedClipHardwareRejectTriangle
+         NOP                                                        NOP
+         clipw.xyz     VF20xyz, VF20w                               NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        fcand VI01, 63
+         NOP                                                        ibne VI01, VI00, texturedClipHardwareRejectTriangle
+         NOP                                                        NOP
+         mulw.xyzw     VF24, VF20, VF00w                            NOP
+         NOP                                                        loi 0x3727c5ac
+         subi.z        VF24, VF24, I                                NOP
+         addz.z        VF24, VF24, VF24z                            NOP
+         subw.z        VF24, VF24, VF20w                            NOP
+         clipw.xyz     VF24xyz, VF24w                               NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        fcand VI01, 32
+         NOP                                                        ibne VI01, VI00, texturedClipHardwareRejectTriangle
+         NOP                                                        NOP
+         NOP                                                        iadd VI01, VI10, VI00
+         NOP                                                        bal VI15, texturedClipEmitTriangleProject
+         NOP                                                        NOP
+         NOP                                                        b texturedClipTriangleLoopTail
+         NOP                                                        NOP
+
+texturedClipHardwareRejectTriangle:
+         NOP                                                        iadd VI01, VI10, VI00
+         NOP                                                        b texturedClipTriangleLoopTail
+         NOP                                                        NOP
+
+texturedClipEmitPolygon:
+         NOP                                                        b texturedClipTriangleLoopTail
+         NOP                                                        NOP
+         NOP                                                        isw.x VI01, 0x0000004e(VI00)
+         NOP                                                        isw.x VI03, 0x0000004f(VI00)
+         NOP                                                        iaddiu VI09, VI00, 0x00000000
+         NOP                                                        bal VI15, texturedClipPolygonAgainstPlane
+         NOP                                                        NOP
+         NOP                                                        ibeq VI13, VI00, texturedClipRestoreTriangleLoopTail
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI09, VI00, 0x00000001
+         NOP                                                        bal VI15, texturedClipPolygonAgainstPlane
+         NOP                                                        NOP
+         NOP                                                        ibeq VI13, VI00, texturedClipRestoreTriangleLoopTail
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI09, VI00, 0x00000002
+         NOP                                                        bal VI15, texturedClipPolygonAgainstPlane
+         NOP                                                        NOP
+         NOP                                                        ibeq VI13, VI00, texturedClipRestoreTriangleLoopTail
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI09, VI00, 0x00000003
+         NOP                                                        bal VI15, texturedClipPolygonAgainstPlane
+         NOP                                                        NOP
+         NOP                                                        ibeq VI13, VI00, texturedClipRestoreTriangleLoopTail
+         NOP                                                        NOP
+texturedClipTriangulatePolygon:
+         NOP                                                        ilw.x VI03, 0x0000004f(VI00)
+         NOP                                                        iaddiu VI14, VI00, 0x00000003
+         NOP                                                        isub VI14, VI13, VI14
+         NOP                                                        ibltz VI14, texturedClipRestoreTriangleLoopTail
+         NOP                                                        NOP
+         NOP                                                        lq VF18, 0(VI12)
+         NOP                                                        lq VF21, 1(VI12)
+         NOP                                                        iaddiu VI10, VI12, 0x00000002
+         NOP                                                        isubiu VI14, VI13, 0x00000002
+texturedClipEmitTriangleFanLoop:
+         NOP                                                        lq VF19, 0(VI10)
+         NOP                                                        lq VF22, 1(VI10)
+         NOP                                                        lq VF20, 2(VI10)
+         NOP                                                        lq VF23, 3(VI10)
+         NOP                                                        bal VI15, texturedClipEmitTriangle
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI10, VI10, 0x00000002
+         NOP                                                        isubiu VI14, VI14, 0x00000001
+         NOP                                                        ibne VI14, VI00, texturedClipEmitTriangleFanLoop
+         NOP                                                        NOP
+texturedClipRestoreTriangleLoopTail:
+         NOP                                                        ilw.x VI01, 0x0000004e(VI00)
+         NOP                                                        ilw.x VI03, 0x0000004f(VI00)
+
+texturedClipTriangleLoopTail:
+         NOP                                                        iaddiu VI05, VI05, 0x00000007
+         NOP                                                        isubiu VI01, VI01, 0x00000001
+         NOP                                                        ibne VI01, VI00, texturedClipTriangleLoop
+         NOP                                                        NOP
+texturedClipRestoreGifTagEndFlag:
+         NOP                                                        iaddiu VI09, VI00, 0x00007fff
+         NOP                                                        iaddiu VI09, VI09, 0x00000001
+         NOP                                                        iadd VI07, VI06, VI06
+         NOP                                                        iadd VI07, VI07, VI06
+         NOP                                                        iadd VI07, VI07, VI09
+         NOP                                                        isw.x VI07, 7(VI04)
+         NOP                                                        xgkick VI04
+         NOP[E]                                                     NOP
+         NOP                                                        NOP
+
+; Interpolates one crossing edge at clip Z epsilon.
+; Input: VF28/VF30 start position/UV, VF29/VF31 end position/UV.
+; Output: VF28/VF30 clipped position/UV.
+texturedClipIntersectEdge:
+         sub.xyzw      VF29, VF29, VF28                             NOP
+         sub.xy        VF31, VF31, VF30                             NOP
+         NOP                                                        loi 0x3727c5ac
+         subi.z        VF27, VF28, I                                NOP
+         sub.z         VF27, VF00, VF27                             NOP
+         NOP                                                        div Q, VF27z, VF29z
+         mulq.xyzw     VF29, VF29, Q                                waitq
+         mulq.xy       VF31, VF31, Q                                NOP
+         add.xyzw      VF28, VF28, VF29                             NOP
+         add.xy        VF30, VF30, VF31                             NOP
+         NOP                                                        loi 0x3727c5ac
+         addi.z        VF28, VF00, I                                NOP
+         NOP                                                        jr VI15
+         NOP                                                        NOP
+
+; Clips the polygon in VI12/VI13 against one homogeneous side plane selected by VI09.
+; Plane 0 is left, 1 is right, 2 is bottom, and 3 is top. Position/UV pairs alternate
+; between qword buffers 0x50 and 0x60. VI01 is available because the caller saves it.
+texturedClipPolygonAgainstPlane:
+         NOP                                                        iaddiu VI01, VI00, 0x00000001
+         NOP                                                        ibeq VI09, VI01, texturedClipPolygonUseBufferA
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI01, VI00, 0x00000003
+         NOP                                                        ibeq VI09, VI01, texturedClipPolygonUseBufferA
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI10, VI00, 0x00000060
+         NOP                                                        b texturedClipPolygonOutputReady
+         NOP                                                        NOP
+texturedClipPolygonUseBufferA:
+         NOP                                                        iaddiu VI10, VI00, 0x00000050
+texturedClipPolygonOutputReady:
+         NOP                                                        iaddiu VI11, VI00, 0x00000000
+         NOP                                                        iadd VI07, VI13, VI13
+         NOP                                                        isubiu VI07, VI07, 0x00000002
+         NOP                                                        iadd VI07, VI07, VI12
+         NOP                                                        lq VF18, 0(VI07)
+         NOP                                                        lq VF21, 1(VI07)
+         NOP                                                        iaddiu VI01, VI00, 0x00000000
+         NOP                                                        ibeq VI09, VI01, texturedClipDistanceLeft
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI01, VI00, 0x00000001
+         NOP                                                        ibeq VI09, VI01, texturedClipDistanceRight
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI01, VI00, 0x00000002
+         NOP                                                        ibeq VI09, VI01, texturedClipDistanceBottom
+         NOP                                                        NOP
+         NOP                                                        b texturedClipDistanceTop
+         NOP                                                        NOP
+texturedClipDistanceLeft:
+         addw.x        VF24, VF18, VF18w                            NOP
+         NOP                                                        b texturedClipPreviousDistanceReady
+         NOP                                                        NOP
+texturedClipDistanceRight:
+         sub.x         VF24, VF00, VF18                             NOP
+         addw.x        VF24, VF24, VF18w                            NOP
+         NOP                                                        b texturedClipPreviousDistanceReady
+         NOP                                                        NOP
+texturedClipDistanceBottom:
+         addy.x        VF24, VF00, VF18y                            NOP
+         addw.x        VF24, VF24, VF18w                            NOP
+         NOP                                                        b texturedClipPreviousDistanceReady
+         NOP                                                        NOP
+texturedClipDistanceTop:
+         suby.x        VF24, VF00, VF18y                            NOP
+         addw.x        VF24, VF24, VF18w                            NOP
+texturedClipPreviousDistanceReady:
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI01, VI00, 0x00000080
+         NOP                                                        fmand VI07, VI01
+         NOP                                                        iadd VI14, VI13, VI00
+texturedClipPolygonEdgeLoop:
+         NOP                                                        lq VF19, 0(VI12)
+         NOP                                                        lq VF22, 1(VI12)
+         NOP                                                        iaddiu VI01, VI00, 0x00000000
+         NOP                                                        ibeq VI09, VI01, texturedClipCurrentDistanceLeft
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI01, VI00, 0x00000001
+         NOP                                                        ibeq VI09, VI01, texturedClipCurrentDistanceRight
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI01, VI00, 0x00000002
+         NOP                                                        ibeq VI09, VI01, texturedClipCurrentDistanceBottom
+         NOP                                                        NOP
+         NOP                                                        b texturedClipCurrentDistanceTop
+         NOP                                                        NOP
+texturedClipCurrentDistanceLeft:
+         addw.x        VF25, VF19, VF19w                            NOP
+         NOP                                                        b texturedClipCurrentDistanceReady
+         NOP                                                        NOP
+texturedClipCurrentDistanceRight:
+         sub.x         VF25, VF00, VF19                             NOP
+         addw.x        VF25, VF25, VF19w                            NOP
+         NOP                                                        b texturedClipCurrentDistanceReady
+         NOP                                                        NOP
+texturedClipCurrentDistanceBottom:
+         addy.x        VF25, VF00, VF19y                            NOP
+         addw.x        VF25, VF25, VF19w                            NOP
+         NOP                                                        b texturedClipCurrentDistanceReady
+         NOP                                                        NOP
+texturedClipCurrentDistanceTop:
+         suby.x        VF25, VF00, VF19y                            NOP
+         addw.x        VF25, VF25, VF19w                            NOP
+texturedClipCurrentDistanceReady:
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI01, VI00, 0x00000080
+         NOP                                                        fmand VI01, VI01
+         NOP                                                        ibeq VI07, VI01, texturedClipPolygonNoIntersection
+         NOP                                                        NOP
+         sub.x         VF27, VF24, VF25                             NOP
+         NOP                                                        div Q, VF24x, VF27x
+         sub.xyzw      VF28, VF19, VF18                             NOP
+         sub.xy        VF30, VF22, VF21                             NOP
+         mulq.xyzw     VF28, VF28, Q                                waitq
+         mulq.xy       VF30, VF30, Q                                NOP
+         add.xyzw      VF28, VF18, VF28                             NOP
+         add.xy        VF30, VF21, VF30                             NOP
+         NOP                                                        iaddiu VI03, VI00, 0x00000008
+         NOP                                                        ibeq VI11, VI03, texturedClipPolygonOverflow
+         NOP                                                        NOP
+         NOP                                                        sq VF28, 0(VI10)
+         NOP                                                        sq VF30, 1(VI10)
+         NOP                                                        iaddiu VI10, VI10, 0x00000002
+         NOP                                                        iaddiu VI11, VI11, 0x00000001
+texturedClipPolygonNoIntersection:
+         NOP                                                        ibne VI01, VI00, texturedClipPolygonAdvanceEdge
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI03, VI00, 0x00000008
+         NOP                                                        ibeq VI11, VI03, texturedClipPolygonOverflow
+         NOP                                                        NOP
+         NOP                                                        sq VF19, 0(VI10)
+         NOP                                                        sq VF22, 1(VI10)
+         NOP                                                        iaddiu VI10, VI10, 0x00000002
+         NOP                                                        iaddiu VI11, VI11, 0x00000001
+texturedClipPolygonAdvanceEdge:
+         mulw.xyzw     VF18, VF19, VF00w                            NOP
+         mulw.xyzw     VF21, VF22, VF00w                            NOP
+         mulw.x        VF24, VF25, VF00w                            NOP
+         NOP                                                        iadd VI07, VI01, VI00
+         NOP                                                        iaddiu VI12, VI12, 0x00000002
+         NOP                                                        isubiu VI14, VI14, 0x00000001
+         NOP                                                        ibne VI14, VI00, texturedClipPolygonEdgeLoop
+         NOP                                                        NOP
+         NOP                                                        iadd VI13, VI11, VI00
+         NOP                                                        iaddiu VI01, VI00, 0x00000001
+         NOP                                                        ibeq VI09, VI01, texturedClipPolygonRestoreBufferA
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI01, VI00, 0x00000003
+         NOP                                                        ibeq VI09, VI01, texturedClipPolygonRestoreBufferA
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI12, VI00, 0x00000060
+         NOP                                                        jr VI15
+         NOP                                                        NOP
+texturedClipPolygonRestoreBufferA:
+         NOP                                                        iaddiu VI12, VI00, 0x00000050
+         NOP                                                        jr VI15
+         NOP                                                        NOP
+texturedClipPolygonOverflow:
+         NOP                                                        iaddiu VI13, VI00, 0x00000000
+         NOP                                                        jr VI15
+         NOP                                                        NOP
+
+; Projects and conditionally compacts one already-clipped triangle.
+; Input: VF18-20 clip positions, VF21-23 raw UV, VF17 lit colour.
+texturedClipEmitTriangle:
+texturedClipValidateTriangleA:
+         addw.x        VF24, VF18, VF18w                            NOP
+         sub.x         VF25, VF00, VF18                             NOP
+         addw.x        VF25, VF25, VF18w                            NOP
+         minix.x       VF24, VF24, VF25x                            NOP
+         addy.x        VF25, VF00, VF18y                            NOP
+         addw.x        VF25, VF25, VF18w                            NOP
+         minix.x       VF24, VF24, VF25x                            NOP
+         suby.x        VF25, VF00, VF18y                            NOP
+         addw.x        VF25, VF25, VF18w                            NOP
+         minix.x       VF24, VF24, VF25x                            NOP
+         NOP                                                        loi 0x3727c5ac
+         subi.z        VF25, VF18, I                                NOP
+         miniz.x       VF24, VF24, VF25z                            NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI07, VI00, 0x00000080
+         NOP                                                        fmand VI07, VI07
+         NOP                                                        ibne VI07, VI00, texturedClipEmitTriangleReturn
+         NOP                                                        NOP
+texturedClipValidateTriangleB:
+         addw.x        VF24, VF19, VF19w                            NOP
+         sub.x         VF25, VF00, VF19                             NOP
+         addw.x        VF25, VF25, VF19w                            NOP
+         minix.x       VF24, VF24, VF25x                            NOP
+         addy.x        VF25, VF00, VF19y                            NOP
+         addw.x        VF25, VF25, VF19w                            NOP
+         minix.x       VF24, VF24, VF25x                            NOP
+         suby.x        VF25, VF00, VF19y                            NOP
+         addw.x        VF25, VF25, VF19w                            NOP
+         minix.x       VF24, VF24, VF25x                            NOP
+         NOP                                                        loi 0x3727c5ac
+         subi.z        VF25, VF19, I                                NOP
+         miniz.x       VF24, VF24, VF25z                            NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI07, VI00, 0x00000080
+         NOP                                                        fmand VI07, VI07
+         NOP                                                        ibne VI07, VI00, texturedClipEmitTriangleReturn
+         NOP                                                        NOP
+texturedClipValidateTriangleC:
+         addw.x        VF24, VF20, VF20w                            NOP
+         sub.x         VF25, VF00, VF20                             NOP
+         addw.x        VF25, VF25, VF20w                            NOP
+         minix.x       VF24, VF24, VF25x                            NOP
+         addy.x        VF25, VF00, VF20y                            NOP
+         addw.x        VF25, VF25, VF20w                            NOP
+         minix.x       VF24, VF24, VF25x                            NOP
+         suby.x        VF25, VF00, VF20y                            NOP
+         addw.x        VF25, VF25, VF20w                            NOP
+         minix.x       VF24, VF24, VF25x                            NOP
+         NOP                                                        loi 0x3727c5ac
+         subi.z        VF25, VF20, I                                NOP
+         miniz.x       VF24, VF24, VF25z                            NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        iaddiu VI07, VI00, 0x00000080
+         NOP                                                        fmand VI07, VI07
+         NOP                                                        ibne VI07, VI00, texturedClipEmitTriangleReturn
+         NOP                                                        NOP
+texturedClipEmitTriangleProject:
+         mulw.xyzw     VF08, VF18, VF00w                            NOP
+         mulw.xyzw     VF09, VF21, VF00w                            NOP
+         NOP                                                        div           Q, VF00w, VF08w
+         mulq.xy       VF09, VF09, Q                                waitq
+         addq.z        VF09, VF00, Q                                NOP
+         mulq.xyz      VF08, VF08, Q                                NOP
+         add.xy        VF24, VF08, VF00                             NOP
+         mul.xyz       VF08, VF08, VF05                             NOP
+         add.xyz       VF08, VF08, VF06                             NOP
+         ftoi4.xy      VF08, VF08                                   NOP
+         ftoi0.z       VF08, VF08                                   NOP
+         NOP                                                        sq VF09, 0(VI03)
+         NOP                                                        sq VF17, 1(VI03)
+         NOP                                                        sq VF08, 2(VI03)
+         NOP                                                        isw.w VI06, 2(VI03)
+         mulw.xyzw     VF08, VF19, VF00w                            NOP
+         mulw.xyzw     VF09, VF22, VF00w                            NOP
+         NOP                                                        div           Q, VF00w, VF08w
+         mulq.xy       VF09, VF09, Q                                waitq
+         addq.z        VF09, VF00, Q                                NOP
+         mulq.xyz      VF08, VF08, Q                                NOP
+         add.xy        VF25, VF08, VF00                             NOP
+         mul.xyz       VF08, VF08, VF05                             NOP
+         add.xyz       VF08, VF08, VF06                             NOP
+         ftoi4.xy      VF08, VF08                                   NOP
+         ftoi0.z       VF08, VF08                                   NOP
+         NOP                                                        sq VF09, 3(VI03)
+         NOP                                                        sq VF17, 4(VI03)
+         NOP                                                        sq VF08, 5(VI03)
+         NOP                                                        isw.w VI06, 5(VI03)
+         mulw.xyzw     VF08, VF20, VF00w                            NOP
+         mulw.xyzw     VF09, VF23, VF00w                            NOP
+         NOP                                                        div           Q, VF00w, VF08w
+         mulq.xy       VF09, VF09, Q                                waitq
+         addq.z        VF09, VF00, Q                                NOP
+         mulq.xyz      VF08, VF08, Q                                NOP
+         add.xy        VF26, VF08, VF00                             NOP
+         mul.xyz       VF08, VF08, VF05                             NOP
+         add.xyz       VF08, VF08, VF06                             NOP
+         ftoi4.xy      VF08, VF08                                   NOP
+         ftoi0.z       VF08, VF08                                   NOP
+         NOP                                                        sq VF09, 6(VI03)
+         NOP                                                        sq VF17, 7(VI03)
+         NOP                                                        sq VF08, 8(VI03)
+         NOP                                                        isw.w VI06, 8(VI03)
+         NOP                                                        ibne VI08, VI00, texturedClipEmitTriangleAccepted
+         NOP                                                        NOP
+         sub.xy        VF27, VF25, VF24                             NOP
+         sub.xy        VF28, VF26, VF24                             NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         opmula.xyz    ACC, VF27xyz, VF28xyz                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         opmsub.xyz    VF29xyz, VF28xyz, VF27xyz                    NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         ftoi12.z      VF29, VF29                                   NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        mtir VI07, VF29z
+         NOP                                                        NOP
+         NOP                                                        NOP
+         NOP                                                        ibltz VI07, texturedClipEmitTriangleReturn
+         NOP                                                        NOP
+texturedClipEmitTriangleAccepted:
+         NOP                                                        iaddiu VI03, VI03, 0x00000009
+         NOP                                                        iaddiu VI06, VI06, 0x00000001
+texturedClipEmitTriangleReturn:
+         NOP                                                        jr VI15
+         NOP                                                        NOP
+
+		.align 4
+Ps2OpaqueTexturedClipDraw3D_CodeEnd:

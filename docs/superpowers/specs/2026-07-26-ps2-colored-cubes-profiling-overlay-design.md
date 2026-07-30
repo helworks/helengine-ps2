@@ -23,7 +23,9 @@ The first profiling build may add direct-GIF allocation and final-copy timing on
 
 ## Data Flow
 
-`Ps2VuVifPacketBuilder` already records setup, preparation, emission, lighting, payload-fill, and assembly timings. `Ps2RenderManager3D` aggregates these values per frame and publishes them through `Core::SetPerformanceOverlayMetrics`. The change extends that presentation contract so the performance component can render every listed value, rather than only aggregate `3D` and `Enc` data.
+`Ps2VuVifPacketBuilder` already records setup, preparation, emission, lighting, payload-fill, and assembly timings. `Ps2RenderManager3D` aggregates these values per frame and the PS2 boot host publishes four platform-owned text rows through `Core::SetPerformanceOverlayTextRows`.
+
+The shared `FPSComponent` already creates and lays out additional text rows, but its compatibility merge currently resolves platform-owned detail and additional text to empty strings. The change removes that suppression and merges the platform-owned detail/additional rows into the existing dynamic-row path. PS2 remains the sole producer of PS2 renderer values.
 
 The overlay consumes only renderer-owned measurements. It does not infer GPU time from CPU encode time, and it preserves zero-valued VIF/GIF timing when the direct-GIF path does not wait on either subsystem.
 

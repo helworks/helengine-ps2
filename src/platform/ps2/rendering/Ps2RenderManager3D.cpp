@@ -892,6 +892,9 @@ namespace helengine::ps2 {
           LastProjectionRejectCount(0),
           LastCullRejectCount(0),
           LastSubmittedTriangleCount(0),
+          LastFastTexturedSliceCount(0),
+          LastClippedTexturedSliceCount(0),
+          LastRejectedTexturedSliceCount(0),
           LastVuBatchDispatchCount(0),
           LastVuTriangleVertexCount(0),
           LastVuPacketByteCount(0),
@@ -1104,6 +1107,9 @@ namespace helengine::ps2 {
         LastProjectionRejectCount = 0;
         LastCullRejectCount = 0;
         LastSubmittedTriangleCount = 0;
+        LastFastTexturedSliceCount = 0;
+        LastClippedTexturedSliceCount = 0;
+        LastRejectedTexturedSliceCount = 0;
         LastVuBatchDispatchCount = 0;
         LastVuTriangleVertexCount = 0;
         LastVuPacketByteCount = 0;
@@ -1388,7 +1394,6 @@ namespace helengine::ps2 {
                 && batchTexture != nullptr
                 && batchTextureWidth > 0
                 && batchTextureHeight > 0) {
-                const bool useTexturedVuSourcePath = !UseDirectGifTexturedSubmission;
                 const Ps2VuOpaqueBatch* texturedBatch = &batch;
                 if (usesRuntimeWhiteTexture) {
                     runtimeWhiteTexturedBatches.push_back(batch);
@@ -1396,6 +1401,7 @@ namespace helengine::ps2 {
                     texturedBatch = &runtimeWhiteTexturedBatches.back();
                 }
 
+                const bool useTexturedVuSourcePath = !UseDirectGifTexturedSubmission;
                 std::vector<Ps2VuOpaqueBatchSlice> batchSlices = CreateOpaqueBatchSlices(
                     *texturedBatch,
                     useTexturedVuSourcePath
@@ -1408,13 +1414,14 @@ namespace helengine::ps2 {
                         texturedVuTextures.push_back(batchTexture);
                         texturedVuTextureWidths.push_back(batchTextureWidth);
                         texturedVuTextureHeights.push_back(batchTextureHeight);
-                    } else {
-                        cpuFallbackTexturedBatches.push_back(batchSlice);
-                        texturedWorlds.push_back(world);
-                        texturedTextures.push_back(batchTexture);
-                        texturedTextureWidths.push_back(batchTextureWidth);
-                        texturedTextureHeights.push_back(batchTextureHeight);
+                        continue;
                     }
+
+                    cpuFallbackTexturedBatches.push_back(batchSlice);
+                    texturedWorlds.push_back(world);
+                    texturedTextures.push_back(batchTexture);
+                    texturedTextureWidths.push_back(batchTextureWidth);
+                    texturedTextureHeights.push_back(batchTextureHeight);
                 }
                 continue;
             }
@@ -1741,6 +1748,9 @@ namespace helengine::ps2 {
                 LastVuPacketPhase = VuVifPacketBuilder.GetLastCompletedPhase();
                 LastSubmittedTriangleCount += VuVifPacketBuilder.GetSubmittedTriangleCount();
                 LastPerformanceMetrics.SubmittedTriangleCount += VuVifPacketBuilder.GetSubmittedTriangleCount();
+                LastFastTexturedSliceCount += VuVifPacketBuilder.GetFastTexturedSliceCount();
+                LastClippedTexturedSliceCount += VuVifPacketBuilder.GetClippedTexturedSliceCount();
+                LastRejectedTexturedSliceCount += VuVifPacketBuilder.GetRejectedTexturedSliceCount();
                 for (std::size_t batchIndex = firstTexturedVuBatchIndex; batchIndex < nextTexturedVuBatchIndex; batchIndex++) {
                     LastVuTriangleVertexCount += texturedVuBatches[batchIndex].SourceTriangleCount * 3u;
                 }
@@ -1998,8 +2008,8 @@ namespace helengine::ps2 {
         const float boundX[] = { boundsMinimum.X, boundsMaximum.X };
         const float boundY[] = { boundsMinimum.Y, boundsMaximum.Y };
         const float boundZ[] = { boundsMinimum.Z, boundsMaximum.Z };
-        bool allBoundsInside = true;
 
+        bool allBoundsInside = true;
         for (std::size_t xIndex = 0u; xIndex < 2u; xIndex++) {
             for (std::size_t yIndex = 0u; yIndex < 2u; yIndex++) {
                 for (std::size_t zIndex = 0u; zIndex < 2u; zIndex++) {
@@ -2081,6 +2091,18 @@ namespace helengine::ps2 {
 
     std::size_t Ps2RenderManager3D::GetLastFrustumRejectedSliceCount() const {
         return 0u;
+    }
+
+    std::size_t Ps2RenderManager3D::GetLastFastTexturedSliceCount() const {
+        return LastFastTexturedSliceCount;
+    }
+
+    std::size_t Ps2RenderManager3D::GetLastClippedTexturedSliceCount() const {
+        return LastClippedTexturedSliceCount;
+    }
+
+    std::size_t Ps2RenderManager3D::GetLastRejectedTexturedSliceCount() const {
+        return LastRejectedTexturedSliceCount;
     }
 
     std::size_t Ps2RenderManager3D::GetLastVuBatchDispatchCount() const {

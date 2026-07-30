@@ -63,6 +63,18 @@ namespace helengine::ps2 {
         std::size_t GetLastTexturedPacketCacheBuildCount() const;
         std::size_t GetLastFrustumRejectedBatchCount() const;
         std::size_t GetLastFrustumRejectedSliceCount() const;
+        /// <summary>
+        /// Returns the frame's textured source slices that retained the unchanged fast VU1 route.
+        /// </summary>
+        std::size_t GetLastFastTexturedSliceCount() const;
+        /// <summary>
+        /// Returns the frame's textured source slices processed by the VU1 near-plane clipper.
+        /// </summary>
+        std::size_t GetLastClippedTexturedSliceCount() const;
+        /// <summary>
+        /// Returns the frame's textured source slices rejected fully behind the camera plane.
+        /// </summary>
+        std::size_t GetLastRejectedTexturedSliceCount() const;
         std::size_t GetLastVuBatchDispatchCount() const;
         std::size_t GetLastVuTriangleVertexCount() const;
         std::size_t GetLastVuPacketByteCount() const;
@@ -179,6 +191,18 @@ namespace helengine::ps2 {
         std::size_t LastProjectionRejectCount;
         std::size_t LastCullRejectCount;
         std::size_t LastSubmittedTriangleCount;
+        /// <summary>
+        /// Accumulates fast textured source-slice routes for the current frame.
+        /// </summary>
+        std::size_t LastFastTexturedSliceCount;
+        /// <summary>
+        /// Accumulates clipped textured source-slice routes for the current frame.
+        /// </summary>
+        std::size_t LastClippedTexturedSliceCount;
+        /// <summary>
+        /// Accumulates rejected textured source-slice routes for the current frame.
+        /// </summary>
+        std::size_t LastRejectedTexturedSliceCount;
         std::size_t LastVuBatchDispatchCount;
         std::size_t LastVuTriangleVertexCount;
         std::size_t LastVuPacketByteCount;

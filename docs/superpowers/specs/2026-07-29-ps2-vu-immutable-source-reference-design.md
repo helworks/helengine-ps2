@@ -52,3 +52,29 @@ one-slice submission selection. A PS2 ISO build of Tilt Play Level 01 will be
 launched through the standard launcher. Acceptance requires stable geometry and
 lighting, no FPS N/A/hang, and a lower measured `Enc`/`Asm` time than B251's
 approximately 17.9/16.6 ms baseline.
+
+## Shared-state priming extension
+
+B253 proves that immutable source REF payloads are safe, but its approximately
+7.2 ms assembly time still writes the 21-qword dynamic shared-state record for
+every 32-triangle source slice. Consecutive slices of one opaque batch have the
+same transforms, lighting, texture state, and GIF state except their source
+payload. The renderer will prime that shared state into both configured VU
+double-buffer input halves once per contiguous batch group, then dispatch source
+REF payloads to the active TOP plus the existing 21-qword source offset.
+
+The first B254 implementation applies this only to two consecutive slices of
+one group. It retains B253's per-slice shared-state route for all other slices.
+The VU program, its source offset, GIF output base, and 32-triangle limit do not
+change. Full-scene rollout happens only after the proof build renders correctly.
+
+## Rejected shared-state priming experiment
+
+B254 produced holes in the final cube even though it kept the emulator running,
+and B255 corrupted the full scene. The experiment wrote state to fixed VU
+double-buffer addresses and later supplied source records using VIF TOP-relative
+REF uploads. Those operations do not provide a stable state/TOP pairing across
+successive dispatches. The renderer must continue to upload shared state through
+the same TOP-relative route as its corresponding source slice. The priming
+experiment is removed and must not be reintroduced without a VIF-level proof of
+TOP state transition semantics.
