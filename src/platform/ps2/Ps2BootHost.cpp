@@ -186,7 +186,7 @@ namespace {
     constexpr float CubeTriangle2dVertexB2X = 428.156738f;
     constexpr float CubeTriangle2dVertexB2Y = 115.843239f;
     constexpr float CubeTriangle3dDiagnosticDepth = 1.0f;
-    constexpr const char* FrameTimingOverlayBuildNumber = "B259";
+    constexpr const char* FrameTimingOverlayBuildNumber = "B263";
     bool DebugConsoleReady = false;
     bool CubeDiagnosticsShown = false;
     bool CubeRuntimeDiagnosticsCompleted = false;
@@ -222,6 +222,8 @@ namespace {
     double FrameTimingVuTriangleLightingMilliseconds = 0.0;
     double FrameTimingVuTrianglePayloadFillMilliseconds = 0.0;
     double FrameTimingVuPacketAssemblyMilliseconds = 0.0;
+    double FrameTimingTexturedVuStateBuildMilliseconds = 0.0;
+    double FrameTimingTexturedVuCommandEncodeMilliseconds = 0.0;
     double FrameTimingVuWaitMilliseconds = 0.0;
     double FrameTimingVuSubmitMilliseconds = 0.0;
     double FrameTimingVuPacketEncodeMilliseconds = 0.0;
@@ -705,6 +707,8 @@ namespace {
         FrameTimingVuTriangleLightingMilliseconds += renderManager3DBackend.GetLastVuTriangleLightingMilliseconds();
         FrameTimingVuTrianglePayloadFillMilliseconds += renderManager3DBackend.GetLastVuTrianglePayloadFillMilliseconds();
         FrameTimingVuPacketAssemblyMilliseconds += renderManager3DBackend.GetLastVuPacketAssemblyMilliseconds();
+        FrameTimingTexturedVuStateBuildMilliseconds += renderManager3DBackend.GetLastTexturedVuStateBuildMilliseconds();
+        FrameTimingTexturedVuCommandEncodeMilliseconds += renderManager3DBackend.GetLastTexturedVuCommandEncodeMilliseconds();
         FrameTimingVuWaitMilliseconds += metrics.VifReuseWaitMilliseconds;
         FrameTimingVuSubmitMilliseconds += metrics.VifSubmitMilliseconds;
         FrameTimingVuPacketEncodeMilliseconds += metrics.PacketEncodeMilliseconds;
@@ -770,6 +774,8 @@ namespace {
         const double averageVuTriangleLightingMilliseconds = FrameTimingVuTriangleLightingMilliseconds / sampledFrameCount;
         const double averageVuTrianglePayloadFillMilliseconds = FrameTimingVuTrianglePayloadFillMilliseconds / sampledFrameCount;
         const double averageVuPacketAssemblyMilliseconds = FrameTimingVuPacketAssemblyMilliseconds / sampledFrameCount;
+        const double averageTexturedVuStateBuildMilliseconds = FrameTimingTexturedVuStateBuildMilliseconds / sampledFrameCount;
+        const double averageTexturedVuCommandEncodeMilliseconds = FrameTimingTexturedVuCommandEncodeMilliseconds / sampledFrameCount;
         const double averageVuWaitMilliseconds = FrameTimingVuWaitMilliseconds / sampledFrameCount;
         const double averageVuSubmitMilliseconds = FrameTimingVuSubmitMilliseconds / sampledFrameCount;
         const double averageVuPacketEncodeMilliseconds = FrameTimingVuPacketEncodeMilliseconds / sampledFrameCount;
@@ -869,10 +875,10 @@ namespace {
             + " Sync "
             + FormatOverlayMilliseconds(averageProxySyncMilliseconds);
         FrameTimingOverlayLine2 =
-            std::string("Plan ")
-            + FormatOverlayMilliseconds(averageFramePlanMilliseconds)
-            + " Bld "
-            + FormatOverlayMilliseconds(averageVuBatchBuildMilliseconds)
+            std::string("State ")
+            + FormatOverlayMilliseconds(averageTexturedVuStateBuildMilliseconds)
+            + " Cmd "
+            + FormatOverlayMilliseconds(averageTexturedVuCommandEncodeMilliseconds)
             + " Setup "
             + FormatOverlayMilliseconds(averageVuTriangleSetupMilliseconds)
             + " Enc "
@@ -923,6 +929,8 @@ namespace {
         FrameTimingVuTriangleLightingMilliseconds = 0.0;
         FrameTimingVuTrianglePayloadFillMilliseconds = 0.0;
         FrameTimingVuPacketAssemblyMilliseconds = 0.0;
+        FrameTimingTexturedVuStateBuildMilliseconds = 0.0;
+        FrameTimingTexturedVuCommandEncodeMilliseconds = 0.0;
         FrameTimingVuWaitMilliseconds = 0.0;
         FrameTimingVuSubmitMilliseconds = 0.0;
         FrameTimingVuPacketEncodeMilliseconds = 0.0;

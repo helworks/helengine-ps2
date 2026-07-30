@@ -68,6 +68,8 @@ namespace helengine::ps2 {
         double GetLastTriangleEmitMilliseconds() const;
         double GetLastTriangleLightingMilliseconds() const;
         double GetLastTrianglePayloadFillMilliseconds() const;
+        double GetLastTexturedVuStateBuildMilliseconds() const;
+        double GetLastTexturedVuCommandEncodeMilliseconds() const;
         std::size_t GetSubmittedTriangleCount() const;
         ::float4 GetSubmittedScreenBounds() const;
         ::float4 GetSubmittedTriangleBoundsA() const;
@@ -91,6 +93,8 @@ namespace helengine::ps2 {
         double LastTriangleEmitMilliseconds = 0.0;
         double LastTriangleLightingMilliseconds = 0.0;
         double LastTrianglePayloadFillMilliseconds = 0.0;
+        double LastTexturedVuStateBuildMilliseconds = 0.0;
+        double LastTexturedVuCommandEncodeMilliseconds = 0.0;
         std::size_t SubmittedTriangleCount = 0;
         ::float4 SubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         ::float4 SubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);

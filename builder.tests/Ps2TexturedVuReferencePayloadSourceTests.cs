@@ -34,6 +34,45 @@ public sealed class Ps2TexturedVuReferencePayloadSourceTests {
         string source = File.ReadAllText("../../../../src/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp");
 
         Assert.Contains("constexpr float DirectionalLightDiffuseIntensity = 0.65f;", source);
-        Assert.Contains("sharedState.MaterialLighting[3] = static_cast<float>(lightingConstants.DiffuseScale) * DirectionalLightDiffuseIntensity;", source);
+        Assert.Contains("cachedSharedState.MaterialLighting[3] = static_cast<float>(lightingConstants.DiffuseScale) * DirectionalLightDiffuseIntensity;", source);
+    }
+
+    /// <summary>
+    /// Confirms that the textured VU source path records state construction separately from VIF command encoding so packet-assembly work can be optimized from measured evidence.
+    /// </summary>
+    [Fact]
+    public void TexturedVuPath_ProfilesSharedStateAndCommandEncodingSeparately() {
+        string source = File.ReadAllText("../../../../src/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp");
+        string header = File.ReadAllText("../../../../src/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.hpp");
+
+        Assert.Contains("LastTexturedVuStateBuildMilliseconds", source);
+        Assert.Contains("LastTexturedVuCommandEncodeMilliseconds", source);
+        Assert.Contains("double GetLastTexturedVuStateBuildMilliseconds() const;", header);
+        Assert.Contains("double GetLastTexturedVuCommandEncodeMilliseconds() const;", header);
+    }
+
+    /// <summary>
+    /// Confirms consecutive source slices reuse their immutable batch state and patch only the slice-specific triangle fields.
+    /// </summary>
+    [Fact]
+    public void TexturedVuPath_ReusesSharedStateForConsecutiveBatchSlices() {
+        string source = File.ReadAllText("../../../../src/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp");
+
+        Assert.Contains("const Ps2VuOpaqueBatch* cachedSharedStateBatch = nullptr;", source);
+        Assert.Contains("if (cachedSharedStateBatch != batch) {", source);
+        Assert.Contains("sharedState = cachedSharedState;", source);
+        Assert.Contains("sharedState.TriangleCount[0] = static_cast<std::uint32_t>(batchSlice.SourceTriangleCount);", source);
+    }
+
+    /// <summary>
+    /// Confirms normal textured VU rendering does not read the EE clock for every source slice when payload diagnostics are disabled.
+    /// </summary>
+    [Fact]
+    public void TexturedVuPath_WhenPerSliceDiagnosticsAreDisabled_DoesNotReadClockForPayloadEncoding() {
+        string source = File.ReadAllText("../../../../src/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp");
+
+        Assert.Contains("constexpr bool EnableTexturedVuPerSliceTimingDiagnostics = false;", source);
+        Assert.Contains("const std::clock_t sourcePayloadFillStartTicks = EnableTexturedVuPerSliceTimingDiagnostics ? std::clock() : 0;", source);
+        Assert.Contains("if (EnableTexturedVuPerSliceTimingDiagnostics) {", source);
     }
 }

@@ -58,6 +58,11 @@ namespace helengine::ps2 {
         std::size_t GetLastProjectionRejectCount() const;
         std::size_t GetLastCullRejectCount() const;
         std::size_t GetLastSubmittedTriangleCount() const;
+        std::size_t GetLastTexturedSubmittedTriangleCount() const;
+        std::size_t GetLastUntexturedSubmittedTriangleCount() const;
+        std::size_t GetLastTexturedPacketCacheBuildCount() const;
+        std::size_t GetLastFrustumRejectedBatchCount() const;
+        std::size_t GetLastFrustumRejectedSliceCount() const;
         std::size_t GetLastVuBatchDispatchCount() const;
         std::size_t GetLastVuTriangleVertexCount() const;
         std::size_t GetLastVuPacketByteCount() const;
@@ -77,7 +82,10 @@ namespace helengine::ps2 {
         double GetLastVuTriangleEmitMilliseconds() const;
         double GetLastVuTriangleLightingMilliseconds() const;
         double GetLastVuTrianglePayloadFillMilliseconds() const;
+        double GetLastTexturedVuStateBuildMilliseconds() const;
+        double GetLastTexturedVuCommandEncodeMilliseconds() const;
         const Ps2RenderPerformanceMetrics& GetLastPerformanceMetrics() const;
+        void SetLastVifDrainMilliseconds(double milliseconds);
         void SetLastGifDrainMilliseconds(double milliseconds);
         bool IsUsingLegacyCpuOpaquePath() const;
         ::float4 GetLastResolvedViewport() const;
@@ -190,6 +198,8 @@ namespace helengine::ps2 {
         double LastVuTriangleEmitMilliseconds;
         double LastVuTriangleLightingMilliseconds;
         double LastVuTrianglePayloadFillMilliseconds;
+        double LastTexturedVuStateBuildMilliseconds;
+        double LastTexturedVuCommandEncodeMilliseconds;
         Ps2RenderPerformanceMetrics LastPerformanceMetrics;
         ::float4 LastResolvedViewport;
         ::float4 LastSubmittedScreenBounds;

@@ -909,8 +909,10 @@ namespace helengine::ps2 {
             LastVuPacketAssemblyMilliseconds(0.0),
           LastVuTrianglePrepMilliseconds(0.0),
           LastVuTriangleEmitMilliseconds(0.0),
-          LastVuTriangleLightingMilliseconds(0.0),
-          LastVuTrianglePayloadFillMilliseconds(0.0),
+            LastVuTriangleLightingMilliseconds(0.0),
+            LastVuTrianglePayloadFillMilliseconds(0.0),
+            LastTexturedVuStateBuildMilliseconds(0.0),
+            LastTexturedVuCommandEncodeMilliseconds(0.0),
           LastPerformanceMetrics(),
           LastResolvedViewport(),
           LastSubmittedScreenBounds(),
@@ -1119,6 +1121,8 @@ namespace helengine::ps2 {
         LastVuTriangleEmitMilliseconds = 0.0;
         LastVuTriangleLightingMilliseconds = 0.0;
         LastVuTrianglePayloadFillMilliseconds = 0.0;
+        LastTexturedVuStateBuildMilliseconds = 0.0;
+        LastTexturedVuCommandEncodeMilliseconds = 0.0;
         LastPerformanceMetrics = Ps2RenderPerformanceMetrics {};
         LastResolvedViewport = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastSubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -1744,6 +1748,8 @@ namespace helengine::ps2 {
                 LastVuPacketEncodeMilliseconds += ResolveMillisecondsFromClockTicks(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);
                 LastPerformanceMetrics.PacketEncodeMilliseconds += ResolveMillisecondsFromClockTicks(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);
                 LastVuPacketAssemblyMilliseconds += VuVifPacketBuilder.GetLastPacketAssemblyMilliseconds();
+                LastTexturedVuStateBuildMilliseconds += VuVifPacketBuilder.GetLastTexturedVuStateBuildMilliseconds();
+                LastTexturedVuCommandEncodeMilliseconds += VuVifPacketBuilder.GetLastTexturedVuCommandEncodeMilliseconds();
                 LastVuPacketByteCount += VuVifPacketBuilder.GetPacketByteCount();
                 LastPerformanceMetrics.VifPacketByteCount += VuVifPacketBuilder.GetPacketByteCount();
                 LastVuPacketPhase = VuVifPacketBuilder.GetLastCompletedPhase();
@@ -2165,6 +2171,14 @@ namespace helengine::ps2 {
 
     double Ps2RenderManager3D::GetLastVuTrianglePayloadFillMilliseconds() const {
         return LastVuTrianglePayloadFillMilliseconds;
+    }
+
+    double Ps2RenderManager3D::GetLastTexturedVuStateBuildMilliseconds() const {
+        return LastTexturedVuStateBuildMilliseconds;
+    }
+
+    double Ps2RenderManager3D::GetLastTexturedVuCommandEncodeMilliseconds() const {
+        return LastTexturedVuCommandEncodeMilliseconds;
     }
 
     const Ps2RenderPerformanceMetrics& Ps2RenderManager3D::GetLastPerformanceMetrics() const {
