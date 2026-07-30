@@ -34,6 +34,8 @@ namespace helengine::ps2 {
             bool createVifPacket);
         void AddOpaqueTexturedVuBatches(
             const std::vector<Ps2VuOpaqueBatchSlice>& batches,
+            std::size_t firstBatchIndex,
+            std::size_t batchCount,
             const std::vector<::float4x4>& worlds,
             const ::float4x4& view,
             const ::float4x4& projection,

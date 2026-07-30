@@ -75,4 +75,33 @@ public sealed class Ps2TexturedVuReferencePayloadSourceTests {
         Assert.Contains("const std::clock_t sourcePayloadFillStartTicks = EnableTexturedVuPerSliceTimingDiagnostics ? std::clock() : 0;", source);
         Assert.Contains("if (EnableTexturedVuPerSliceTimingDiagnostics) {", source);
     }
+
+    /// <summary>
+    /// Confirms packet assembly consumes ranges of the frame-owned slice vectors instead of allocating and copying temporary packet vectors.
+    /// </summary>
+    [Fact]
+    public void TexturedVuPath_UsesFrameOwnedSliceRangesWithoutTemporaryVectorCopies() {
+        string builderSource = File.ReadAllText("../../../../src/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp");
+        string rendererSource = File.ReadAllText("../../../../src/platform/ps2/rendering/Ps2RenderManager3D.cpp");
+
+        Assert.Contains("std::size_t firstBatchIndex,", builderSource);
+        Assert.Contains("std::size_t batchCount,", builderSource);
+        Assert.Contains("const std::size_t batchIndex = firstBatchIndex + batchOffset;", builderSource);
+        Assert.DoesNotContain("std::vector<Ps2VuOpaqueBatchSlice> packetTexturedVuBatches(", rendererSource);
+        Assert.DoesNotContain("std::vector<::float4x4> packetTexturedVuWorlds(", rendererSource);
+    }
+
+    /// <summary>
+    /// Confirms consecutive source slices reuse their already pinned immutable triangle vector instead of resolving the packet cache repeatedly.
+    /// </summary>
+    [Fact]
+    public void TexturedVuPath_ReusesResolvedSourceVectorForConsecutiveBatchSlices() {
+        string source = File.ReadAllText("../../../../src/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp");
+
+        Assert.Contains("const Ps2VuOpaqueBatch* cachedSourceBatch = nullptr;", source);
+        Assert.Contains("const std::vector<Ps2VuTexturedPackedTriangleSource>* cachedSourceTrianglesForBatch = nullptr;", source);
+        Assert.Contains("if (cachedSourceBatch != batch) {", source);
+        Assert.Contains("cachedSourceTrianglesForBatch = &TexturedPacketCache.ResolveReferencedPackedTriangleSources(*batch->Model, runtimeModel);", source);
+        Assert.Contains("const std::vector<Ps2VuTexturedPackedTriangleSource>& cachedSourceTriangles = *cachedSourceTrianglesForBatch;", source);
+    }
 }

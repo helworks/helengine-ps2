@@ -2217,6 +2217,8 @@ namespace helengine::ps2 {
 
     void Ps2VuVifPacketBuilder::AddOpaqueTexturedVuBatches(
         const std::vector<Ps2VuOpaqueBatchSlice>& batches,
+        std::size_t firstBatchIndex,
+        std::size_t batchCount,
         const std::vector<::float4x4>& worlds,
         const ::float4x4& view,
         const ::float4x4& projection,
@@ -2229,20 +2231,22 @@ namespace helengine::ps2 {
         if (batches.size() != worlds.size()
             || batches.size() != textures.size()
             || batches.size() != textureWidths.size()
-            || batches.size() != textureHeights.size()) {
+            || batches.size() != textureHeights.size()
+            || firstBatchIndex > batches.size()
+            || batchCount > (batches.size() - firstBatchIndex)) {
             throw std::invalid_argument("PS2 textured VU source packing requires aligned batch, world, and texture inputs.");
         }
         if (gsGlobal == nullptr) {
             throw std::invalid_argument("PS2 textured VU source packing requires a GS global.");
         }
-        if (batches.empty()) {
+        if (batchCount == 0u) {
             return;
         }
 
         const ::float3 normalizedLightDirection = NormalizeOrFallback(lightDirection, ::float3(0.0f, 0.0f, -1.0f));
 
         const std::size_t maximumPacketQwordCount = MinimumVifPacketOverheadQwords
-            + (batches.size() * (TexturedVuSourceBatchPayloadQwordCount + TexturedVuSourceBatchSubmissionOverheadQwordCount));
+            + (batchCount * (TexturedVuSourceBatchPayloadQwordCount + TexturedVuSourceBatchSubmissionOverheadQwordCount));
         if (maximumPacketQwordCount > 0xFFFFu) {
             throw std::runtime_error("PS2 textured VU source packet exceeds packet2 qword capacity.");
         }
@@ -2251,7 +2255,11 @@ namespace helengine::ps2 {
         const std::clock_t packetAssemblyStartTicks = std::clock();
         Ps2VuTexturedSharedState cachedSharedState {};
         const Ps2VuOpaqueBatch* cachedSharedStateBatch = nullptr;
-        for (std::size_t batchIndex = 0u; batchIndex < batches.size(); batchIndex++) {
+        const Ps2VuOpaqueBatch* cachedSourceBatch = nullptr;
+        const std::vector<Ps2VuTexturedPackedTriangleSource>* cachedSourceTrianglesForBatch = nullptr;
+        const bool useCachedSourceReference = UseCachedTexturedVuSourceReferences;
+        for (std::size_t batchOffset = 0u; batchOffset < batchCount; batchOffset++) {
+            const std::size_t batchIndex = firstBatchIndex + batchOffset;
             const Ps2VuOpaqueBatchSlice& batchSlice = batches[batchIndex];
             const Ps2VuOpaqueBatch* batch = batchSlice.Batch;
             GSTEXTURE* texture = textures[batchIndex];
@@ -2274,11 +2282,16 @@ namespace helengine::ps2 {
                 throw std::out_of_range("PS2 textured VU source packing exceeds packed model triangle data.");
             }
 
-            const Ps2RuntimeModel* runtimeModel = batch->Proxy != nullptr ? batch->Proxy->GetModel() : nullptr;
-            const bool useCachedSourceReference = UseCachedTexturedVuSourceReferences;
-            const std::vector<Ps2VuTexturedPackedTriangleSource>& cachedSourceTriangles = useCachedSourceReference
-                ? TexturedPacketCache.ResolveReferencedPackedTriangleSources(*batch->Model, runtimeModel)
-                : TexturedPacketCache.ResolvePackedTriangleSources(*batch->Model, runtimeModel);
+            if (cachedSourceBatch != batch) {
+                const Ps2RuntimeModel* runtimeModel = batch->Proxy != nullptr ? batch->Proxy->GetModel() : nullptr;
+                if (useCachedSourceReference) {
+                    cachedSourceTrianglesForBatch = &TexturedPacketCache.ResolveReferencedPackedTriangleSources(*batch->Model, runtimeModel);
+                } else {
+                    cachedSourceTrianglesForBatch = &TexturedPacketCache.ResolvePackedTriangleSources(*batch->Model, runtimeModel);
+                }
+                cachedSourceBatch = batch;
+            }
+            const std::vector<Ps2VuTexturedPackedTriangleSource>& cachedSourceTriangles = *cachedSourceTrianglesForBatch;
             const std::size_t firstSourceTriangle = batchSlice.FirstSourceTriangle;
             const std::size_t finalSourceTriangle = firstSourceTriangle + batchSlice.SourceTriangleCount;
             if (finalSourceTriangle > cachedSourceTriangles.size()) {

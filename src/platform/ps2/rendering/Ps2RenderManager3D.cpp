@@ -1711,38 +1711,24 @@ namespace helengine::ps2 {
                 const std::size_t nextTexturedVuBatchIndex = std::min(
                     firstTexturedVuBatchIndex + maximumTexturedVuSourceBatchCount,
                     texturedVuBatches.size());
-                std::vector<Ps2VuOpaqueBatchSlice> packetTexturedVuBatches(
-                    texturedVuBatches.begin() + firstTexturedVuBatchIndex,
-                    texturedVuBatches.begin() + nextTexturedVuBatchIndex);
-                std::vector<::float4x4> packetTexturedVuWorlds(
-                    texturedVuWorlds.begin() + firstTexturedVuBatchIndex,
-                    texturedVuWorlds.begin() + nextTexturedVuBatchIndex);
-                std::vector<GSTEXTURE*> packetTexturedVuTextures(
-                    texturedVuTextures.begin() + firstTexturedVuBatchIndex,
-                    texturedVuTextures.begin() + nextTexturedVuBatchIndex);
-                std::vector<int> packetTexturedVuTextureWidths(
-                    texturedVuTextureWidths.begin() + firstTexturedVuBatchIndex,
-                    texturedVuTextureWidths.begin() + nextTexturedVuBatchIndex);
-                std::vector<int> packetTexturedVuTextureHeights(
-                    texturedVuTextureHeights.begin() + firstTexturedVuBatchIndex,
-                    texturedVuTextureHeights.begin() + nextTexturedVuBatchIndex);
-
                 WaitForVif1BeforePacketReuse();
                 ReleaseVuPacketSlot(ActiveVuPacketSlotIndex);
-                VuGifStateEncoder.EncodeOpaqueState(*packetTexturedVuBatches.front().Batch, GsGlobal);
+                VuGifStateEncoder.EncodeOpaqueState(*texturedVuBatches[firstTexturedVuBatchIndex].Batch, GsGlobal);
                 VuVifPacketBuilder.Reset();
                 const std::clock_t vuPacketEncodeStartTicks = std::clock();
                 VuVifPacketBuilder.AddOpaqueTexturedVuBatches(
-                    packetTexturedVuBatches,
-                    packetTexturedVuWorlds,
+                    texturedVuBatches,
+                    firstTexturedVuBatchIndex,
+                    nextTexturedVuBatchIndex - firstTexturedVuBatchIndex,
+                    texturedVuWorlds,
                     view,
                     projection,
                     viewport,
                     lightDirection,
                     GsGlobal,
-                    packetTexturedVuTextures,
-                    packetTexturedVuTextureWidths,
-                    packetTexturedVuTextureHeights);
+                    texturedVuTextures,
+                    texturedVuTextureWidths,
+                    texturedVuTextureHeights);
                 packet2_t* texturedVuPacket = VuVifPacketBuilder.GetPacket();
                 const std::clock_t vuPacketEncodeEndTicks = std::clock();
                 LastVuPacketEncodeMilliseconds += ResolveMillisecondsFromClockTicks(vuPacketEncodeStartTicks, vuPacketEncodeEndTicks);
@@ -1755,8 +1741,8 @@ namespace helengine::ps2 {
                 LastVuPacketPhase = VuVifPacketBuilder.GetLastCompletedPhase();
                 LastSubmittedTriangleCount += VuVifPacketBuilder.GetSubmittedTriangleCount();
                 LastPerformanceMetrics.SubmittedTriangleCount += VuVifPacketBuilder.GetSubmittedTriangleCount();
-                for (const Ps2VuOpaqueBatchSlice& texturedVuBatch : packetTexturedVuBatches) {
-                    LastVuTriangleVertexCount += texturedVuBatch.SourceTriangleCount * 3u;
+                for (std::size_t batchIndex = firstTexturedVuBatchIndex; batchIndex < nextTexturedVuBatchIndex; batchIndex++) {
+                    LastVuTriangleVertexCount += texturedVuBatches[batchIndex].SourceTriangleCount * 3u;
                 }
                 if (texturedVuPacket == nullptr) {
                     throw std::runtime_error("PS2 textured VU source path did not produce a VIF packet.");
