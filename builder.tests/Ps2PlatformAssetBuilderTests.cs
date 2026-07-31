@@ -50,6 +50,37 @@ public class Ps2PlatformAssetBuilderTests {
     }
 
     /// <summary>
+    /// Verifies that ordinary PS2 builds remain profiler-free while the dedicated profiling profile explicitly opts into generated runtime metrics.
+    /// </summary>
+    [Fact]
+    public void Definition_exposes_runtime_profiler_only_through_explicit_profiling_profile() {
+        Ps2PlatformAssetBuilder builder = new();
+
+        PlatformBuildProfileDefinition defaultBuildProfile = Assert.Single(
+            builder.Definition.BuildProfiles,
+            profile => profile.ProfileId == "ps2-default");
+        PlatformBuildProfileDefinition profilingBuildProfile = Assert.Single(
+            builder.Definition.BuildProfiles,
+            profile => profile.ProfileId == "ps2-profiling");
+        PlatformCodegenProfileDefinition defaultCodegenProfile = Assert.Single(
+            builder.Definition.CodegenProfiles,
+            profile => profile.ProfileId == "default");
+        PlatformCodegenProfileDefinition profilingCodegenProfile = Assert.Single(
+            builder.Definition.CodegenProfiles,
+            profile => profile.ProfileId == "profiling");
+
+        Assert.Equal("default", defaultBuildProfile.CodegenProfileId);
+        Assert.Equal("profiling", profilingBuildProfile.CodegenProfileId);
+        Assert.DoesNotContain(
+            defaultCodegenProfile.Settings,
+            setting => setting.SettingId == PlatformCodegenSettingIds.EnabledFeatures);
+        PlatformSettingDefinition enabledFeaturesSetting = Assert.Single(
+            profilingCodegenProfile.Settings,
+            setting => setting.SettingId == PlatformCodegenSettingIds.EnabledFeatures);
+        Assert.Equal("runtime_profiler", enabledFeaturesSetting.DefaultValue);
+    }
+
+    /// <summary>
     /// Verifies that the PS2 builder publishes builder-owned texture cook capabilities with default serialized settings.
     /// </summary>
     [Fact]

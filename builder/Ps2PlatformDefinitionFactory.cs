@@ -23,22 +23,14 @@ public static class Ps2PlatformDefinitionFactory {
                     "Standard PS2 player build",
                     "ps2-standard-forward",
                     "default",
-                    [
-                        new PlatformSettingDefinition(
-                            "texture-scale-percent",
-                            "Texture Scale Percent",
-                            PlatformSettingKind.Text,
-                            "100",
-                            true,
-                            []),
-                        new PlatformSettingDefinition(
-                            "shader-variant-pruning",
-                            "Shader Variant Pruning",
-                            PlatformSettingKind.Boolean,
-                            "true",
-                            true,
-                            [])
-                    ])
+                    CreateBuildSettings()),
+                new PlatformBuildProfileDefinition(
+                    "ps2-profiling",
+                    "PS2 Profiling",
+                    "PS2 player build with generated runtime profiling enabled",
+                    "ps2-standard-forward",
+                    "profiling",
+                    CreateBuildSettings())
             ],
             [
                 new PlatformGraphicsProfileDefinition(
@@ -337,50 +329,14 @@ public static class Ps2PlatformDefinitionFactory {
                     "PS2 C# to C++ codegen profile",
                     PlatformCodegenLanguage.Cpp,
                     PlatformSerializationEndianness.LittleEndian,
-                    [
-                        new PlatformSettingDefinition(
-                            "write-conversion-report",
-                            "Write Conversion Report",
-                            PlatformSettingKind.Boolean,
-                            "true",
-                            true,
-                            []),
-                        new PlatformSettingDefinition(
-                            "include-project-defined-preprocessor-symbols",
-                            "Include Project Symbols",
-                            PlatformSettingKind.Boolean,
-                            "false",
-                            true,
-                            []),
-                        new PlatformSettingDefinition(
-                            "load-native-runtime-metadata",
-                            "Load Native Runtime Metadata",
-                            PlatformSettingKind.Boolean,
-                            "false",
-                            true,
-                            []),
-                        new PlatformSettingDefinition(
-                            "type-remaps",
-                            "Type Remaps",
-                            PlatformSettingKind.Text,
-                            "System.Numerics.Vector2=helengine.float2|System.Numerics.Vector3=helengine.float3|System.Numerics.Vector4=helengine.float4|System.Numerics.Quaternion=helengine.float4",
-                            true,
-                            []),
-                        new PlatformSettingDefinition(
-                            "native-file-system-header",
-                            "Native File System Header",
-                            PlatformSettingKind.Text,
-                            "\"platform/ps2/Ps2DiscFileSystem.hpp\"",
-                            true,
-                            []),
-                        new PlatformSettingDefinition(
-                            "native-file-system-type",
-                            "Native File System Type",
-                            PlatformSettingKind.Text,
-                            "helengine::ps2::Ps2DiscFileSystem",
-                            true,
-                            [])
-                    ])
+                    CreateDefaultCodegenSettings()),
+                new PlatformCodegenProfileDefinition(
+                    "profiling",
+                    "Profiling",
+                    "PS2 C# to C++ codegen profile with generated runtime profiling enabled",
+                    PlatformCodegenLanguage.Cpp,
+                    PlatformSerializationEndianness.LittleEndian,
+                    CreateProfilingCodegenSettings())
             ],
             [
                 new PlatformStorageProfileDefinition(
@@ -410,6 +366,97 @@ public static class Ps2PlatformDefinitionFactory {
                 false,
                 "ps2-host-debugger"),
             CreateAssetCookCapabilities());
+    }
+
+    /// <summary>
+    /// Creates the shared build settings used by ordinary and profiling PS2 builds.
+    /// </summary>
+    /// <returns>Independent PS2 build-setting definitions for one profile.</returns>
+    static PlatformSettingDefinition[] CreateBuildSettings() {
+        return [
+            new PlatformSettingDefinition(
+                "texture-scale-percent",
+                "Texture Scale Percent",
+                PlatformSettingKind.Text,
+                "100",
+                true,
+                []),
+            new PlatformSettingDefinition(
+                "shader-variant-pruning",
+                "Shader Variant Pruning",
+                PlatformSettingKind.Boolean,
+                "true",
+                true,
+                [])
+        ];
+    }
+
+    /// <summary>
+    /// Creates the profiler-free codegen settings used by ordinary PS2 builds.
+    /// </summary>
+    /// <returns>PS2 codegen-setting definitions without opt-in runtime features.</returns>
+    static PlatformSettingDefinition[] CreateDefaultCodegenSettings() {
+        return [
+            new PlatformSettingDefinition(
+                "write-conversion-report",
+                "Write Conversion Report",
+                PlatformSettingKind.Boolean,
+                "true",
+                true,
+                []),
+            new PlatformSettingDefinition(
+                "include-project-defined-preprocessor-symbols",
+                "Include Project Symbols",
+                PlatformSettingKind.Boolean,
+                "false",
+                true,
+                []),
+            new PlatformSettingDefinition(
+                "load-native-runtime-metadata",
+                "Load Native Runtime Metadata",
+                PlatformSettingKind.Boolean,
+                "false",
+                true,
+                []),
+            new PlatformSettingDefinition(
+                "type-remaps",
+                "Type Remaps",
+                PlatformSettingKind.Text,
+                "System.Numerics.Vector2=helengine.float2|System.Numerics.Vector3=helengine.float3|System.Numerics.Vector4=helengine.float4|System.Numerics.Quaternion=helengine.float4",
+                true,
+                []),
+            new PlatformSettingDefinition(
+                "native-file-system-header",
+                "Native File System Header",
+                PlatformSettingKind.Text,
+                "\"platform/ps2/Ps2DiscFileSystem.hpp\"",
+                true,
+                []),
+            new PlatformSettingDefinition(
+                "native-file-system-type",
+                "Native File System Type",
+                PlatformSettingKind.Text,
+                "helengine::ps2::Ps2DiscFileSystem",
+                true,
+                [])
+        ];
+    }
+
+    /// <summary>
+    /// Creates the explicit profiling codegen settings by extending the ordinary PS2 codegen contract with runtime metrics.
+    /// </summary>
+    /// <returns>PS2 codegen-setting definitions that opt into generated runtime profiling.</returns>
+    static PlatformSettingDefinition[] CreateProfilingCodegenSettings() {
+        return [
+            .. CreateDefaultCodegenSettings(),
+            new PlatformSettingDefinition(
+                PlatformCodegenSettingIds.EnabledFeatures,
+                "Enabled Runtime Features",
+                PlatformSettingKind.Text,
+                "runtime_profiler",
+                true,
+                [])
+        ];
     }
 
     /// <summary>
