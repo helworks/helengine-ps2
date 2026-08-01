@@ -151,7 +151,7 @@ texturedClipPlaneTop:
          NOP                                                        iaddiu VI09, VI00, 0x00000005
          NOP                                                        bal VI15, texturedClipPolygonAgainstPlane
          NOP                                                        NOP
-         NOP                                                        b texturedClipRestoreTriangleLoopTail
+         NOP                                                        b texturedClipTriangulatePolygon
          NOP                                                        NOP
 
 ; Task 4 owns fan expansion, perspective division, winding rejection, and GIF compaction.
@@ -176,6 +176,11 @@ texturedClipEmitTriangleFanLoop:
          NOP                                                        isubiu VI14, VI14, 0x00000001
          NOP                                                        ibne VI14, VI00, texturedClipEmitTriangleFanLoop
          NOP                                                        NOP
+texturedClipEmitTriangleFanComplete:
+         NOP                                                        ilw.x VI01, 0x0000004e(VI00)
+         NOP                                                        NOP
+         NOP                                                        b texturedClipTriangleLoopTail
+         NOP                                                        NOP
 texturedClipRestoreTriangleLoopTail:
          NOP                                                        ilw.x VI01, 0x0000004e(VI00)
          NOP                                                        ilw.x VI03, 0x0000004f(VI00)
@@ -186,6 +191,8 @@ texturedClipTriangleLoopTail:
          NOP                                                        ibne VI01, VI00, texturedClipTriangleLoop
          NOP                                                        NOP
 texturedClipRestoreGifTagEndFlag:
+         NOP                                                        ibeq VI06, VI00, texturedClipNoOutput
+         NOP                                                        NOP
          NOP                                                        iaddiu VI09, VI00, 0x00007fff
          NOP                                                        iaddiu VI09, VI09, 0x00000001
          NOP                                                        iadd VI07, VI06, VI06
@@ -193,6 +200,8 @@ texturedClipRestoreGifTagEndFlag:
          NOP                                                        iadd VI07, VI07, VI09
          NOP                                                        isw.x VI07, 7(VI04)
          NOP                                                        xgkick VI04
+         NOP[E]                                                     NOP
+texturedClipNoOutput:
          NOP[E]                                                     NOP
          NOP                                                        NOP
 
@@ -628,7 +637,11 @@ texturedClipPolygonOverflow:
 ; Input: VF18-20 clip positions, VF21-23 raw UV, VF17 lit colour.
 texturedClipEmitTriangle:
 texturedClipValidateTriangleA:
-         addw.x        VF24, VF18, VF18w                            NOP
+         NOP                                                        loi 0x3727c5ac
+         addw.x        VF24, VF00, VF18w                            NOP
+         subi.x        VF24, VF24, I                                NOP
+         addw.x        VF25, VF18, VF18w                            NOP
+         minix.x       VF24, VF24, VF25x                            NOP
          sub.x         VF25, VF00, VF18                             NOP
          addw.x        VF25, VF25, VF18w                            NOP
          minix.x       VF24, VF24, VF25x                            NOP
@@ -638,7 +651,6 @@ texturedClipValidateTriangleA:
          suby.x        VF25, VF00, VF18y                            NOP
          addw.x        VF25, VF25, VF18w                            NOP
          minix.x       VF24, VF24, VF25x                            NOP
-         NOP                                                        loi 0x3727c5ac
          subi.z        VF25, VF18, I                                NOP
          miniz.x       VF24, VF24, VF25z                            NOP
          NOP                                                        NOP
@@ -650,7 +662,11 @@ texturedClipValidateTriangleA:
          NOP                                                        ibne VI07, VI00, texturedClipEmitTriangleReturn
          NOP                                                        NOP
 texturedClipValidateTriangleB:
-         addw.x        VF24, VF19, VF19w                            NOP
+         NOP                                                        loi 0x3727c5ac
+         addw.x        VF24, VF00, VF19w                            NOP
+         subi.x        VF24, VF24, I                                NOP
+         addw.x        VF25, VF19, VF19w                            NOP
+         minix.x       VF24, VF24, VF25x                            NOP
          sub.x         VF25, VF00, VF19                             NOP
          addw.x        VF25, VF25, VF19w                            NOP
          minix.x       VF24, VF24, VF25x                            NOP
@@ -660,7 +676,6 @@ texturedClipValidateTriangleB:
          suby.x        VF25, VF00, VF19y                            NOP
          addw.x        VF25, VF25, VF19w                            NOP
          minix.x       VF24, VF24, VF25x                            NOP
-         NOP                                                        loi 0x3727c5ac
          subi.z        VF25, VF19, I                                NOP
          miniz.x       VF24, VF24, VF25z                            NOP
          NOP                                                        NOP
@@ -672,7 +687,11 @@ texturedClipValidateTriangleB:
          NOP                                                        ibne VI07, VI00, texturedClipEmitTriangleReturn
          NOP                                                        NOP
 texturedClipValidateTriangleC:
-         addw.x        VF24, VF20, VF20w                            NOP
+         NOP                                                        loi 0x3727c5ac
+         addw.x        VF24, VF00, VF20w                            NOP
+         subi.x        VF24, VF24, I                                NOP
+         addw.x        VF25, VF20, VF20w                            NOP
+         minix.x       VF24, VF24, VF25x                            NOP
          sub.x         VF25, VF00, VF20                             NOP
          addw.x        VF25, VF25, VF20w                            NOP
          minix.x       VF24, VF24, VF25x                            NOP
@@ -682,7 +701,6 @@ texturedClipValidateTriangleC:
          suby.x        VF25, VF00, VF20y                            NOP
          addw.x        VF25, VF25, VF20w                            NOP
          minix.x       VF24, VF24, VF25x                            NOP
-         NOP                                                        loi 0x3727c5ac
          subi.z        VF25, VF20, I                                NOP
          miniz.x       VF24, VF24, VF25z                            NOP
          NOP                                                        NOP
@@ -765,7 +783,9 @@ texturedClipEmitTriangleProject:
          NOP                                                        mtir VI07, VF29z
          NOP                                                        NOP
          NOP                                                        NOP
-         NOP                                                        ibltz VI07, texturedClipEmitTriangleReturn
+         NOP                                                        ibgtz VI07, texturedClipEmitTriangleAccepted
+         NOP                                                        NOP
+         NOP                                                        b texturedClipEmitTriangleReturn
          NOP                                                        NOP
 texturedClipEmitTriangleAccepted:
          NOP                                                        iaddiu VI03, VI03, 0x00000009
