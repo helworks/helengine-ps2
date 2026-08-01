@@ -18,7 +18,7 @@ public sealed class Ps2VuNearPlaneClippingSourceTests {
 
         Assert.Contains("TexturedVuSourceTriangleCapacity = 32u", limitsSource, StringComparison.Ordinal);
         Assert.Contains("TexturedVuClippedSourceTriangleCapacity = 8u", limitsSource, StringComparison.Ordinal);
-        Assert.Contains("TexturedVuMaximumClipPolygonVertexCount = 8u", limitsSource, StringComparison.Ordinal);
+        Assert.Contains("TexturedVuMaximumClipPolygonVertexCount = 9u", limitsSource, StringComparison.Ordinal);
         Assert.Contains("TexturedVuMaximumClippedTriangleCount = TexturedVuClippedSourceTriangleCapacity", limitsSource, StringComparison.Ordinal);
         Assert.Contains("::float3 Center", boundsSource, StringComparison.Ordinal);
         Assert.Contains("::float3 Extents", boundsSource, StringComparison.Ordinal);

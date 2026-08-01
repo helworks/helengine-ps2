@@ -9,14 +9,41 @@ namespace helengine::ps2 {
     constexpr std::size_t TexturedVuSourceTriangleCapacity = 32u;
 
     /// <summary>
-    /// Limits clipped submissions so full five-plane frustum expansion remains inside VU1 data memory.
+    /// Limits clipped submissions so camera-W, near-Z, left, right, bottom, and top boundary expansion remains inside VU1 data memory.
     /// </summary>
     constexpr std::size_t TexturedVuClippedSourceTriangleCapacity = 8u;
 
     /// <summary>
-    /// Bounds the convex polygon produced when one triangle is clipped by the near and four side planes.
+    /// Bounds the convex polygon produced when one triangle is clipped by the camera-W, near-Z, left, right, bottom, and top boundaries.
     /// </summary>
-    constexpr std::size_t TexturedVuMaximumClipPolygonVertexCount = 8u;
+    constexpr std::size_t TexturedVuMaximumClipPolygonVertexCount = 9u;
+
+    /// <summary>
+    /// Counts the position and raw-UV qwords retained for each temporary clipping-polygon vertex.
+    /// </summary>
+    constexpr std::size_t TexturedVuClipScratchQwordsPerVertex = 2u;
+
+    /// <summary>
+    /// Identifies the first VU1 data-memory qword in the first clipping-polygon scratch buffer.
+    /// </summary>
+    constexpr std::size_t TexturedVuClipScratchBufferAQword = 0x50u;
+
+    /// <summary>
+    /// Identifies the first VU1 data-memory qword in the second clipping-polygon scratch buffer.
+    /// </summary>
+    constexpr std::size_t TexturedVuClipScratchBufferBQword = 0x64u;
+
+    /// <summary>
+    /// Reserves one complete temporary clipping-polygon buffer for the largest supported polygon.
+    /// </summary>
+    constexpr std::size_t TexturedVuClipScratchBufferQwordCount = TexturedVuMaximumClipPolygonVertexCount
+        * TexturedVuClipScratchQwordsPerVertex;
+
+    /// <summary>
+    /// Identifies the exclusive end of the second temporary clipping-polygon scratch buffer.
+    /// </summary>
+    constexpr std::size_t TexturedVuClipScratchEndQword = TexturedVuClipScratchBufferBQword
+        + TexturedVuClipScratchBufferQwordCount;
 
     /// <summary>
     /// Counts the largest triangle fan produced from one fully clipped source polygon.
@@ -56,5 +83,7 @@ namespace helengine::ps2 {
         + TexturedVuGifStateQwordCount
         + (TexturedVuMaximumClippedTriangleCount * TexturedVuOutputQwordsPerTriangle);
 
+    static_assert(TexturedVuClipScratchBufferAQword + TexturedVuClipScratchBufferQwordCount <= TexturedVuClipScratchBufferBQword);
+    static_assert(TexturedVuClipScratchEndQword <= TexturedVuOutputStartQword);
     static_assert(TexturedVuMaximumOutputEndQword <= TexturedVuDataMemoryQwordCount);
 }

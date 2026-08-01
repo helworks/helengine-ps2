@@ -7,6 +7,26 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2VuFullFrustumClippingSourceTests {
     /// <summary>
+    /// Ensures full-frustum clipping reserves enough shared VU1 scratch and derived output memory for the largest possible polygon fan.
+    /// </summary>
+    [Fact]
+    public void Ps2VuTexturedSourceLimits_WhenClippingFullFrustum_ProvesScratchAndOutputCapacity() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuTexturedSourceLimits.hpp"));
+
+        Assert.Contains("TexturedVuMaximumClipPolygonVertexCount = 9u", source, StringComparison.Ordinal);
+        Assert.Contains("TexturedVuClipScratchQwordsPerVertex = 2u", source, StringComparison.Ordinal);
+        Assert.Contains("TexturedVuClipScratchBufferAQword = 0x50u", source, StringComparison.Ordinal);
+        Assert.Contains("TexturedVuClipScratchBufferBQword = 0x64u", source, StringComparison.Ordinal);
+        Assert.Matches(@"static_assert\s*\(\s*TexturedVuClipScratchBufferAQword\s*\+\s*TexturedVuClipScratchBufferQwordCount\s*<=\s*TexturedVuClipScratchBufferBQword\s*\);", source);
+        Assert.Contains("TexturedVuClipScratchEndQword <= TexturedVuOutputStartQword", source, StringComparison.Ordinal);
+        Assert.Matches(@"constexpr\s+std::size_t\s+TexturedVuMaximumOutputTrianglesPerClippedSource\s*=\s*TexturedVuMaximumClipPolygonVertexCount\s*-\s*2u\s*;", source);
+        Assert.Matches(@"constexpr\s+std::size_t\s+TexturedVuMaximumClippedTriangleCount\s*=\s*TexturedVuClippedSourceTriangleCapacity\s*\*\s*TexturedVuMaximumOutputTrianglesPerClippedSource\s*;", source);
+        Assert.Matches(@"constexpr\s+std::size_t\s+TexturedVuMaximumOutputEndQword\s*=\s*TexturedVuOutputStartQword\s*\+\s*TexturedVuGifStateQwordCount\s*\+\s*\(\s*TexturedVuMaximumClippedTriangleCount\s*\*\s*TexturedVuOutputQwordsPerTriangle\s*\)\s*;", source);
+        Assert.Contains("TexturedVuMaximumOutputEndQword <= TexturedVuDataMemoryQwordCount", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures textured slice routing uses conservative classification without forcing every slice through diagnostic clipping behavior.
     /// </summary>
     [Fact]
