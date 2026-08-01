@@ -71,14 +71,15 @@ public sealed class Ps2VuNearPlaneClippingSourceTests {
     }
 
     /// <summary>
-    /// Ensures textured packet assembly rejects hidden slices and selects a separate clipping microprogram only for intersecting slices.
+    /// Ensures textured packet assembly preserves conservative slice classification while selecting the clipping microprogram without diagnostic overrides.
     /// </summary>
     [Fact]
     public void Ps2VuVifPacketBuilder_WhenRoutingNearPlaneSlices_PreservesTheFastProgram() {
         string repositoryRootPath = GetRepositoryRootPath();
         string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
 
-        Assert.Contains("Ps2VuNearPlaneSliceClassifier::Classify", source, StringComparison.Ordinal);
+        Assert.Matches(@"const\s+Ps2VuNearPlaneRoute\s+classifiedRoute\s*=\s*Ps2VuNearPlaneSliceClassifier::Classify\s*\(", source);
+        Assert.Matches(@"const\s+Ps2VuNearPlaneRoute\s+route\s*=\s*ForceAllTexturedSlicesThroughClipProgramDiagnostics\s*\?\s*Ps2VuNearPlaneRoute::Clipped\s*:\s*classifiedRoute\s*;", source);
         Assert.Contains("Ps2VuNearPlaneRoute::Rejected", source, StringComparison.Ordinal);
         Assert.Contains("TexturedClipMicroProgramAddress", source, StringComparison.Ordinal);
         Assert.Contains("route == Ps2VuNearPlaneRoute::Clipped", source, StringComparison.Ordinal);
@@ -86,7 +87,7 @@ public sealed class Ps2VuNearPlaneClippingSourceTests {
         Assert.Contains("submissionSourceTriangleCapacity", source, StringComparison.Ordinal);
         Assert.Contains("constexpr bool DropClippedTexturedSlicesForDiagnostics = false;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr bool UseFastProgramForClippedSliceDiagnostics = false;", source, StringComparison.Ordinal);
-        Assert.Contains("constexpr bool ForceAllTexturedSlicesThroughClipProgramDiagnostics = true;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr bool ForceAllTexturedSlicesThroughClipProgramDiagnostics = false;", source, StringComparison.Ordinal);
         Assert.Contains("packet2_vif_mscal(packet.get(), microProgramAddress, 0);", source, StringComparison.Ordinal);
     }
 
@@ -108,12 +109,12 @@ public sealed class Ps2VuNearPlaneClippingSourceTests {
         Assert.Contains("texturedClipDistanceBottom:", source, StringComparison.Ordinal);
         Assert.Contains("texturedClipDistanceTop:", source, StringComparison.Ordinal);
         Assert.Contains("texturedClipPolygonOverflow:", source, StringComparison.Ordinal);
-        Assert.Contains("texturedClipValidateTriangleA:", source, StringComparison.Ordinal);
-        Assert.Contains("texturedClipValidateTriangleB:", source, StringComparison.Ordinal);
-        Assert.Contains("texturedClipValidateTriangleC:", source, StringComparison.Ordinal);
-        Assert.Contains("texturedClipEmitTriangleFanLoop:", source, StringComparison.Ordinal);
+        Assert.Matches(@"(?m)^\s*texturedClipValidateTriangleA:\s*$", source);
+        Assert.Matches(@"(?m)^\s*texturedClipValidateTriangleB:\s*$", source);
+        Assert.Matches(@"(?m)^\s*texturedClipValidateTriangleC:\s*$", source);
+        Assert.Matches(@"(?m)^\s*texturedClipEmitTriangleFanLoop:\s*$", source);
         Assert.Contains("texturedClipHardwareClipFlagDiagnostics:", source, StringComparison.Ordinal);
-        Assert.Contains("texturedClipHardwareRejectTriangle:", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("texturedClipHardwareRejectTriangle", source, StringComparison.Ordinal);
         Assert.Contains("clipw.xyz", source, StringComparison.Ordinal);
         Assert.Contains("fcand", source, StringComparison.Ordinal);
         Assert.DoesNotContain("texturedClipEmitNearInsideTriangleDiagnostics:", source, StringComparison.Ordinal);
