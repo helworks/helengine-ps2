@@ -21,6 +21,10 @@ namespace helengine::ps2 {
         const std::uint8_t* GetTexCoordBlockBytes() const;
         const std::vector<std::uint8_t>& GetPackedBytes() const;
         /// <summary>
+        /// Calculates conservative local bounds for one textured source triangle without requiring slice alignment.
+        /// </summary>
+        Ps2VuSourceSliceBounds GetTexturedSourceTriangleBounds(std::size_t sourceTriangleIndex) const;
+        /// <summary>
         /// Returns the conservative local bounds cached for an aligned textured VU1 source slice.
         /// </summary>
         const Ps2VuSourceSliceBounds& GetTexturedSourceSliceBounds(

@@ -52,9 +52,18 @@ namespace helengine::ps2 {
         const std::vector<Ps2VuTexturedPackedTriangleSource>& ResolvePackedTriangleSources(
             const Ps2VuPackedModel& packedModel,
             const Ps2RuntimeModel* runtimeModel);
-        const std::vector<Ps2VuTexturedPackedTriangleSource>& ResolveReferencedPackedTriangleSources(
+        /// <summary>
+        /// Resets and reserves the stable packet-owned source-record range used by referenced VIF transfers.
+        /// </summary>
+        void BeginReferencedPacket(std::size_t triangleCapacity);
+        /// <summary>
+        /// Appends one packed source-triangle slice without allowing later appends to invalidate its returned address.
+        /// </summary>
+        const Ps2VuTexturedPackedTriangleSource* AppendReferencedPackedTriangleSources(
             const Ps2VuPackedModel& packedModel,
-            const Ps2RuntimeModel* runtimeModel);
+            const Ps2RuntimeModel* runtimeModel,
+            std::size_t firstSourceTriangle,
+            std::size_t sourceTriangleCount);
         const Ps2VuTexturedSourceSliceBounds& ResolveSourceSliceBounds(
             const Ps2VuPackedModel& packedModel,
             const Ps2RuntimeModel* runtimeModel,
@@ -69,7 +78,6 @@ namespace helengine::ps2 {
             const Ps2RuntimeModel* RuntimeModel = nullptr;
             std::uint32_t TriangleVertexCount = 0u;
             std::uint64_t LastUsedFrame = 0u;
-            bool ReferencedThisFrame = false;
             std::vector<Ps2VuTexturedTriangleSource> TriangleSources;
             std::vector<Ps2VuTexturedPackedTriangleSource> PackedTriangleSources;
             std::vector<Ps2VuTexturedSourceSliceBounds> SourceSliceBounds;
@@ -81,6 +89,14 @@ namespace helengine::ps2 {
         void BuildTriangleSources(Entry& entry, const Ps2VuPackedModel& packedModel, const Ps2RuntimeModel* runtimeModel);
 
         std::array<Entry, MaximumEntryCount> Entries;
+        /// <summary>
+        /// Owns the bounded source records referenced by the currently assembled VIF packet.
+        /// </summary>
+        std::vector<Ps2VuTexturedPackedTriangleSource> ReferencedPacketSources;
+        /// <summary>
+        /// Limits packet source construction so vector growth cannot invalidate an address already emitted into DMA.
+        /// </summary>
+        std::size_t ReferencedPacketTriangleCapacity = 0u;
         std::size_t BuildCount = 0u;
         std::uint64_t CurrentFrame = 0u;
     };

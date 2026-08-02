@@ -71,6 +71,44 @@ namespace helengine::ps2 {
         return PackedBytes;
     }
 
+    Ps2VuSourceSliceBounds Ps2VuPackedModel::GetTexturedSourceTriangleBounds(
+        std::size_t sourceTriangleIndex) const {
+        const std::size_t sourceTriangleTotal = static_cast<std::size_t>(TriangleVertexCount) / 3u;
+        if (sourceTriangleIndex >= sourceTriangleTotal) {
+            throw std::out_of_range("Packed PS2 mesh textured source triangle index exceeded the source-triangle range.");
+        }
+
+        const std::size_t firstSourceVertex = sourceTriangleIndex * 3u;
+        const std::size_t finalSourceVertex = firstSourceVertex + 3u;
+        ::float3 minimum(
+            std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max());
+        ::float3 maximum(
+            std::numeric_limits<float>::lowest(),
+            std::numeric_limits<float>::lowest(),
+            std::numeric_limits<float>::lowest());
+        for (std::size_t sourceVertex = firstSourceVertex; sourceVertex < finalSourceVertex; sourceVertex++) {
+            const ::float3 position = GetPosition(static_cast<std::uint32_t>(sourceVertex));
+            minimum.X = std::min(minimum.X, position.X);
+            minimum.Y = std::min(minimum.Y, position.Y);
+            minimum.Z = std::min(minimum.Z, position.Z);
+            maximum.X = std::max(maximum.X, position.X);
+            maximum.Y = std::max(maximum.Y, position.Y);
+            maximum.Z = std::max(maximum.Z, position.Z);
+        }
+
+        const ::float3 center(
+            (minimum.X + maximum.X) * 0.5f,
+            (minimum.Y + maximum.Y) * 0.5f,
+            (minimum.Z + maximum.Z) * 0.5f);
+        const ::float3 extents(
+            (maximum.X - minimum.X) * 0.5f,
+            (maximum.Y - minimum.Y) * 0.5f,
+            (maximum.Z - minimum.Z) * 0.5f);
+        return Ps2VuSourceSliceBounds { center, extents };
+    }
+
     const Ps2VuSourceSliceBounds& Ps2VuPackedModel::GetTexturedSourceSliceBounds(
         std::size_t firstSourceTriangle,
         std::size_t sourceTriangleCount) const {

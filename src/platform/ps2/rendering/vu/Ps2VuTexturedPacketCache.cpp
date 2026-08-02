@@ -24,13 +24,79 @@ namespace helengine::ps2 {
         return entry.PackedTriangleSources;
     }
 
-    const std::vector<Ps2VuTexturedPackedTriangleSource>& Ps2VuTexturedPacketCache::ResolveReferencedPackedTriangleSources(
+    void Ps2VuTexturedPacketCache::BeginReferencedPacket(std::size_t triangleCapacity) {
+        ReferencedPacketSources.clear();
+        ReferencedPacketTriangleCapacity = triangleCapacity;
+        if (ReferencedPacketSources.capacity() < triangleCapacity) {
+            ReferencedPacketSources.reserve(triangleCapacity);
+        }
+    }
+
+    const Ps2VuTexturedPackedTriangleSource* Ps2VuTexturedPacketCache::AppendReferencedPackedTriangleSources(
         const Ps2VuPackedModel& packedModel,
-        const Ps2RuntimeModel* runtimeModel) {
-        Entry& entry = FindOrCreateEntry(packedModel, runtimeModel);
-        entry.LastUsedFrame = CurrentFrame;
-        entry.ReferencedThisFrame = true;
-        return entry.PackedTriangleSources;
+        const Ps2RuntimeModel* runtimeModel,
+        std::size_t firstSourceTriangle,
+        std::size_t sourceTriangleCount) {
+        const std::size_t triangleCount = static_cast<std::size_t>(packedModel.GetTriangleVertexCount()) / 3u;
+        if (sourceTriangleCount == 0u || firstSourceTriangle > triangleCount || sourceTriangleCount > (triangleCount - firstSourceTriangle)) {
+            throw std::out_of_range("PS2 referenced textured source slice exceeds packed model triangle data.");
+        }
+        if (ReferencedPacketSources.size() > ReferencedPacketTriangleCapacity
+            || sourceTriangleCount > (ReferencedPacketTriangleCapacity - ReferencedPacketSources.size())) {
+            throw std::out_of_range("PS2 referenced textured source slices exceed the packet scratch capacity.");
+        }
+
+        const float* packedPositionWords = reinterpret_cast<const float*>(packedModel.GetPositionBlockBytes());
+        const float* packedNormalWords = reinterpret_cast<const float*>(packedModel.GetNormalBlockBytes());
+        const float* packedTexCoordWords = reinterpret_cast<const float*>(packedModel.GetTexCoordBlockBytes());
+        if (packedPositionWords == nullptr || packedNormalWords == nullptr || packedTexCoordWords == nullptr) {
+            throw std::invalid_argument("PS2 referenced textured sources require packed positions, normals, and texture coordinates.");
+        }
+
+        const std::vector<std::uint16_t>* runtimeIndices = runtimeModel != nullptr ? &runtimeModel->GetIndices() : nullptr;
+        const std::vector<::float2>* runtimeTexCoords = runtimeModel != nullptr ? &runtimeModel->GetTexCoords() : nullptr;
+        const std::size_t scratchStartIndex = ReferencedPacketSources.size();
+        const std::size_t firstVertexIndex = firstSourceTriangle * 3u;
+        const std::size_t finalVertexIndex = firstVertexIndex + (sourceTriangleCount * 3u);
+        for (std::size_t vertexIndex = firstVertexIndex; vertexIndex < finalVertexIndex; vertexIndex += 3u) {
+            const std::size_t positionWordIndexA = (vertexIndex + 0u) * 4u;
+            const std::size_t positionWordIndexB = (vertexIndex + 1u) * 4u;
+            const std::size_t positionWordIndexC = (vertexIndex + 2u) * 4u;
+            const std::uint16_t sourceIndexA = runtimeIndices != nullptr && vertexIndex < runtimeIndices->size()
+                ? (*runtimeIndices)[vertexIndex + 0u]
+                : static_cast<std::uint16_t>(vertexIndex + 0u);
+            const std::uint16_t sourceIndexB = runtimeIndices != nullptr && (vertexIndex + 1u) < runtimeIndices->size()
+                ? (*runtimeIndices)[vertexIndex + 1u]
+                : static_cast<std::uint16_t>(vertexIndex + 1u);
+            const std::uint16_t sourceIndexC = runtimeIndices != nullptr && (vertexIndex + 2u) < runtimeIndices->size()
+                ? (*runtimeIndices)[vertexIndex + 2u]
+                : static_cast<std::uint16_t>(vertexIndex + 2u);
+            const ::float2 texCoordA = runtimeTexCoords != nullptr && sourceIndexA < runtimeTexCoords->size()
+                ? (*runtimeTexCoords)[sourceIndexA]
+                : ::float2(packedTexCoordWords[positionWordIndexA + 0u], packedTexCoordWords[positionWordIndexA + 1u]);
+            const ::float2 texCoordB = runtimeTexCoords != nullptr && sourceIndexB < runtimeTexCoords->size()
+                ? (*runtimeTexCoords)[sourceIndexB]
+                : ::float2(packedTexCoordWords[positionWordIndexB + 0u], packedTexCoordWords[positionWordIndexB + 1u]);
+            const ::float2 texCoordC = runtimeTexCoords != nullptr && sourceIndexC < runtimeTexCoords->size()
+                ? (*runtimeTexCoords)[sourceIndexC]
+                : ::float2(packedTexCoordWords[positionWordIndexC + 0u], packedTexCoordWords[positionWordIndexC + 1u]);
+            ReferencedPacketSources.push_back(Ps2VuTexturedPackedTriangleSource {
+                { packedPositionWords[positionWordIndexA + 0u], packedPositionWords[positionWordIndexA + 1u], packedPositionWords[positionWordIndexA + 2u], 1.0f },
+                { packedPositionWords[positionWordIndexB + 0u], packedPositionWords[positionWordIndexB + 1u], packedPositionWords[positionWordIndexB + 2u], 1.0f },
+                { packedPositionWords[positionWordIndexC + 0u], packedPositionWords[positionWordIndexC + 1u], packedPositionWords[positionWordIndexC + 2u], 1.0f },
+                { texCoordA.X, texCoordA.Y, 0.0f, 0.0f },
+                { texCoordB.X, texCoordB.Y, 0.0f, 0.0f },
+                { texCoordC.X, texCoordC.Y, 0.0f, 0.0f },
+                {
+                    packedNormalWords[positionWordIndexA + 0u] + packedNormalWords[positionWordIndexB + 0u] + packedNormalWords[positionWordIndexC + 0u],
+                    packedNormalWords[positionWordIndexA + 1u] + packedNormalWords[positionWordIndexB + 1u] + packedNormalWords[positionWordIndexC + 1u],
+                    packedNormalWords[positionWordIndexA + 2u] + packedNormalWords[positionWordIndexB + 2u] + packedNormalWords[positionWordIndexC + 2u],
+                    255.0f
+                }
+            });
+        }
+
+        return ReferencedPacketSources.data() + scratchStartIndex;
     }
 
     const Ps2VuTexturedSourceSliceBounds& Ps2VuTexturedPacketCache::ResolveSourceSliceBounds(
@@ -64,15 +130,11 @@ namespace helengine::ps2 {
             CurrentFrame = 0u;
             for (Entry& entry : Entries) {
                 entry.LastUsedFrame = 0u;
-                entry.ReferencedThisFrame = false;
             }
             return;
         }
 
         CurrentFrame++;
-        for (Entry& entry : Entries) {
-            entry.ReferencedThisFrame = false;
-        }
     }
 
     Ps2VuTexturedPacketCache::Entry& Ps2VuTexturedPacketCache::FindOrCreateEntry(
@@ -90,14 +152,13 @@ namespace helengine::ps2 {
                 BuildTriangleSources(entry, packedModel, runtimeModel);
                 return entry;
             }
-            if (!entry.ReferencedThisFrame
-                && (leastRecentlyUsedEntry == nullptr || entry.LastUsedFrame < leastRecentlyUsedEntry->LastUsedFrame)) {
+            if (leastRecentlyUsedEntry == nullptr || entry.LastUsedFrame < leastRecentlyUsedEntry->LastUsedFrame) {
                 leastRecentlyUsedEntry = &entry;
             }
         }
 
         if (leastRecentlyUsedEntry == nullptr) {
-            throw std::runtime_error("PS2 textured packet cache cannot evict a source entry referenced by the active VIF DMA frame.");
+            throw std::runtime_error("PS2 textured packet cache could not resolve an eviction candidate.");
         }
 
         BuildTriangleSources(*leastRecentlyUsedEntry, packedModel, runtimeModel);

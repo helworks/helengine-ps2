@@ -20,6 +20,9 @@ public sealed class Ps2TexturedVuReferencePayloadSourceTests {
         Assert.Contains("EmitTexturedFastSourceRun(", source);
         Assert.Contains("BeginReferencedPacket", packetCacheHeader);
         Assert.Contains("AppendReferencedPackedTriangleSources", packetCacheHeader);
+        Assert.Contains("void Ps2VuTexturedPacketCache::BeginReferencedPacket(std::size_t triangleCapacity)", packetCacheSource, StringComparison.Ordinal);
+        Assert.Contains("const Ps2VuTexturedPackedTriangleSource* Ps2VuTexturedPacketCache::AppendReferencedPackedTriangleSources(", packetCacheSource, StringComparison.Ordinal);
+        Assert.Contains("ReferencedPacketTriangleCapacity = triangleCapacity;", packetCacheSource, StringComparison.Ordinal);
         Assert.Contains("ReferencedPacketSources.reserve(triangleCapacity);", packetCacheSource);
         Assert.DoesNotContain("ResolveReferencedPackedTriangleSources", packetCacheHeader);
         Assert.DoesNotContain("MaximumReferencedTexturedVuSourceSliceCount", source);

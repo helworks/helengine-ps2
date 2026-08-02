@@ -2412,7 +2412,7 @@ namespace helengine::ps2 {
                     batchSlice.SourceTriangleCount),
                 cachedWorldViewProjections[batchOffset]);
             hasClippedOuterRoute = hasClippedOuterRoute || outerRoutes[batchOffset] == Ps2VuNearPlaneRoute::Clipped;
-            if (useCachedSourceReference) {
+            if (useCachedSourceReference && outerRoutes[batchOffset] != Ps2VuNearPlaneRoute::Rejected) {
                 referencedPacketTriangleCapacity += batches[firstBatchIndex + batchOffset].SourceTriangleCount;
             }
         }
@@ -2448,6 +2448,12 @@ namespace helengine::ps2 {
             const std::size_t finalSourceTriangle = firstSourceTriangle + batchSlice.SourceTriangleCount;
             if ((finalSourceTriangle * 3u) > batch->Model->GetTriangleVertexCount()) {
                 throw std::out_of_range("PS2 textured VU source packing exceeds packed model triangle data.");
+            }
+
+            const Ps2VuNearPlaneRoute outerRoute = outerRoutes[batchOffset];
+            if (outerRoute == Ps2VuNearPlaneRoute::Rejected) {
+                RejectedTexturedSliceCount += batchSlice.SourceTriangleCount;
+                continue;
             }
 
             const Ps2RuntimeModel* runtimeModel = batch->Proxy != nullptr ? batch->Proxy->GetModel() : nullptr;
@@ -2514,14 +2520,9 @@ namespace helengine::ps2 {
                     LastTexturedVuStateBuildMilliseconds += ResolveMillisecondsFromClockTicks(sharedStateBuildStartTicks, std::clock());
                 }
             }
-            const Ps2VuNearPlaneRoute outerRoute = outerRoutes[batchOffset];
             const Ps2VuTexturedPackedTriangleSource* outerSourceTriangles = useCachedSourceReference
                 ? referencedSourceTriangles
                 : copiedSourceTriangles->data() + firstSourceTriangle;
-            if (outerRoute == Ps2VuNearPlaneRoute::Rejected) {
-                RejectedTexturedSliceCount += batchSlice.SourceTriangleCount;
-                continue;
-            }
             if (outerRoute == Ps2VuNearPlaneRoute::Fast) {
                 const std::clock_t sourcePayloadFillStartTicks = EnableTexturedVuPerSliceTimingDiagnostics ? std::clock() : 0;
                 EmitTexturedFastSourceRun(

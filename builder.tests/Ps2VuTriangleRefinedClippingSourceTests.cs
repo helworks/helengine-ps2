@@ -29,6 +29,31 @@ public sealed class Ps2VuTriangleRefinedClippingSourceTests {
     }
 
     /// <summary>
+    /// Ensures fully rejected outer slices consume no bounded source-reference capacity and resolve no source records before being omitted.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenAnOuterSliceIsRejected_SkipsSourceReservationAndResolution() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+
+        Assert.Contains("if (useCachedSourceReference && outerRoutes[batchOffset] != Ps2VuNearPlaneRoute::Rejected)", source, StringComparison.Ordinal);
+
+        int packetLoopIndex = source.IndexOf("const std::clock_t packetAssemblyStartTicks", StringComparison.Ordinal);
+        int rejectedRouteIndex = source.IndexOf("if (outerRoute == Ps2VuNearPlaneRoute::Rejected)", packetLoopIndex, StringComparison.Ordinal);
+        int runtimeModelIndex = source.IndexOf("const Ps2RuntimeModel* runtimeModel", packetLoopIndex, StringComparison.Ordinal);
+        int referencedSourceIndex = source.IndexOf("TexturedPacketCache.AppendReferencedPackedTriangleSources(", packetLoopIndex, StringComparison.Ordinal);
+        int copiedSourceIndex = source.IndexOf("TexturedPacketCache.ResolvePackedTriangleSources(", packetLoopIndex, StringComparison.Ordinal);
+
+        Assert.True(rejectedRouteIndex >= 0, "The packet loop must handle a rejected outer route.");
+        Assert.True(runtimeModelIndex >= 0, "The packet loop must retain runtime-model source resolution for consumable routes.");
+        Assert.True(referencedSourceIndex >= 0, "The packet loop must retain bounded referenced-source construction for consumable routes.");
+        Assert.True(copiedSourceIndex >= 0, "The packet loop must retain copied-source resolution when references are disabled.");
+        Assert.True(rejectedRouteIndex < runtimeModelIndex, "Rejected outer routes must exit before runtime source acquisition.");
+        Assert.True(rejectedRouteIndex < referencedSourceIndex, "Rejected outer routes must exit before referenced source construction.");
+        Assert.True(rejectedRouteIndex < copiedSourceIndex, "Rejected outer routes must exit before copied source resolution.");
+    }
+
+    /// <summary>
     /// Resolves the PS2 repository root from the executing test binary directory.
     /// </summary>
     /// <returns>Absolute PS2 repository root path.</returns>
