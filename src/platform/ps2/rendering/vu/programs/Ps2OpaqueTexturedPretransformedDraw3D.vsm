@@ -70,7 +70,7 @@ texturedPretransformedTriangleLoop:
          NOP                                                        div           Q, VF00w, VF08w
          mulq.xy       VF09, VF09, Q                                waitq
          addq.z        VF09, VF00, Q                                NOP
-         addq.w        VF17, VF00, Q                                NOP
+         mulq.w        VF17, VF00, Q                                NOP
          mulq.xyz      VF08, VF08, Q                                NOP
          add.xy        VF18, VF08, VF00                              NOP
          mul.xyz       VF08, VF08, VF05                             NOP
@@ -90,7 +90,7 @@ texturedPretransformedTriangleLoop:
          NOP                                                        div           Q, VF00w, VF08w
          mulq.xy       VF09, VF09, Q                                waitq
          addq.z        VF09, VF00, Q                                NOP
-         addq.w        VF17, VF00, Q                                NOP
+         mulq.w        VF17, VF00, Q                                NOP
          mulq.xyz      VF08, VF08, Q                                NOP
          add.xy        VF19, VF08, VF00                              NOP
          mul.xyz       VF08, VF08, VF05                             NOP
@@ -110,7 +110,7 @@ texturedPretransformedTriangleLoop:
          NOP                                                        div           Q, VF00w, VF08w
          mulq.xy       VF09, VF09, Q                                waitq
          addq.z        VF09, VF00, Q                                NOP
-         addq.w        VF17, VF00, Q                                NOP
+         mulq.w        VF17, VF00, Q                                NOP
          mulq.xyz      VF08, VF08, Q                                NOP
          add.xy        VF20, VF08, VF00                              NOP
          mul.xyz       VF08, VF08, VF05                             NOP

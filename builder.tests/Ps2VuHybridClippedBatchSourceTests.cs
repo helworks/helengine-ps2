@@ -75,7 +75,8 @@ public sealed class Ps2VuHybridClippedBatchSourceTests {
         Assert.Equal(3, programSource.Split("div           Q, VF00w, VF08w", StringSplitOptions.None).Length - 1);
         Assert.Equal(3, programSource.Split("mulq.xy       VF09, VF09, Q", StringSplitOptions.None).Length - 1);
         Assert.Equal(3, programSource.Split("addq.z        VF09, VF00, Q", StringSplitOptions.None).Length - 1);
-        Assert.Equal(3, programSource.Split("addq.w        VF17, VF00, Q", StringSplitOptions.None).Length - 1);
+        Assert.Equal(3, programSource.Split("mulq.w        VF17, VF00, Q", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("addq.w        VF17, VF00, Q", programSource, StringComparison.Ordinal);
         Assert.Equal(3, programSource.Split("mulq.xyz      VF08, VF08, Q", StringSplitOptions.None).Length - 1);
         Assert.Contains("mulw.w        VF17, VF00, VF10w", programSource, StringComparison.Ordinal);
         Assert.Contains("mulx.xyz      VF17, VF07, VF16x", programSource, StringComparison.Ordinal);
