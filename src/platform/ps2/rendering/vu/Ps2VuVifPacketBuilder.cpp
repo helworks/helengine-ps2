@@ -55,7 +55,7 @@ namespace helengine::ps2 {
         constexpr bool EnableTexturedVuPerSliceTimingDiagnostics = false;
         constexpr bool DropClippedTexturedSlicesForDiagnostics = false;
         constexpr bool UseFastProgramForClippedSliceDiagnostics = false;
-        constexpr bool ForceAllTexturedSlicesThroughClipProgramDiagnostics = true;
+        constexpr bool ForceAllTexturedSlicesThroughClipProgramDiagnostics = false;
         constexpr std::size_t TriangleGifPacketTemplateQwordCount = 11u;
         constexpr std::size_t TriangleGifPacketTemplateByteCount = TriangleGifPacketTemplateQwordCount * 16u;
         constexpr std::size_t UntexturedTriangleDirectGifPacketWordCount = 18u;
