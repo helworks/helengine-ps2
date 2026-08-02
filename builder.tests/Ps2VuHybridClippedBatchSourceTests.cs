@@ -160,6 +160,28 @@ public sealed class Ps2VuHybridClippedBatchSourceTests {
     }
 
     /// <summary>
+    /// Requires exact clipping to classify an original source triangle as clipped only after it produces a non-empty generated fan.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenExactClippingProducesNoFan_CountsTheSourceOnlyAsRejected() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        int fanBuildIndex = source.IndexOf("Ps2VuClippedTexturedBatchBuilder::BuildTriangleFan(", StringComparison.Ordinal);
+        int generatedCountIndex = source.IndexOf("GeneratedClippedTexturedTriangleCount += clippedFan.GetTriangleCount();", fanBuildIndex, StringComparison.Ordinal);
+        int emptyFanBranchIndex = source.IndexOf("if (clippedFan.GetTriangleCount() == 0u) {", generatedCountIndex, StringComparison.Ordinal);
+        int rejectedCountIndex = source.IndexOf("RejectedTexturedSourceTriangleCount++;", emptyFanBranchIndex, StringComparison.Ordinal);
+        int clippedCountIndex = source.IndexOf("ClippedTexturedSourceTriangleCount++;", emptyFanBranchIndex, StringComparison.Ordinal);
+
+        Assert.True(fanBuildIndex >= 0, "Expected exact fan generation in the refined textured route.");
+        Assert.True(generatedCountIndex > fanBuildIndex, "Expected generated output accounting immediately after exact fan creation.");
+        Assert.True(emptyFanBranchIndex > generatedCountIndex, "Expected generated accounting before the exact empty-fan classification.");
+        Assert.True(rejectedCountIndex > emptyFanBranchIndex, "Expected an empty exact fan to count the source as rejected.");
+        Assert.True(clippedCountIndex > rejectedCountIndex, "Expected clipped source accounting only after the empty-fan rejection branch.");
+    }
+
+    /// <summary>
     /// Resolves the PS2 repository root from the executing test binary directory.
     /// </summary>
     /// <returns>The absolute PS2 repository root path.</returns>

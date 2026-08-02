@@ -2579,7 +2579,6 @@ namespace helengine::ps2 {
                     continue;
                 }
 
-                ClippedTexturedSourceTriangleCount++;
                 Ps2VuClippedTexturedTriangleFan clippedFan;
                 Ps2VuClippedTexturedBatchBuilder::BuildTriangleFan(
                     *sourceTriangle,
@@ -2592,6 +2591,7 @@ namespace helengine::ps2 {
                     RejectedTexturedSourceTriangleCount++;
                     continue;
                 }
+                ClippedTexturedSourceTriangleCount++;
                 if (!clippedBatch.CanAppend(clippedFan.GetTriangleCount())) {
                     if (clippedBatch.GetTriangleCount() == 0u) {
                         throw std::runtime_error("PS2 textured clipped triangle fan exceeds the fixed VU1 batch capacity.");
