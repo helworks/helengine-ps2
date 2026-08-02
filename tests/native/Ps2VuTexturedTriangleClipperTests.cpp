@@ -1,5 +1,8 @@
 #include "platform/ps2/rendering/vu/Ps2VuTexturedClipPolygon.hpp"
+#include "platform/ps2/rendering/vu/Ps2VuClippedTexturedBatch.hpp"
+#include "platform/ps2/rendering/vu/Ps2VuClippedTexturedTriangleFan.hpp"
 #include "platform/ps2/rendering/vu/Ps2VuTexturedTriangleClipper.hpp"
+#include "platform/ps2/rendering/vu/Ps2VuTexturedSourceLimits.hpp"
 
 #include <cmath>
 #include <cstddef>
@@ -8,9 +11,19 @@
 #include <stdexcept>
 
 namespace {
+    /// <summary>
+    /// Defines the positive distance from the camera to the clipping near plane used by native clipper tests.
+    /// </summary>
     constexpr float NearPlaneDistance = 1.0f;
+
+    /// <summary>
+    /// Defines the maximum accepted floating-point difference for deterministic clipping assertions.
+    /// </summary>
     constexpr float Tolerance = 0.00001f;
 
+    /// <summary>
+    /// Stops the current native test and reports the source line when a required condition is false.
+    /// </summary>
     #define REQUIRE(condition) \
         do { \
             if (!(condition)) { \
@@ -19,6 +32,9 @@ namespace {
             } \
         } while (false)
 
+    /// <summary>
+    /// Verifies that the fixed clipping polygon accepts exactly its inline capacity and rejects invalid access.
+    /// </summary>
     bool TestPolygonCapacityAndBounds() {
         using helengine::ps2::Ps2VuTexturedClipPolygon;
         using helengine::ps2::Ps2VuTexturedClipVertex;
@@ -55,6 +71,9 @@ namespace {
         return true;
     }
 
+    /// <summary>
+    /// Verifies that a triangle fully inside every clipping plane retains its original winding and components.
+    /// </summary>
     bool TestFullyInsideTriangleKeepsOrder() {
         using helengine::ps2::Ps2VuTexturedClipPolygon;
         using helengine::ps2::Ps2VuTexturedClipVertex;
@@ -110,6 +129,9 @@ namespace {
         return true;
     }
 
+    /// <summary>
+    /// Verifies that a triangle fully before the near plane produces an empty polygon.
+    /// </summary>
     bool TestFullyOutsideNearPlaneReturnsNoVertices() {
         using helengine::ps2::Ps2VuTexturedClipPolygon;
         using helengine::ps2::Ps2VuTexturedClipVertex;
@@ -138,6 +160,9 @@ namespace {
         return true;
     }
 
+    /// <summary>
+    /// Verifies that one near-plane crossing interpolates view, clip, and raw texture values consistently.
+    /// </summary>
     bool TestOneNearPlaneVertexOutsideInterpolatesUvs() {
         using helengine::ps2::Ps2VuTexturedClipPolygon;
         using helengine::ps2::Ps2VuTexturedClipVertex;
@@ -193,6 +218,9 @@ namespace {
         return true;
     }
 
+    /// <summary>
+    /// Verifies that clipping a triangle with two vertices before the near plane yields one bounded triangle.
+    /// </summary>
     bool TestTwoNearPlaneVerticesOutsideReturnsTriangle() {
         using helengine::ps2::Ps2VuTexturedClipPolygon;
         using helengine::ps2::Ps2VuTexturedClipVertex;
@@ -225,6 +253,9 @@ namespace {
         return true;
     }
 
+    /// <summary>
+    /// Verifies that every homogeneous side-plane crossing lies on its expected boundary.
+    /// </summary>
     bool TestSidePlaneCrossings() {
         using helengine::ps2::Ps2VuTexturedClipPolygon;
         using helengine::ps2::Ps2VuTexturedClipVertex;
@@ -297,6 +328,9 @@ namespace {
         return true;
     }
 
+    /// <summary>
+    /// Verifies that a vertex already on a clipping plane is retained without a duplicate intersection.
+    /// </summary>
     bool TestVertexOnPlaneDoesNotDuplicate() {
         using helengine::ps2::Ps2VuTexturedClipPolygon;
         using helengine::ps2::Ps2VuTexturedClipVertex;
@@ -326,6 +360,9 @@ namespace {
         return true;
     }
 
+    /// <summary>
+    /// Verifies that non-finite vertex data and an invalid near plane fail with invalid-argument errors.
+    /// </summary>
     bool TestNonFiniteInputThrowsInvalidArgument() {
         using helengine::ps2::Ps2VuTexturedClipPolygon;
         using helengine::ps2::Ps2VuTexturedClipVertex;
@@ -368,8 +405,168 @@ namespace {
 
         return true;
     }
+
+    /// <summary>
+    /// Verifies that a three-vertex polygon produces one homogeneous, raw-UV, flat-normal source record.
+    /// </summary>
+    bool TestTriangleFanBuildsOneTriangleFromThreeVertices() {
+        using helengine::ps2::Ps2VuClippedTexturedTriangleFan;
+        using helengine::ps2::Ps2VuTexturedClipPolygon;
+        using helengine::ps2::Ps2VuTexturedClipVertex;
+
+        Ps2VuTexturedClipPolygon polygon;
+        polygon.Append(Ps2VuTexturedClipVertex { 0.0f, 0.0f, -2.0f, 1.0f, 2.0f, 3.0f, 4.0f, 0.1f, 0.2f });
+        polygon.Append(Ps2VuTexturedClipVertex { 0.0f, 0.0f, -2.0f, 5.0f, 6.0f, 7.0f, 8.0f, 0.3f, 0.4f });
+        polygon.Append(Ps2VuTexturedClipVertex { 0.0f, 0.0f, -2.0f, 9.0f, 10.0f, 11.0f, 12.0f, 0.5f, 0.6f });
+        const float sourceNormal[] = { 0.7f, 0.8f, 0.9f, 1.0f };
+        Ps2VuClippedTexturedTriangleFan fan;
+
+        fan.BuildFromClippedPolygon(polygon, sourceNormal);
+
+        REQUIRE(fan.GetTriangleCount() == 1u);
+        const auto& triangle = fan.GetTriangle(0u);
+        REQUIRE(triangle.ClipPositionA[0] == 1.0f);
+        REQUIRE(triangle.ClipPositionA[1] == 2.0f);
+        REQUIRE(triangle.ClipPositionA[2] == 3.0f);
+        REQUIRE(triangle.ClipPositionA[3] == 4.0f);
+        REQUIRE(triangle.ClipPositionB[0] == 5.0f);
+        REQUIRE(triangle.ClipPositionC[3] == 12.0f);
+        REQUIRE(triangle.TexCoordA[0] == 0.1f);
+        REQUIRE(triangle.TexCoordA[1] == 0.2f);
+        REQUIRE(triangle.TexCoordA[2] == 0.0f);
+        REQUIRE(triangle.TexCoordA[3] == 0.0f);
+        REQUIRE(triangle.TexCoordB[0] == 0.3f);
+        REQUIRE(triangle.TexCoordC[1] == 0.6f);
+        REQUIRE(triangle.TexCoordC[2] == 0.0f);
+        REQUIRE(triangle.TexCoordC[3] == 0.0f);
+        REQUIRE(triangle.FaceNormal[0] == sourceNormal[0]);
+        REQUIRE(triangle.FaceNormal[1] == sourceNormal[1]);
+        REQUIRE(triangle.FaceNormal[2] == sourceNormal[2]);
+        REQUIRE(triangle.FaceNormal[3] == sourceNormal[3]);
+        return true;
+    }
+
+    /// <summary>
+    /// Verifies that a quadrilateral produces the stable two-triangle fan order and preserves its flat normal.
+    /// </summary>
+    bool TestTriangleFanBuildsStableOrderFromFourVertices() {
+        using helengine::ps2::Ps2VuClippedTexturedTriangleFan;
+        using helengine::ps2::Ps2VuTexturedClipPolygon;
+        using helengine::ps2::Ps2VuTexturedClipVertex;
+
+        Ps2VuTexturedClipPolygon polygon;
+        polygon.Append(Ps2VuTexturedClipVertex { 0.0f, 0.0f, -2.0f, 10.0f, 11.0f, 12.0f, 13.0f, 0.1f, 0.2f });
+        polygon.Append(Ps2VuTexturedClipVertex { 0.0f, 0.0f, -2.0f, 20.0f, 21.0f, 22.0f, 23.0f, 0.3f, 0.4f });
+        polygon.Append(Ps2VuTexturedClipVertex { 0.0f, 0.0f, -2.0f, 30.0f, 31.0f, 32.0f, 33.0f, 0.5f, 0.6f });
+        polygon.Append(Ps2VuTexturedClipVertex { 0.0f, 0.0f, -2.0f, 40.0f, 41.0f, 42.0f, 43.0f, 0.7f, 0.8f });
+        const float sourceNormal[] = { -1.0f, 2.0f, -3.0f, 4.0f };
+        Ps2VuClippedTexturedTriangleFan fan;
+
+        fan.BuildFromClippedPolygon(polygon, sourceNormal);
+
+        REQUIRE(fan.GetTriangleCount() == 2u);
+        const auto& firstTriangle = fan.GetTriangle(0u);
+        const auto& secondTriangle = fan.GetTriangle(1u);
+        REQUIRE(firstTriangle.ClipPositionA[0] == 10.0f);
+        REQUIRE(firstTriangle.ClipPositionB[0] == 20.0f);
+        REQUIRE(firstTriangle.ClipPositionC[0] == 30.0f);
+        REQUIRE(secondTriangle.ClipPositionA[0] == 10.0f);
+        REQUIRE(secondTriangle.ClipPositionB[0] == 30.0f);
+        REQUIRE(secondTriangle.ClipPositionC[0] == 40.0f);
+        REQUIRE(secondTriangle.TexCoordA[0] == 0.1f);
+        REQUIRE(secondTriangle.TexCoordB[0] == 0.5f);
+        REQUIRE(secondTriangle.TexCoordC[1] == 0.8f);
+        for (std::size_t index = 0u; index < 4u; ++index) {
+            REQUIRE(firstTriangle.FaceNormal[index] == sourceNormal[index]);
+            REQUIRE(secondTriangle.FaceNormal[index] == sourceNormal[index]);
+        }
+
+        try {
+            fan.GetTriangle(fan.GetTriangleCount());
+            REQUIRE(false);
+        } catch (const std::out_of_range&) {
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Verifies that a clipped batch preserves complete fan records and rejects capacity overflow without mutation.
+    /// </summary>
+    bool TestClippedBatchAppendsFansAtomicallyAtCapacity() {
+        using helengine::ps2::Ps2VuClippedTexturedBatch;
+        using helengine::ps2::Ps2VuClippedTexturedTriangleFan;
+        using helengine::ps2::Ps2VuTexturedClipPolygon;
+        using helengine::ps2::Ps2VuTexturedClipVertex;
+        using helengine::ps2::TexturedVuClippedInputTriangleCapacity;
+        using helengine::ps2::TexturedVuClippedOutputTriangleCapacity;
+        using helengine::ps2::TexturedVuClippedTriangleCapacity;
+        using helengine::ps2::TexturedVuDataMemoryQwordCount;
+        using helengine::ps2::TexturedVuGifStateQwordCount;
+        using helengine::ps2::TexturedVuOutputQwordsPerTriangle;
+        using helengine::ps2::TexturedVuOutputStartQword;
+        using helengine::ps2::TexturedVuSharedStateQwordCount;
+
+        REQUIRE(TexturedVuClippedTriangleCapacity == 33u);
+        REQUIRE(TexturedVuSharedStateQwordCount + (TexturedVuClippedInputTriangleCapacity * 7u) <= TexturedVuOutputStartQword);
+        REQUIRE(TexturedVuOutputStartQword + TexturedVuGifStateQwordCount + (TexturedVuClippedOutputTriangleCapacity * TexturedVuOutputQwordsPerTriangle) <= TexturedVuDataMemoryQwordCount);
+
+        Ps2VuTexturedClipPolygon trianglePolygon;
+        trianglePolygon.Append(Ps2VuTexturedClipVertex { 0.0f, 0.0f, -2.0f, 1.0f, 2.0f, 3.0f, 4.0f, 0.1f, 0.2f });
+        trianglePolygon.Append(Ps2VuTexturedClipVertex { 0.0f, 0.0f, -2.0f, 5.0f, 6.0f, 7.0f, 8.0f, 0.3f, 0.4f });
+        trianglePolygon.Append(Ps2VuTexturedClipVertex { 0.0f, 0.0f, -2.0f, 9.0f, 10.0f, 11.0f, 12.0f, 0.5f, 0.6f });
+        Ps2VuTexturedClipPolygon quadPolygon;
+        quadPolygon.Append(Ps2VuTexturedClipVertex { 0.0f, 0.0f, -2.0f, 1.0f, 2.0f, 3.0f, 4.0f, 0.1f, 0.2f });
+        quadPolygon.Append(Ps2VuTexturedClipVertex { 0.0f, 0.0f, -2.0f, 5.0f, 6.0f, 7.0f, 8.0f, 0.3f, 0.4f });
+        quadPolygon.Append(Ps2VuTexturedClipVertex { 0.0f, 0.0f, -2.0f, 9.0f, 10.0f, 11.0f, 12.0f, 0.5f, 0.6f });
+        quadPolygon.Append(Ps2VuTexturedClipVertex { 0.0f, 0.0f, -2.0f, 13.0f, 14.0f, 15.0f, 16.0f, 0.7f, 0.8f });
+        const float sourceNormal[] = { 1.0f, 2.0f, 3.0f, 4.0f };
+        Ps2VuClippedTexturedTriangleFan singleTriangleFan;
+        Ps2VuClippedTexturedTriangleFan twoTriangleFan;
+        singleTriangleFan.BuildFromClippedPolygon(trianglePolygon, sourceNormal);
+        twoTriangleFan.BuildFromClippedPolygon(quadPolygon, sourceNormal);
+        Ps2VuClippedTexturedBatch batch;
+
+        REQUIRE(batch.GetTriangleCount() == 0u);
+        REQUIRE(batch.CanAppend(TexturedVuClippedTriangleCapacity));
+        REQUIRE(!batch.CanAppend(TexturedVuClippedTriangleCapacity + 1u));
+        for (std::size_t index = 0u; index < (TexturedVuClippedTriangleCapacity - 1u); ++index) {
+            batch.Append(singleTriangleFan);
+        }
+
+        const auto firstTriangle = batch.GetTriangles()[0u];
+        REQUIRE(!batch.CanAppend(twoTriangleFan.GetTriangleCount()));
+        try {
+            batch.Append(twoTriangleFan);
+            REQUIRE(false);
+        } catch (const std::overflow_error&) {
+        }
+
+        REQUIRE(batch.GetTriangleCount() == TexturedVuClippedTriangleCapacity - 1u);
+        REQUIRE(batch.GetTriangles()[0u].ClipPositionA[0] == firstTriangle.ClipPositionA[0]);
+        REQUIRE(batch.GetTriangles()[0u].FaceNormal[3] == firstTriangle.FaceNormal[3]);
+        batch.Append(singleTriangleFan);
+        REQUIRE(batch.GetTriangleCount() == TexturedVuClippedTriangleCapacity);
+        const auto finalTriangle = batch.GetTriangles()[TexturedVuClippedTriangleCapacity - 1u];
+        try {
+            batch.Append(singleTriangleFan.GetTriangle(0u));
+            REQUIRE(false);
+        } catch (const std::overflow_error&) {
+        }
+
+        REQUIRE(batch.GetTriangleCount() == TexturedVuClippedTriangleCapacity);
+        REQUIRE(batch.GetTriangles()[TexturedVuClippedTriangleCapacity - 1u].ClipPositionC[3] == finalTriangle.ClipPositionC[3]);
+        REQUIRE(batch.GetTriangles()[TexturedVuClippedTriangleCapacity - 1u].TexCoordC[1] == finalTriangle.TexCoordC[1]);
+        batch.Clear();
+        REQUIRE(batch.GetTriangleCount() == 0u);
+        REQUIRE(batch.GetTriangles()[0u].ClipPositionA[0] == firstTriangle.ClipPositionA[0]);
+        return true;
+    }
 }
 
+/// <summary>
+/// Runs the dependency-free native tests for clipping polygons, generated triangle fans, and bounded clipped batches.
+/// </summary>
 int main() {
     if (!TestPolygonCapacityAndBounds()) {
         return 1;
@@ -400,6 +597,18 @@ int main() {
     }
 
     if (!TestNonFiniteInputThrowsInvalidArgument()) {
+        return 1;
+    }
+
+    if (!TestTriangleFanBuildsOneTriangleFromThreeVertices()) {
+        return 1;
+    }
+
+    if (!TestTriangleFanBuildsStableOrderFromFourVertices()) {
+        return 1;
+    }
+
+    if (!TestClippedBatchAppendsFansAtomicallyAtCapacity()) {
         return 1;
     }
 

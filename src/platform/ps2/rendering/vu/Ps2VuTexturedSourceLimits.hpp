@@ -77,6 +77,38 @@ namespace helengine::ps2 {
     constexpr std::size_t TexturedVuDataMemoryQwordCount = 1024u;
 
     /// <summary>
+    /// Counts the VU1 qwords reserved for the clipped textured path's shared state before pretransformed source records.
+    /// </summary>
+    constexpr std::size_t TexturedVuSharedStateQwordCount = 21u;
+
+    /// <summary>
+    /// Counts the homogeneous positions, raw texture coordinates, and face normal qwords in one clipped source triangle.
+    /// </summary>
+    constexpr std::size_t TexturedVuClippedTriangleSourceQwordCount = 7u;
+
+    /// <summary>
+    /// Limits pretransformed clipped input records to the qwords below the textured GIF output region.
+    /// </summary>
+    constexpr std::size_t TexturedVuClippedInputTriangleCapacity =
+        (TexturedVuOutputStartQword - TexturedVuSharedStateQwordCount)
+        / TexturedVuClippedTriangleSourceQwordCount;
+
+    /// <summary>
+    /// Limits generated clipped output records to the qwords between the GIF state and the end of VU1 data memory.
+    /// </summary>
+    constexpr std::size_t TexturedVuClippedOutputTriangleCapacity =
+        (TexturedVuDataMemoryQwordCount - TexturedVuOutputStartQword - TexturedVuGifStateQwordCount)
+        / TexturedVuOutputQwordsPerTriangle;
+
+    /// <summary>
+    /// Selects the smaller input or output limit so every clipped batch fits both VU1 memory regions.
+    /// </summary>
+    constexpr std::size_t TexturedVuClippedTriangleCapacity =
+        TexturedVuClippedInputTriangleCapacity < TexturedVuClippedOutputTriangleCapacity
+            ? TexturedVuClippedInputTriangleCapacity
+            : TexturedVuClippedOutputTriangleCapacity;
+
+    /// <summary>
     /// Identifies the exclusive worst-case output end after full frustum-clipping expansion.
     /// </summary>
     constexpr std::size_t TexturedVuMaximumOutputEndQword = TexturedVuOutputStartQword
@@ -86,4 +118,11 @@ namespace helengine::ps2 {
     static_assert(TexturedVuClipScratchBufferAQword + TexturedVuClipScratchBufferQwordCount <= TexturedVuClipScratchBufferBQword);
     static_assert(TexturedVuClipScratchEndQword <= TexturedVuOutputStartQword);
     static_assert(TexturedVuMaximumOutputEndQword <= TexturedVuDataMemoryQwordCount);
+    static_assert(TexturedVuClippedTriangleCapacity == 33u);
+    static_assert(TexturedVuSharedStateQwordCount
+        + (TexturedVuClippedTriangleCapacity * TexturedVuClippedTriangleSourceQwordCount)
+        <= TexturedVuOutputStartQword);
+    static_assert(TexturedVuOutputStartQword + TexturedVuGifStateQwordCount
+        + (TexturedVuClippedTriangleCapacity * TexturedVuOutputQwordsPerTriangle)
+        <= TexturedVuDataMemoryQwordCount);
 }

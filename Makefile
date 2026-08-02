@@ -43,6 +43,11 @@ PS2_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuProgramRegistry.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuGifStateEncoder.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuTexturedPacketCache.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuTexturedClipPolygon.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuTexturedTriangleClipper.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuClippedTexturedTriangleFan.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuClippedTexturedBatch.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuClippedTexturedBatchBuilder.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp
 VU_PROGRAM_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueDraw3D.vsm \
@@ -106,6 +111,8 @@ PS2_RENDERING_TEST_TARGET := $(BUILD_DIR)/tests/ps2-vu-textured-clipper-tests
 PS2_RENDERING_TEST_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuTexturedClipPolygon.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuTexturedTriangleClipper.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuClippedTexturedTriangleFan.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuClippedTexturedBatch.cpp \
 	tests/native/Ps2VuTexturedTriangleClipperTests.cpp
 
 LDFLAGS := \
