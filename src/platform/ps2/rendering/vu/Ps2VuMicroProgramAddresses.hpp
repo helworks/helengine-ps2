@@ -17,4 +17,9 @@ namespace helengine::ps2 {
     /// Identifies the isolated textured near-plane clipping entry point used only by intersecting source slices.
     /// </summary>
     constexpr std::uint16_t TexturedClipMicroProgramAddress = 320u;
+
+    /// <summary>
+    /// Reserves the textured replacement entry point for pretransformed clipped batches until Task 4 switches the active upload and routing.
+    /// </summary>
+    constexpr std::uint16_t TexturedPretransformedMicroProgramAddress = 320u;
 }
