@@ -102,6 +102,36 @@ public sealed class Ps2VuHybridClippedBatchSourceTests {
     }
 
     /// <summary>
+    /// Requires the failed per-triangle VU clipper to remain only as an inactive B321 comparison artifact while the host clipper and pretransformed program own every active exceptional route.
+    /// </summary>
+    [Fact]
+    public void Ps2TexturedClipping_WhenRetiringThePerTriangleVuClipper_LeavesNoActiveClipperContractsOrTimingBranches() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string comparisonProgramPath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedClipDraw3D.vsm");
+        string makefileSource = File.ReadAllText(Path.Combine(repositoryRootPath, "Makefile"));
+        string bootHostSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2BootHost.cpp"));
+        string addressSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuMicroProgramAddresses.hpp"));
+        string packetBuilderSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        string limitsSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuTexturedSourceLimits.hpp"));
+
+        Assert.True(File.Exists(comparisonProgramPath), "Expected the inactive B321 comparison program to remain available for visual validation.");
+        Assert.Contains("Ps2OpaqueTexturedPretransformedDraw3D.vsm", makefileSource, StringComparison.Ordinal);
+        Assert.Contains("Ps2OpaqueTexturedPretransformedDraw3D_CodeStart", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("TexturedPretransformedMicroProgramAddress", packetBuilderSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2OpaqueTexturedClipDraw3D", makefileSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2OpaqueTexturedClipDraw3D", bootHostSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2OpaqueTexturedClipDraw3D", addressSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("TexturedClipMicroProgramAddress", addressSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2OpaqueTexturedClipDraw3D", packetBuilderSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("TexturedClipMicroProgramAddress", packetBuilderSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("TexturedVuClipScratch", limitsSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("TexturedVuClippedSourceTriangleCapacity", limitsSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("TexturedVuMaximumClipPolygonVertexCount", limitsSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("TexturedVuMaximumOutput", limitsSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("EnableVuPerTriangleTimingDiagnostics", packetBuilderSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Requires the exceptional clipped route to preclassify fixed outer slices before allocation while preserving the ordinary packet budget for safe work.
     /// </summary>
     [Fact]

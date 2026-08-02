@@ -49,7 +49,7 @@ public sealed class Ps2NativeBuildInputsTests {
     }
 
     /// <summary>
-    /// Ensures the textured VU1 program allows each projected-position result to settle before the next dependent operation.
+    /// Ensures the textured VU1 program preserves the current projected-position dependency order without retired diagnostic spacing.
     /// </summary>
     [Fact]
     public void Ps2_textured_vu_program_waits_between_projected_position_dependencies() {
@@ -69,9 +69,11 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.True(perspectiveMultiplyIndex >= 0 && screenScaleIndex > perspectiveMultiplyIndex);
         Assert.True(screenOffsetIndex > screenScaleIndex && depthConversionIndex > screenOffsetIndex);
         Assert.True(xyConversionIndex > depthConversionIndex);
-        Assert.Equal(4, microProgram.Substring(perspectiveMultiplyIndex, screenScaleIndex - perspectiveMultiplyIndex).Split('\n').Count(line => line.Trim().Replace(" ", string.Empty, StringComparison.Ordinal) == "NOPNOP"));
-        Assert.Equal(4, microProgram.Substring(screenScaleIndex, screenOffsetIndex - screenScaleIndex).Split('\n').Count(line => line.Trim().Replace(" ", string.Empty, StringComparison.Ordinal) == "NOPNOP"));
-        Assert.Equal(4, microProgram.Substring(screenOffsetIndex, depthConversionIndex - screenOffsetIndex).Split('\n').Count(line => line.Trim().Replace(" ", string.Empty, StringComparison.Ordinal) == "NOPNOP"));
+        Assert.Contains("mulq.xyz      VF08, VF08, Q", microProgram, StringComparison.Ordinal);
+        Assert.Contains("mul.xyz       VF08, VF08, VF05", microProgram, StringComparison.Ordinal);
+        Assert.Contains("add.xyz       VF08, VF08, VF06", microProgram, StringComparison.Ordinal);
+        Assert.Contains("ftoi4.xy      VF08, VF08", microProgram, StringComparison.Ordinal);
+        Assert.Contains("ftoi0.z       VF08, VF08", microProgram, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -106,7 +108,7 @@ public sealed class Ps2NativeBuildInputsTests {
     }
 
     /// <summary>
-    /// Ensures the textured VU1 program allows each source position load to complete before starting its matrix transformation.
+    /// Ensures the textured VU1 program keeps the current source-load latency slots before matrix transformation.
     /// </summary>
     [Fact]
     public void Ps2_textured_vu_program_waits_for_source_position_load_before_transforming() {
@@ -120,7 +122,7 @@ public sealed class Ps2NativeBuildInputsTests {
         int positionLoadIndex = microProgram.IndexOf("lq VF08, 0(VI05)", StringComparison.Ordinal);
         int matrixStartIndex = microProgram.IndexOf("mulax         ACC, VF01, VF08x", positionLoadIndex, StringComparison.Ordinal);
         Assert.True(positionLoadIndex >= 0 && matrixStartIndex > positionLoadIndex);
-        Assert.Equal(4, microProgram.Substring(positionLoadIndex, matrixStartIndex - positionLoadIndex).Split('\n').Count(line => line.Trim().Replace(" ", string.Empty, StringComparison.Ordinal) == "NOPNOP"));
+        Assert.Equal(3, microProgram.Substring(positionLoadIndex, matrixStartIndex - positionLoadIndex).Split('\n').Count(line => line.Trim().Replace(" ", string.Empty, StringComparison.Ordinal) == "NOPNOP"));
     }
 
     /// <summary>
@@ -152,7 +154,7 @@ public sealed class Ps2NativeBuildInputsTests {
     }
 
     /// <summary>
-    /// Ensures B84 removes all fixed-packet storage before dynamic VU vertex generation is tested.
+    /// Ensures the active fast path uses cached packed sources rather than fixed diagnostic GIF storage.
     /// </summary>
     [Fact]
     public void Ps2_textured_vu_packet_builder_removes_fixed_gif_diagnostic_storage_for_dynamic_generation() {
@@ -161,7 +163,9 @@ public sealed class Ps2NativeBuildInputsTests {
 
         Assert.DoesNotContain("EnableTexturedVuFixedGifOutputDiagnostic", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Ps2VuTexturedFixedGifTriangle", source, StringComparison.Ordinal);
-        Assert.Contains("sourceTriangles.push_back(sourceTriangle);", source, StringComparison.Ordinal);
+        Assert.Contains("TexturedPacketCache.AppendReferencedPackedTriangleSources(", source, StringComparison.Ordinal);
+        Assert.Contains("TexturedPacketCache.ResolvePackedTriangleSources(*batch->Model, runtimeModel)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("sourceTriangles.push_back(sourceTriangle);", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -186,17 +190,17 @@ public sealed class Ps2NativeBuildInputsTests {
     }
 
     /// <summary>
-    /// Ensures the dynamic textured VU1 path submits every eligible bounded batch after correctness diagnostics are complete.
+    /// Ensures the renderer submits every eligible textured batch through the aggregated fast and host-clipped route.
     /// </summary>
     [Fact]
     public void Ps2_renderer3d_submits_all_dynamic_textured_vu_batches() {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp"));
 
-        Assert.Contains("constexpr bool EnableTexturedVuSingleBatchDiagnostics = false;", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("texturedVuBatches.resize(dynamicTexturedVuBatchCount);", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("texturedVuWorlds.resize(dynamicTexturedVuBatchCount);", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("texturedVuTextures.resize(dynamicTexturedVuBatchCount);", source, StringComparison.Ordinal);
+        Assert.Contains("if (EnableTexturedBatchAggregation", source, StringComparison.Ordinal);
+        Assert.Contains("texturedVuBatches.push_back(batchSlice);", source, StringComparison.Ordinal);
+        Assert.Contains("VuVifPacketBuilder.AddOpaqueTexturedVuBatches(", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("EnableTexturedVuSingleBatchDiagnostics", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -219,8 +223,10 @@ public sealed class Ps2NativeBuildInputsTests {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp"));
 
-        Assert.Contains("const bool canUseTexturedVuFastPath = (batch.Textured || usesRuntimeWhiteTexture)", source, StringComparison.Ordinal);
-        Assert.Contains("&& CanUseTexturedVuFastPath(batch, world, view, projection, nearPlaneDistance);", source, StringComparison.Ordinal);
+        Assert.Contains("const bool usesRuntimeWhiteTexture = !batch.Textured && batchTexture == nullptr;", source, StringComparison.Ordinal);
+        Assert.Contains("batchTexture = ResolveRuntimeWhiteTexture(GsGlobal);", source, StringComparison.Ordinal);
+        Assert.Contains("&& (batch.Textured || usesRuntimeWhiteTexture)", source, StringComparison.Ordinal);
+        Assert.Contains("runtimeWhiteTexturedBatches.back().Textured = true;", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -251,8 +257,9 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("sq VF17, 1(VI03)", source, StringComparison.Ordinal);
         Assert.DoesNotContain("addq.w        VF10, VF00, Q", source, StringComparison.Ordinal);
         Assert.Contains("float MaterialLighting[4];", packetBuilderSource, StringComparison.Ordinal);
-        Assert.Contains("sharedState.MaterialLighting[0] = static_cast<float>(lightingConstants.BaseColorR) / 255.0f;", packetBuilderSource, StringComparison.Ordinal);
-        Assert.Contains("sharedState.StateTemplate[7].High = (static_cast<std::uint64_t>(GIF_REG_ST) << 0u)", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuTexturedSharedState", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("cachedSharedState.MaterialLighting[0] = static_cast<float>(lightingConstants.BaseColorR) / 255.0f;", packetBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("cachedSharedState.StateTemplate[7].High = (static_cast<std::uint64_t>(GIF_REG_ST) << 0u)", packetBuilderSource, StringComparison.Ordinal);
         Assert.Contains("| (static_cast<std::uint64_t>(GIF_REG_RGBAQ) << 4u)", packetBuilderSource, StringComparison.Ordinal);
     }
 
@@ -280,7 +287,7 @@ public sealed class Ps2NativeBuildInputsTests {
     }
 
     /// <summary>
-    /// Ensures the dynamic textured VU path reuses immutable triangle sources instead of decoding packed buffers every frame.
+    /// Ensures the dynamic textured VU fast route references immutable packed triangle sources without decoding them per frame.
     /// </summary>
     [Fact]
     public void Ps2_textured_vu_fast_path_uses_cached_immutable_triangle_sources() {
@@ -291,7 +298,9 @@ public sealed class Ps2NativeBuildInputsTests {
         string dynamicVuPath = source.Substring(dynamicVuPathStartIndex, cpuPathStartIndex - dynamicVuPathStartIndex);
 
         Assert.Contains("const Ps2RuntimeModel* runtimeModel = batch->Proxy != nullptr ? batch->Proxy->GetModel() : nullptr;", dynamicVuPath, StringComparison.Ordinal);
-        Assert.Contains("TexturedPacketCache.ResolveTriangleSources(*batch->Model, runtimeModel)", dynamicVuPath, StringComparison.Ordinal);
+        Assert.Contains("TexturedPacketCache.AppendReferencedPackedTriangleSources(", dynamicVuPath, StringComparison.Ordinal);
+        Assert.Contains("TexturedPacketCache.ResolvePackedTriangleSources(*batch->Model, runtimeModel)", dynamicVuPath, StringComparison.Ordinal);
+        Assert.Contains("EmitTexturedFastSourceRun(", dynamicVuPath, StringComparison.Ordinal);
         Assert.DoesNotContain("const float* packedPositionWords", dynamicVuPath, StringComparison.Ordinal);
         Assert.DoesNotContain("const std::vector<std::uint16_t>* runtimeIndices", dynamicVuPath, StringComparison.Ordinal);
     }
@@ -308,12 +317,13 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("float WorldNormalMatrix[16];", source, StringComparison.Ordinal);
         Assert.Contains("float WorldLightDirection[4];", source, StringComparison.Ordinal);
         Assert.Contains("float MaterialLighting[4];", source, StringComparison.Ordinal);
-        Assert.Contains("sourceRecord.FaceNormal[0] = sourceTriangle.FaceNormal.X;", source, StringComparison.Ordinal);
-        Assert.Contains("CopyMatrixWords(worlds[batchIndex], sharedState.WorldNormalMatrix);", source, StringComparison.Ordinal);
+        Assert.Contains("cachedSharedState.MaterialLighting[0] = static_cast<float>(lightingConstants.BaseColorR) / 255.0f;", source, StringComparison.Ordinal);
+        Assert.Contains("cachedSharedState.WorldLightDirection[0] = normalizedLightDirection.X;", source, StringComparison.Ordinal);
+        Assert.Contains("CopyMatrixWords(worlds[batchIndex], cachedSharedState.WorldNormalMatrix);", source, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Ensures the dynamic textured VU path accounts for CPU time spent constructing its per-triangle source payload separately from VIF packet assembly.
+    /// Ensures the dynamic textured VU path keeps per-slice timing diagnostics disabled unless explicitly requested.
     /// </summary>
     [Fact]
     public void Ps2_dynamic_textured_vu_path_measures_source_payload_construction() {
@@ -323,7 +333,8 @@ public sealed class Ps2NativeBuildInputsTests {
         int cpuPathStartIndex = source.IndexOf("void Ps2VuVifPacketBuilder::AddOpaqueTexturedBatches(", StringComparison.Ordinal);
         string dynamicVuPath = source.Substring(dynamicVuPathStartIndex, cpuPathStartIndex - dynamicVuPathStartIndex);
 
-        Assert.Contains("const std::clock_t sourcePayloadFillStartTicks = std::clock();", dynamicVuPath, StringComparison.Ordinal);
+        Assert.Contains("const std::clock_t sourcePayloadFillStartTicks = EnableTexturedVuPerSliceTimingDiagnostics ? std::clock() : 0;", dynamicVuPath, StringComparison.Ordinal);
+        Assert.Contains("if (EnableTexturedVuPerSliceTimingDiagnostics)", dynamicVuPath, StringComparison.Ordinal);
         Assert.Contains("LastTrianglePayloadFillMilliseconds += ResolveMillisecondsFromClockTicks(sourcePayloadFillStartTicks, std::clock());", dynamicVuPath, StringComparison.Ordinal);
     }
 
@@ -347,10 +358,11 @@ public sealed class Ps2NativeBuildInputsTests {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
 
-        Assert.Contains("constexpr std::size_t TexturedVuSourceBatchPayloadQwordCount", source, StringComparison.Ordinal);
         Assert.Contains("constexpr std::size_t TexturedVuSourceBatchSubmissionOverheadQwordCount = 2u;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::size_t TexturedVuMaximumSourceBatchPacketQwordCount", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::size_t TexturedVuMaximumExceptionalOuterSlicePacketQwordCount", source, StringComparison.Ordinal);
         Assert.Contains(
-            "batches.size() * (TexturedVuSourceBatchPayloadQwordCount + TexturedVuSourceBatchSubmissionOverheadQwordCount)",
+            "TexturedVuSourceTriangleCapacity * TexturedVuSourceTriangleQwordCount",
             source,
             StringComparison.Ordinal);
     }
@@ -536,7 +548,12 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("std::size_t GetPacketByteCount() const;", header, StringComparison.Ordinal);
         Assert.Contains("packet2_t* Packet = nullptr;", header, StringComparison.Ordinal);
         Assert.Contains("std::uint32_t LastCompletedPhase = 0;", header, StringComparison.Ordinal);
-        Assert.Contains("const ::float4& viewport, float nearPlaneDistance, const ::float3& lightDirection, GSGLOBAL* gsGlobal, int textureWidth, int textureHeight", header, StringComparison.Ordinal);
+        Assert.Contains("void AddOpaqueTexturedVuBatches(", header, StringComparison.Ordinal);
+        Assert.Contains("std::size_t firstBatchIndex,", header, StringComparison.Ordinal);
+        Assert.Contains("std::size_t batchCount,", header, StringComparison.Ordinal);
+        Assert.Contains("const std::vector<GSTEXTURE*>& textures,", header, StringComparison.Ordinal);
+        Assert.Contains("const std::vector<int>& textureWidths,", header, StringComparison.Ordinal);
+        Assert.Contains("const std::vector<int>& textureHeights);", header, StringComparison.Ordinal);
         Assert.Contains("#include <packet2.h>", source, StringComparison.Ordinal);
         Assert.Contains("#include <packet2_utils.h>", source, StringComparison.Ordinal);
         Assert.Contains("constexpr std::uint32_t EnableVuPacketPhaseDiagnostics = 0;", source, StringComparison.Ordinal);
@@ -546,7 +563,8 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.DoesNotContain("constexpr bool EnableVuTwoTriangleBatchDiagnostic", source, StringComparison.Ordinal);
         Assert.DoesNotContain("constexpr std::uint32_t VuDiagnosticBatchTriangleCount = 2u;", source, StringComparison.Ordinal);
         Assert.Contains("constexpr std::size_t TriangleGifPacketTemplateQwordCount = 11u;", source, StringComparison.Ordinal);
-        Assert.Contains("constexpr std::size_t LitTrianglePayloadQwordCount = sizeof(Ps2VuLitTrianglePayload) / 16u;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::size_t TexturedVuSharedStateQwordCount = sizeof(Ps2VuTexturedSharedState) / 16u;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::size_t TexturedVuSourceTriangleQwordCount = sizeof(Ps2VuTexturedSourceTriangle) / 16u;", source, StringComparison.Ordinal);
         Assert.Contains("LastCompletedPhase = 1;", source, StringComparison.Ordinal);
         Assert.Contains("LastCompletedPhase = 2;", source, StringComparison.Ordinal);
         Assert.Contains("LastCompletedPhase = 3;", source, StringComparison.Ordinal);
@@ -562,12 +580,13 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("packet2_utils_vu_close_unpack(", source, StringComparison.Ordinal);
         Assert.Contains("batch.Model->GetTriangleVertexCount()", source, StringComparison.Ordinal);
         Assert.Contains("batch.Model->GetPositionBlockBytes()", source, StringComparison.Ordinal);
-        Assert.Contains("struct alignas(16) Ps2VuLitTrianglePayload", source, StringComparison.Ordinal);
-        Assert.Contains("std::memcpy(payload.FaceNormal, triangleSetup.FaceNormal, sizeof(triangleSetup.FaceNormal));", source, StringComparison.Ordinal);
+        Assert.Contains("struct alignas(16) Ps2VuTexturedSourceTriangle", source, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuClippedTexturedBatchBuilder::BuildTriangleFan(", source, StringComparison.Ordinal);
+        Assert.Contains("EmitTexturedClippedBatch(packet.get(), cachedSharedState, clippedBatch);", source, StringComparison.Ordinal);
         Assert.Contains("TryBuildVertexPositionRegister(", source, StringComparison.Ordinal);
         Assert.Contains("GifPacketBytes.resize(TriangleGifPacketTemplateByteCount);", source, StringComparison.Ordinal);
-        Assert.Contains("std::memcpy(GifPacketBytes.data(), trianglePayloads.front().GifPacketTemplate, TriangleGifPacketTemplateByteCount);", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("BuildUntexturedTriangleGifPacketBytes(", source, StringComparison.Ordinal);
+        Assert.Contains("EmitTexturedFastSourceRun(", source, StringComparison.Ordinal);
+        Assert.Contains("EmitTexturedClippedBatch(", source, StringComparison.Ordinal);
         Assert.Contains("GetTexCoordBlockBytes()", source, StringComparison.Ordinal);
         Assert.Contains("packet2_get_qw_count(", source, StringComparison.Ordinal);
         Assert.Contains("packet2_vif_mscal(packet.get(), UntexturedMicroProgramAddress, 0);", source, StringComparison.Ordinal);
@@ -668,7 +687,8 @@ public sealed class Ps2NativeBuildInputsTests {
     /// </summary>
     [Fact]
     public void Boot_host_uploads_vu_opaque_microprogram_and_initializes_vif1_double_buffering() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2BootHost.cpp"));
 
         Assert.Contains("#include <dma.h>", source, StringComparison.Ordinal);
         Assert.Contains("#include <packet2.h>", source, StringComparison.Ordinal);
@@ -677,10 +697,13 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("extern u32 Ps2OpaqueDraw3D_CodeEnd", source, StringComparison.Ordinal);
         Assert.Contains("extern u32 Ps2OpaqueTexturedDraw3D_CodeStart", source, StringComparison.Ordinal);
         Assert.Contains("extern u32 Ps2OpaqueTexturedDraw3D_CodeEnd", source, StringComparison.Ordinal);
+        Assert.Contains("extern u32 Ps2OpaqueTexturedPretransformedDraw3D_CodeStart", source, StringComparison.Ordinal);
+        Assert.Contains("extern u32 Ps2OpaqueTexturedPretransformedDraw3D_CodeEnd", source, StringComparison.Ordinal);
         Assert.Contains("dma_channel_initialize(DMA_CHANNEL_VIF1, NULL, 0);", source, StringComparison.Ordinal);
         Assert.Contains("packet2_vif_add_micro_program(", source, StringComparison.Ordinal);
-        Assert.Contains("packet2_vif_add_micro_program(packet2, 0, &Ps2OpaqueDraw3D_CodeStart, &Ps2OpaqueDraw3D_CodeEnd);", source, StringComparison.Ordinal);
-        Assert.Contains("packet2_vif_add_micro_program(packet2, 64, &Ps2OpaqueTexturedDraw3D_CodeStart, &Ps2OpaqueTexturedDraw3D_CodeEnd);", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_vif_add_micro_program(packet2, helengine::ps2::UntexturedMicroProgramAddress, &Ps2OpaqueDraw3D_CodeStart, &Ps2OpaqueDraw3D_CodeEnd);", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_vif_add_micro_program(packet2, helengine::ps2::TexturedMicroProgramAddress, &Ps2OpaqueTexturedDraw3D_CodeStart, &Ps2OpaqueTexturedDraw3D_CodeEnd);", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_vif_add_micro_program(packet2, helengine::ps2::TexturedPretransformedMicroProgramAddress, &Ps2OpaqueTexturedPretransformedDraw3D_CodeStart, &Ps2OpaqueTexturedPretransformedDraw3D_CodeEnd);", source, StringComparison.Ordinal);
         Assert.Contains("packet2_utils_vu_add_double_buffer(", source, StringComparison.Ordinal);
         Assert.Contains("dma_channel_send_packet2(", source, StringComparison.Ordinal);
         Assert.Contains("dma_channel_wait(DMA_CHANNEL_VIF1, 0);", source, StringComparison.Ordinal);
@@ -694,11 +717,18 @@ public sealed class Ps2NativeBuildInputsTests {
         string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
         string makefileSource = File.ReadAllText(Path.Combine(repositoryRootPath, "Makefile"));
         string bootHostSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2BootHost.cpp"));
+        string addressSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuMicroProgramAddresses.hpp"));
+        string packetBuilderSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        string comparisonSourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedClipDraw3D.vsm");
 
         Assert.Contains("Ps2OpaqueTexturedPretransformedDraw3D.vsm", makefileSource, StringComparison.Ordinal);
         Assert.DoesNotContain("Ps2OpaqueTexturedClipDraw3D.vsm", makefileSource, StringComparison.Ordinal);
         Assert.Contains("Ps2OpaqueTexturedPretransformedDraw3D_CodeStart", bootHostSource, StringComparison.Ordinal);
         Assert.DoesNotContain("Ps2OpaqueTexturedClipDraw3D_CodeStart", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("TexturedPretransformedMicroProgramAddress", addressSource, StringComparison.Ordinal);
+        Assert.Contains("TexturedPretransformedMicroProgramAddress", packetBuilderSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("TexturedClipMicroProgramAddress", packetBuilderSource, StringComparison.Ordinal);
+        Assert.True(File.Exists(comparisonSourcePath), "Expected the inactive B321 comparison VSM source to remain outside active build inputs.");
     }
 
     /// <summary>

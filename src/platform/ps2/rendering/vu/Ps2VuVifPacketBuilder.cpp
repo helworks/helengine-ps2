@@ -54,7 +54,6 @@ namespace helengine::ps2 {
         constexpr bool EnableVuGifTemplateLayoutDiagnostics = false;
         constexpr bool EnableVuFlatColorDiagnostics = false;
         constexpr bool EnableVuSingleDispatchDiagnostic = false;
-        constexpr bool EnableVuPerTriangleTimingDiagnostics = false;
         constexpr bool EnableTexturedVuAssemblyPhaseDiagnostics = false;
         constexpr bool EnableTexturedVuPerSliceTimingDiagnostics = false;
         constexpr std::size_t TriangleGifPacketTemplateQwordCount = 11u;
@@ -283,7 +282,7 @@ namespace helengine::ps2 {
             / TexturedVuMaximumSourceBatchPacketQwordCount;
         constexpr std::size_t TexturedVuClippedBatchSubmissionOverheadQwordCount = 2u;
         constexpr std::size_t TexturedVuMaximumGeneratedTrianglesPerOuterSlice =
-            TexturedVuSourceTriangleCapacity * TexturedVuMaximumOutputTrianglesPerClippedSource;
+            TexturedVuSourceTriangleCapacity * Ps2VuClippedTexturedTriangleFan::Capacity;
         constexpr std::size_t TexturedVuMaximumClippedBatchCountPerOuterSlice =
             (TexturedVuMaximumGeneratedTrianglesPerOuterSlice + TexturedVuClippedTriangleCapacity - 1u)
             / TexturedVuClippedTriangleCapacity;
@@ -1537,13 +1536,7 @@ namespace helengine::ps2 {
             PopulateLightingConstants(*batch.Material, lightingConstants);
             std::vector<Ps2VuUntexturedClipVertex> clippedUntexturedVertices;
             clippedUntexturedVertices.reserve(4u);
-            std::clock_t accumulatedTriangleLightingTicks = 0;
-            std::clock_t accumulatedTrianglePayloadFillTicks = 0;
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
-                std::clock_t trianglePrepStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    trianglePrepStartTicks = std::clock();
-                }
 
                 const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
                 const std::size_t positionWordIndexB = static_cast<std::size_t>(vertexIndex + 1u) * 4u;
@@ -1602,32 +1595,14 @@ namespace helengine::ps2 {
                 if (triangleCrossesFrustumBoundary && clippedUntexturedVertices.size() < 3u) {
                     continue;
                 }
-                std::clock_t triangleEmitStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    const std::clock_t trianglePrepEndTicks = std::clock();
-                    LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
-                    triangleEmitStartTicks = std::clock();
-                }
 
-                std::clock_t triangleLightingStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    triangleLightingStartTicks = std::clock();
-                }
                 const std::uint64_t triangleColor = ResolveTexturedVertexColor(lightingConstants, worldFaceNormal, normalizedLightDirection);
                 Ps2VuFlatColor flatColor {};
                 flatColor.Red = static_cast<std::uint8_t>(triangleColor & 0xFFu);
                 flatColor.Green = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
                 flatColor.Blue = static_cast<std::uint8_t>((triangleColor >> 16u) & 0xFFu);
                 flatColor.Alpha = static_cast<std::uint8_t>((triangleColor >> 24u) & 0xFFu);
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    const std::clock_t triangleLightingEndTicks = std::clock();
-                    accumulatedTriangleLightingTicks += (triangleLightingEndTicks - triangleLightingStartTicks);
-                }
 
-                std::clock_t trianglePayloadFillStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    trianglePayloadFillStartTicks = std::clock();
-                }
                 const std::size_t emittedTriangleCount = triangleCrossesFrustumBoundary ? clippedUntexturedVertices.size() - 2u : 1u;
                 for (std::size_t clippedIndex = 0u; clippedIndex < emittedTriangleCount; clippedIndex++) {
                     const ::float3& emittedPositionA = triangleCrossesFrustumBoundary ? clippedUntexturedVertices[0u].ViewPosition : packedPositionA;
@@ -1652,22 +1627,10 @@ namespace helengine::ps2 {
                     payload.TriangleRecord.SourceTriangle.PositionC[3] = 1.0f;
                     untexturedTrianglePayloads.push_back(payload);
                 }
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    const std::clock_t trianglePayloadFillEndTicks = std::clock();
-                    accumulatedTrianglePayloadFillTicks += (trianglePayloadFillEndTicks - trianglePayloadFillStartTicks);
-                }
                 SubmittedTriangleCount += emittedTriangleCount;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    const std::clock_t triangleEmitEndTicks = std::clock();
-                    LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
-                }
                 if (EnableVuSingleDispatchDiagnostic) {
                     break;
                 }
-            }
-            if (EnableVuPerTriangleTimingDiagnostics) {
-                LastTriangleLightingMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTriangleLightingTicks);
-                LastTrianglePayloadFillMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTrianglePayloadFillTicks);
             }
         } else {
             std::vector<Ps2VuCpuTexturedClipVertex> clippedTexturedVertices;
@@ -1685,14 +1648,8 @@ namespace helengine::ps2 {
             const float* packedPositionWords = reinterpret_cast<const float*>(batch.Model->GetPositionBlockBytes());
             const float* packedNormalWords = reinterpret_cast<const float*>(batch.Model->GetNormalBlockBytes());
             const float* packedTexCoordWords = textured ? reinterpret_cast<const float*>(batch.Model->GetTexCoordBlockBytes()) : nullptr;
-            std::clock_t accumulatedTriangleLightingTicks = 0;
-            std::clock_t accumulatedTrianglePayloadFillTicks = 0;
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
                 texturedSourceTriangleCount++;
-                std::clock_t trianglePrepStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    trianglePrepStartTicks = std::clock();
-                }
                 const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
                 const std::size_t positionWordIndexB = static_cast<std::size_t>(vertexIndex + 1u) * 4u;
                 const std::size_t positionWordIndexC = static_cast<std::size_t>(vertexIndex + 2u) * 4u;
@@ -1759,14 +1716,6 @@ namespace helengine::ps2 {
                 const ::float3 triangleWorldNormal = NormalizeOrFallback(
                     TransformPosition(::float4(sourceTriangleNormal.X, sourceTriangleNormal.Y, sourceTriangleNormal.Z, 0.0f), world),
                     worldFaceNormal);
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    const std::clock_t trianglePrepEndTicks = std::clock();
-                    LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
-                }
-                std::clock_t triangleEmitStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    triangleEmitStartTicks = std::clock();
-                }
                 if (textured) {
                     const ::float3 viewPositionA = TransformPosition(positionA, worldViewMatrix);
                     const ::float3 viewPositionB = TransformPosition(positionB, worldViewMatrix);
@@ -1837,10 +1786,6 @@ namespace helengine::ps2 {
                         continue;
                     }
 
-                    std::clock_t triangleLightingStartTicks = 0;
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        triangleLightingStartTicks = std::clock();
-                    }
                     const std::uint64_t triangleColor = EnableTexturedWhiteColorDiagnostics
                         ? GS_SETREG_RGBAQ(
                             batch.Material->GetBaseColorR(),
@@ -1849,15 +1794,7 @@ namespace helengine::ps2 {
                             batch.Material->GetBaseColorA(),
                             0x00)
                         : ResolveTexturedVertexColor(lightingConstants, triangleWorldNormal, normalizedLightDirection);
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        const std::clock_t triangleLightingEndTicks = std::clock();
-                        accumulatedTriangleLightingTicks += (triangleLightingEndTicks - triangleLightingStartTicks);
-                    }
 
-                    std::clock_t trianglePayloadFillStartTicks = 0;
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        trianglePayloadFillStartTicks = std::clock();
-                    }
                     texturedTrianglePackets.push_back(
                         BuildTexturedTriangleGifPacketBytes(
                         gsGlobal,
@@ -1883,10 +1820,6 @@ namespace helengine::ps2 {
                         screenCY,
                         screenCZ,
                         positionCRegister));
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        const std::clock_t trianglePayloadFillEndTicks = std::clock();
-                        accumulatedTrianglePayloadFillTicks += (trianglePayloadFillEndTicks - trianglePayloadFillStartTicks);
-                    }
                     texturedEmittedTriangleCount++;
                     const float minX = std::min({ screenAX, screenBX, screenCX });
                     const float minY = std::min({ screenAY, screenBY, screenCY });
@@ -1912,14 +1845,8 @@ namespace helengine::ps2 {
                     }
                     SubmittedTriangleCount++;
                 }
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    const std::clock_t triangleEmitEndTicks = std::clock();
-                    LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
-                }
             }
 
-            LastTriangleLightingMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTriangleLightingTicks);
-            LastTrianglePayloadFillMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTrianglePayloadFillTicks);
         }
         const std::clock_t triangleSetupEndTicks = std::clock();
         LastTriangleSetupMilliseconds = ResolveMillisecondsFromClockTicks(triangleSetupStartTicks, triangleSetupEndTicks);
@@ -2169,9 +2096,7 @@ namespace helengine::ps2 {
             PopulateLightingConstants(*batch.Material, lightingConstants);
             std::vector<Ps2VuUntexturedClipVertex> clippedUntexturedVertices;
             clippedUntexturedVertices.reserve(4u);
-            const bool recordDirectGifPhaseTiming = !createVifPacket && EnableVuPerTriangleTimingDiagnostics;
             for (std::uint32_t vertexIndex = 0u; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
-                const std::clock_t directGifTrianglePrepStartTicks = recordDirectGifPhaseTiming ? std::clock() : 0;
                 const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
                 const std::size_t positionWordIndexB = static_cast<std::size_t>(vertexIndex + 1u) * 4u;
                 const std::size_t positionWordIndexC = static_cast<std::size_t>(vertexIndex + 2u) * 4u;
@@ -2196,20 +2121,10 @@ namespace helengine::ps2 {
                 }
 
                 if (triangleCrossesNearPlane && clippedUntexturedVertices.size() < 3u) {
-                    if (recordDirectGifPhaseTiming) {
-                        LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(directGifTrianglePrepStartTicks, std::clock());
-                    }
                     continue;
                 }
 
-                if (recordDirectGifPhaseTiming) {
-                    LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(directGifTrianglePrepStartTicks, std::clock());
-                }
-                const std::clock_t directGifTriangleLightingStartTicks = recordDirectGifPhaseTiming ? std::clock() : 0;
                 const std::uint64_t triangleColor = ResolveTexturedVertexColor(lightingConstants, worldFaceNormal, normalizedLightDirection);
-                if (recordDirectGifPhaseTiming) {
-                    LastTriangleLightingMilliseconds += ResolveMillisecondsFromClockTicks(directGifTriangleLightingStartTicks, std::clock());
-                }
                 Ps2VuFlatColor flatColor {};
                 flatColor.Red = static_cast<std::uint8_t>(triangleColor & 0xFFu);
                 flatColor.Green = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
@@ -2227,7 +2142,6 @@ namespace helengine::ps2 {
                         ? clippedUntexturedVertices[clippedIndex + 2u].ViewPosition
                         : (createVifPacket ? packedPositionC : vertexC.ViewPosition);
                     if (!createVifPacket) {
-                        const std::clock_t directGifTriangleEmitStartTicks = recordDirectGifPhaseTiming ? std::clock() : 0;
                         Ps2VuOpaqueSourceTriangle sourceTriangle {};
                         sourceTriangle.PositionA[0] = emittedPositionA.X;
                         sourceTriangle.PositionA[1] = emittedPositionA.Y;
@@ -2244,9 +2158,6 @@ namespace helengine::ps2 {
                         if (BuildUntexturedTriangleDirectGifVertexWords(sourceTriangle, flatColor, projection, viewport, gsGlobal, directGifPacketWords)) {
                             directGifPacketWords += DirectGifOpaqueTriangleVertexWordCount;
                             directGifTriangleCount++;
-                        }
-                        if (recordDirectGifPhaseTiming) {
-                            LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(directGifTriangleEmitStartTicks, std::clock());
                         }
 
                         continue;
@@ -2679,10 +2590,6 @@ namespace helengine::ps2 {
         }
         std::vector<Ps2VuCpuTexturedClipVertex> clippedTexturedVertices;
         clippedTexturedVertices.reserve(4u);
-        std::clock_t accumulatedTrianglePrepTicks = 0;
-        std::clock_t accumulatedTriangleEmitTicks = 0;
-        std::clock_t accumulatedTriangleLightingTicks = 0;
-        std::clock_t accumulatedTrianglePayloadFillTicks = 0;
         const std::clock_t triangleSetupStartTicks = std::clock();
         for (std::size_t batchIndex = 0; batchIndex < batches.size(); batchIndex++) {
             const Ps2VuOpaqueBatchSlice& batchSlice = batches[batchIndex];
@@ -2717,24 +2624,13 @@ namespace helengine::ps2 {
 
             bool directGifBatchHeaderWritten = false;
             for (std::size_t sourceTriangleIndex = firstSourceTriangle; sourceTriangleIndex < finalSourceTriangle; sourceTriangleIndex++) {
-                std::clock_t trianglePrepStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    trianglePrepStartTicks = std::clock();
-                }
 
                 const Ps2VuTexturedTriangleSource& triangleSource = triangleSources[sourceTriangleIndex];
                 const ::float4 faceNormal4(triangleSource.FaceNormal.X, triangleSource.FaceNormal.Y, triangleSource.FaceNormal.Z, 0.0f);
                 const ::float3 triangleWorldNormal = NormalizeOrFallback(
                     TransformPosition(faceNormal4, world),
                     ::float3(0.0f, 0.0f, -1.0f));
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    accumulatedTrianglePrepTicks += (std::clock() - trianglePrepStartTicks);
-                }
 
-                std::clock_t triangleEmitStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    triangleEmitStartTicks = std::clock();
-                }
 
                 const ::float3 viewPositionA = TransformPosition(triangleSource.PositionA, worldViewMatrix);
                 const ::float3 viewPositionB = TransformPosition(triangleSource.PositionB, worldViewMatrix);
@@ -2800,10 +2696,6 @@ namespace helengine::ps2 {
                 texturedVertexBInside = texturedVertexBProjected && texturedVertexBInside;
                 texturedVertexCInside = texturedVertexCProjected && texturedVertexCInside;
                 if (texturedVertexAInside && texturedVertexBInside && texturedVertexCInside) {
-                    std::clock_t triangleLightingStartTicks = 0;
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        triangleLightingStartTicks = std::clock();
-                    }
                     const std::uint64_t triangleColor = EnableTexturedWhiteColorDiagnostics
                         ? GS_SETREG_RGBAQ(
                             batch->Material->GetBaseColorR(),
@@ -2812,14 +2704,7 @@ namespace helengine::ps2 {
                             batch->Material->GetBaseColorA(),
                             0x00)
                         : ResolveTexturedVertexColor(lightingConstants, triangleWorldNormal, normalizedLightDirection);
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        accumulatedTriangleLightingTicks += (std::clock() - triangleLightingStartTicks);
-                    }
 
-                    std::clock_t trianglePayloadFillStartTicks = 0;
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        trianglePayloadFillStartTicks = std::clock();
-                    }
                     const std::array<std::uint64_t, TexturedTrianglePacketWordCount> trianglePacket = BuildTexturedTriangleGifPacketBytes(
                         gsGlobal,
                         texture,
@@ -2853,9 +2738,6 @@ namespace helengine::ps2 {
                         }
                         DirectGifPacketWords.insert(DirectGifPacketWords.end(), trianglePacket.begin() + 8u, trianglePacket.end());
                     }
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        accumulatedTrianglePayloadFillTicks += (std::clock() - trianglePayloadFillStartTicks);
-                    }
 
                     const float minX = std::min({ screenAX, screenBX, screenCX });
                     const float minY = std::min({ screenAY, screenBY, screenCY });
@@ -2881,17 +2763,9 @@ namespace helengine::ps2 {
                     }
 
                     SubmittedTriangleCount++;
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        const std::clock_t triangleEmitEndTicks = std::clock();
-                        LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
-                    }
 
                     continue;
                 } else if (!texturedVertexAInside && !texturedVertexBInside && !texturedVertexCInside) {
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        const std::clock_t triangleEmitEndTicks = std::clock();
-                        LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
-                    }
 
                     continue;
                 } else {
@@ -2926,10 +2800,6 @@ namespace helengine::ps2 {
                         continue;
                     }
 
-                    std::clock_t triangleLightingStartTicks = 0;
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        triangleLightingStartTicks = std::clock();
-                    }
                     const std::uint64_t triangleColor = EnableTexturedWhiteColorDiagnostics
                         ? GS_SETREG_RGBAQ(
                             batch->Material->GetBaseColorR(),
@@ -2938,14 +2808,7 @@ namespace helengine::ps2 {
                             batch->Material->GetBaseColorA(),
                             0x00)
                         : ResolveTexturedVertexColor(lightingConstants, triangleWorldNormal, normalizedLightDirection);
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        accumulatedTriangleLightingTicks += (std::clock() - triangleLightingStartTicks);
-                    }
 
-                    std::clock_t trianglePayloadFillStartTicks = 0;
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        trianglePayloadFillStartTicks = std::clock();
-                    }
                     const std::array<std::uint64_t, TexturedTrianglePacketWordCount> trianglePacket = BuildTexturedTriangleGifPacketBytes(
                         gsGlobal,
                         texture,
@@ -2979,9 +2842,6 @@ namespace helengine::ps2 {
                         }
                         DirectGifPacketWords.insert(DirectGifPacketWords.end(), trianglePacket.begin() + 8u, trianglePacket.end());
                     }
-                    if (EnableVuPerTriangleTimingDiagnostics) {
-                        accumulatedTrianglePayloadFillTicks += (std::clock() - trianglePayloadFillStartTicks);
-                    }
 
                     const float minX = std::min({ screenAX, screenBX, screenCX });
                     const float minY = std::min({ screenAY, screenBY, screenCY });
@@ -3009,17 +2869,10 @@ namespace helengine::ps2 {
                     SubmittedTriangleCount++;
                 }
 
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    accumulatedTriangleEmitTicks += (std::clock() - triangleEmitStartTicks);
-                }
             }
 
         }
 
-        LastTrianglePrepMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTrianglePrepTicks);
-        LastTriangleEmitMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTriangleEmitTicks);
-        LastTriangleLightingMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTriangleLightingTicks);
-        LastTrianglePayloadFillMilliseconds = ResolveMillisecondsFromClockTicks(0, accumulatedTrianglePayloadFillTicks);
         const std::clock_t triangleSetupEndTicks = std::clock();
         LastTriangleSetupMilliseconds = ResolveMillisecondsFromClockTicks(triangleSetupStartTicks, triangleSetupEndTicks);
         if (!createVifPacket) {
