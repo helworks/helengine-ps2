@@ -112,6 +112,7 @@ public sealed class Ps2VuHybridClippedBatchSourceTests {
         string bootHostSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2BootHost.cpp"));
         string addressSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuMicroProgramAddresses.hpp"));
         string packetBuilderSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
+        string untexturedSetupBuilderSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuOpaqueUntexturedSetupBuilder.cpp"));
         string limitsSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuTexturedSourceLimits.hpp"));
 
         Assert.True(File.Exists(comparisonProgramPath), "Expected the inactive B321 comparison program to remain available for visual validation.");
@@ -129,6 +130,9 @@ public sealed class Ps2VuHybridClippedBatchSourceTests {
         Assert.DoesNotContain("TexturedVuMaximumClipPolygonVertexCount", limitsSource, StringComparison.Ordinal);
         Assert.DoesNotContain("TexturedVuMaximumOutput", limitsSource, StringComparison.Ordinal);
         Assert.DoesNotContain("EnableVuPerTriangleTimingDiagnostics", packetBuilderSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("EnableVuPerTriangleTimingDiagnostics", untexturedSetupBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("const std::clock_t triangleSetupStartTicks = std::clock();", untexturedSetupBuilderSource, StringComparison.Ordinal);
+        Assert.Contains("LastTriangleSetupMilliseconds = ResolveMillisecondsFromClockTicks(triangleSetupStartTicks, triangleSetupEndTicks);", untexturedSetupBuilderSource, StringComparison.Ordinal);
     }
 
     /// <summary>

@@ -13,7 +13,6 @@ namespace helengine::ps2 {
     namespace {
         constexpr bool EnableVuSingleTrianglePayloadDiagnostics = false;
         constexpr bool EnableVuSubmittedBoundsDiagnostics = false;
-        constexpr bool EnableVuPerTriangleTimingDiagnostics = false;
         constexpr float LightingAmbientBias = 0.25f;
         constexpr float LightingDiffuseScale = 0.75f;
         constexpr float LightingPaletteScale = 15.0f;
@@ -231,10 +230,6 @@ namespace helengine::ps2 {
             CopyMatrix(worldViewProjectionMatrix, worldViewProjectionMatrixWords);
 
             for (std::uint32_t vertexIndex = 0; (vertexIndex + 2u) < triangleVertexCount; vertexIndex += 3u) {
-                std::clock_t trianglePrepStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    trianglePrepStartTicks = std::clock();
-                }
                 const std::size_t positionWordIndexA = static_cast<std::size_t>(vertexIndex + 0u) * 4u;
                 const std::size_t positionWordIndexB = static_cast<std::size_t>(vertexIndex + 1u) * 4u;
                 const std::size_t positionWordIndexC = static_cast<std::size_t>(vertexIndex + 2u) * 4u;
@@ -274,15 +269,6 @@ namespace helengine::ps2 {
                 const ::float3 worldFaceNormal = NormalizeOrFallback(
                     TransformPosition(::float4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f), world),
                     ::float3(0.0f, 0.0f, -1.0f));
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    const std::clock_t trianglePrepEndTicks = std::clock();
-                    LastTrianglePrepMilliseconds += ResolveMillisecondsFromClockTicks(trianglePrepStartTicks, trianglePrepEndTicks);
-                }
-
-                std::clock_t triangleEmitStartTicks = 0;
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    triangleEmitStartTicks = std::clock();
-                }
                 Ps2VuOpaqueUntexturedTriangleSetup triangleSetup {};
                 triangleSetup.SourceTriangle.PositionA[0] = packedPositionA.X;
                 triangleSetup.SourceTriangle.PositionA[1] = packedPositionA.Y;
@@ -363,10 +349,6 @@ namespace helengine::ps2 {
                             SubmittedTriangleVertexB2 = ::float4(worldPositionC.X, worldPositionC.Y, worldPositionC.Z, 1.0f);
                         }
                     }
-                }
-                if (EnableVuPerTriangleTimingDiagnostics) {
-                    const std::clock_t triangleEmitEndTicks = std::clock();
-                    LastTriangleEmitMilliseconds += ResolveMillisecondsFromClockTicks(triangleEmitStartTicks, triangleEmitEndTicks);
                 }
             }
         }
