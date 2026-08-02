@@ -124,6 +124,42 @@ public sealed class Ps2VuHybridClippedBatchSourceTests {
     }
 
     /// <summary>
+    /// Requires the hybrid packet builder to expose exact per-packet source and generated triangle aggregates without timing the refinement loop.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_ReportsResettableHybridSourceAndGeneratedTriangleAggregatesWithoutHotLoopTiming() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string header = File.ReadAllText(headerPath);
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("GetFastTexturedSourceTriangleCount", header, StringComparison.Ordinal);
+        Assert.Contains("GetClippedTexturedSourceTriangleCount", header, StringComparison.Ordinal);
+        Assert.Contains("GetRejectedTexturedSourceTriangleCount", header, StringComparison.Ordinal);
+        Assert.Contains("GetGeneratedClippedTexturedTriangleCount", header, StringComparison.Ordinal);
+        Assert.Contains("GetClippedTexturedBatchCount", header, StringComparison.Ordinal);
+        Assert.Contains("FastTexturedSourceTriangleCount = 0u;", source, StringComparison.Ordinal);
+        Assert.Contains("ClippedTexturedSourceTriangleCount = 0u;", source, StringComparison.Ordinal);
+        Assert.Contains("RejectedTexturedSourceTriangleCount = 0u;", source, StringComparison.Ordinal);
+        Assert.Contains("GeneratedClippedTexturedTriangleCount = 0u;", source, StringComparison.Ordinal);
+        Assert.Contains("ClippedTexturedBatchCount = 0u;", source, StringComparison.Ordinal);
+        Assert.Contains("FastTexturedSourceTriangleCount += batchSlice.SourceTriangleCount;", source, StringComparison.Ordinal);
+        Assert.Contains("ClippedTexturedSourceTriangleCount++;", source, StringComparison.Ordinal);
+        Assert.Contains("RejectedTexturedSourceTriangleCount++;", source, StringComparison.Ordinal);
+        Assert.Contains("GeneratedClippedTexturedTriangleCount += clippedFan.GetTriangleCount();", source, StringComparison.Ordinal);
+        Assert.Contains("ClippedTexturedBatchCount++;", source, StringComparison.Ordinal);
+        Assert.Contains("SubmittedTriangleCount += clippedBatch.GetTriangleCount();", source, StringComparison.Ordinal);
+
+        int refinementStartIndex = source.IndexOf("for (std::size_t sourceTriangleOffset = 0u;", StringComparison.Ordinal);
+        int refinementEndIndex = source.IndexOf("packet2_chain_open_end(packet.get(), 0, 0);", refinementStartIndex, StringComparison.Ordinal);
+        Assert.True(refinementStartIndex >= 0, "Expected the textured source-triangle refinement loop.");
+        Assert.True(refinementEndIndex > refinementStartIndex, "Expected the textured packet finalization after refinement.");
+        string refinement = source.Substring(refinementStartIndex, refinementEndIndex - refinementStartIndex);
+        Assert.DoesNotContain("std::clock", refinement, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Resolves the PS2 repository root from the executing test binary directory.
     /// </summary>
     /// <returns>The absolute PS2 repository root path.</returns>

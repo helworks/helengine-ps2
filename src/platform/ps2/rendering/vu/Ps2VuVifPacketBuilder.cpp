@@ -1438,9 +1438,11 @@ namespace helengine::ps2 {
         LastTrianglePayloadFillMilliseconds = 0.0;
         LastTexturedVuStateBuildMilliseconds = 0.0;
         LastTexturedVuCommandEncodeMilliseconds = 0.0;
-        FastTexturedSliceCount = 0u;
-        ClippedTexturedSliceCount = 0u;
-        RejectedTexturedSliceCount = 0u;
+        FastTexturedSourceTriangleCount = 0u;
+        ClippedTexturedSourceTriangleCount = 0u;
+        RejectedTexturedSourceTriangleCount = 0u;
+        GeneratedClippedTexturedTriangleCount = 0u;
+        ClippedTexturedBatchCount = 0u;
         SubmittedTriangleCount = 0;
         SubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         SubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -2452,7 +2454,7 @@ namespace helengine::ps2 {
 
             const Ps2VuNearPlaneRoute outerRoute = outerRoutes[batchOffset];
             if (outerRoute == Ps2VuNearPlaneRoute::Rejected) {
-                RejectedTexturedSliceCount += batchSlice.SourceTriangleCount;
+                RejectedTexturedSourceTriangleCount += batchSlice.SourceTriangleCount;
                 continue;
             }
 
@@ -2537,7 +2539,7 @@ namespace helengine::ps2 {
                 if (EnableTexturedVuAssemblyPhaseDiagnostics) {
                     LastTexturedVuCommandEncodeMilliseconds += ResolveMillisecondsFromClockTicks(sourcePayloadFillStartTicks, std::clock());
                 }
-                FastTexturedSliceCount += batchSlice.SourceTriangleCount;
+                FastTexturedSourceTriangleCount += batchSlice.SourceTriangleCount;
                 SubmittedTriangleCount += batchSlice.SourceTriangleCount;
                 continue;
             }
@@ -2567,17 +2569,17 @@ namespace helengine::ps2 {
                         pendingFastSourceTriangles,
                         pendingFastSourceTriangleCount,
                         useCachedSourceReference);
-                    FastTexturedSliceCount += pendingFastSourceTriangleCount;
+                    FastTexturedSourceTriangleCount += pendingFastSourceTriangleCount;
                     SubmittedTriangleCount += pendingFastSourceTriangleCount;
                     pendingFastSourceTriangles = nullptr;
                     pendingFastSourceTriangleCount = 0u;
                 }
                 if (sourceTriangleRoute == Ps2VuNearPlaneRoute::Rejected) {
-                    RejectedTexturedSliceCount++;
+                    RejectedTexturedSourceTriangleCount++;
                     continue;
                 }
 
-                ClippedTexturedSliceCount++;
+                ClippedTexturedSourceTriangleCount++;
                 Ps2VuClippedTexturedTriangleFan clippedFan;
                 Ps2VuClippedTexturedBatchBuilder::BuildTriangleFan(
                     *sourceTriangle,
@@ -2585,8 +2587,9 @@ namespace helengine::ps2 {
                     projection,
                     nearPlaneDistance,
                     clippedFan);
+                GeneratedClippedTexturedTriangleCount += clippedFan.GetTriangleCount();
                 if (clippedFan.GetTriangleCount() == 0u) {
-                    RejectedTexturedSliceCount++;
+                    RejectedTexturedSourceTriangleCount++;
                     continue;
                 }
                 if (!clippedBatch.CanAppend(clippedFan.GetTriangleCount())) {
@@ -2595,6 +2598,7 @@ namespace helengine::ps2 {
                     }
                     EmitTexturedClippedBatch(packet.get(), cachedSharedState, clippedBatch);
                     SubmittedTriangleCount += clippedBatch.GetTriangleCount();
+                    ClippedTexturedBatchCount++;
                     clippedBatch.Clear();
                 }
                 clippedBatch.Append(clippedFan);
@@ -2606,12 +2610,13 @@ namespace helengine::ps2 {
                     pendingFastSourceTriangles,
                     pendingFastSourceTriangleCount,
                     useCachedSourceReference);
-                FastTexturedSliceCount += pendingFastSourceTriangleCount;
+                FastTexturedSourceTriangleCount += pendingFastSourceTriangleCount;
                 SubmittedTriangleCount += pendingFastSourceTriangleCount;
             }
             if (clippedBatch.GetTriangleCount() != 0u) {
                 EmitTexturedClippedBatch(packet.get(), cachedSharedState, clippedBatch);
                 SubmittedTriangleCount += clippedBatch.GetTriangleCount();
+                ClippedTexturedBatchCount++;
             }
         }
 
@@ -3161,16 +3166,24 @@ namespace helengine::ps2 {
         return LastTexturedVuCommandEncodeMilliseconds;
     }
 
-    std::size_t Ps2VuVifPacketBuilder::GetFastTexturedSliceCount() const {
-        return FastTexturedSliceCount;
+    std::size_t Ps2VuVifPacketBuilder::GetFastTexturedSourceTriangleCount() const {
+        return FastTexturedSourceTriangleCount;
     }
 
-    std::size_t Ps2VuVifPacketBuilder::GetClippedTexturedSliceCount() const {
-        return ClippedTexturedSliceCount;
+    std::size_t Ps2VuVifPacketBuilder::GetClippedTexturedSourceTriangleCount() const {
+        return ClippedTexturedSourceTriangleCount;
     }
 
-    std::size_t Ps2VuVifPacketBuilder::GetRejectedTexturedSliceCount() const {
-        return RejectedTexturedSliceCount;
+    std::size_t Ps2VuVifPacketBuilder::GetRejectedTexturedSourceTriangleCount() const {
+        return RejectedTexturedSourceTriangleCount;
+    }
+
+    std::size_t Ps2VuVifPacketBuilder::GetGeneratedClippedTexturedTriangleCount() const {
+        return GeneratedClippedTexturedTriangleCount;
+    }
+
+    std::size_t Ps2VuVifPacketBuilder::GetClippedTexturedBatchCount() const {
+        return ClippedTexturedBatchCount;
     }
 
     std::size_t Ps2VuVifPacketBuilder::GetSubmittedTriangleCount() const {

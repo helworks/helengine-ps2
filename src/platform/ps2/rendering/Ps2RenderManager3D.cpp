@@ -892,9 +892,11 @@ namespace helengine::ps2 {
           LastProjectionRejectCount(0),
           LastCullRejectCount(0),
           LastSubmittedTriangleCount(0),
-          LastFastTexturedSliceCount(0),
-          LastClippedTexturedSliceCount(0),
-          LastRejectedTexturedSliceCount(0),
+          LastFastTexturedSourceTriangleCount(0),
+          LastClippedTexturedSourceTriangleCount(0),
+          LastRejectedTexturedSourceTriangleCount(0),
+          LastGeneratedClippedTexturedTriangleCount(0),
+          LastClippedTexturedBatchCount(0),
           LastVuBatchDispatchCount(0),
           LastVuTriangleVertexCount(0),
           LastVuPacketByteCount(0),
@@ -1107,9 +1109,11 @@ namespace helengine::ps2 {
         LastProjectionRejectCount = 0;
         LastCullRejectCount = 0;
         LastSubmittedTriangleCount = 0;
-        LastFastTexturedSliceCount = 0;
-        LastClippedTexturedSliceCount = 0;
-        LastRejectedTexturedSliceCount = 0;
+        LastFastTexturedSourceTriangleCount = 0;
+        LastClippedTexturedSourceTriangleCount = 0;
+        LastRejectedTexturedSourceTriangleCount = 0;
+        LastGeneratedClippedTexturedTriangleCount = 0;
+        LastClippedTexturedBatchCount = 0;
         LastVuBatchDispatchCount = 0;
         LastVuTriangleVertexCount = 0;
         LastVuPacketByteCount = 0;
@@ -1749,9 +1753,11 @@ namespace helengine::ps2 {
                 LastVuPacketPhase = VuVifPacketBuilder.GetLastCompletedPhase();
                 LastSubmittedTriangleCount += VuVifPacketBuilder.GetSubmittedTriangleCount();
                 LastPerformanceMetrics.SubmittedTriangleCount += VuVifPacketBuilder.GetSubmittedTriangleCount();
-                LastFastTexturedSliceCount += VuVifPacketBuilder.GetFastTexturedSliceCount();
-                LastClippedTexturedSliceCount += VuVifPacketBuilder.GetClippedTexturedSliceCount();
-                LastRejectedTexturedSliceCount += VuVifPacketBuilder.GetRejectedTexturedSliceCount();
+                LastFastTexturedSourceTriangleCount += VuVifPacketBuilder.GetFastTexturedSourceTriangleCount();
+                LastClippedTexturedSourceTriangleCount += VuVifPacketBuilder.GetClippedTexturedSourceTriangleCount();
+                LastRejectedTexturedSourceTriangleCount += VuVifPacketBuilder.GetRejectedTexturedSourceTriangleCount();
+                LastGeneratedClippedTexturedTriangleCount += VuVifPacketBuilder.GetGeneratedClippedTexturedTriangleCount();
+                LastClippedTexturedBatchCount += VuVifPacketBuilder.GetClippedTexturedBatchCount();
                 for (std::size_t batchIndex = firstTexturedVuBatchIndex; batchIndex < nextTexturedVuBatchIndex; batchIndex++) {
                     LastVuTriangleVertexCount += texturedVuBatches[batchIndex].SourceTriangleCount * 3u;
                 }
@@ -2094,16 +2100,24 @@ namespace helengine::ps2 {
         return 0u;
     }
 
-    std::size_t Ps2RenderManager3D::GetLastFastTexturedSliceCount() const {
-        return LastFastTexturedSliceCount;
+    std::size_t Ps2RenderManager3D::GetLastFastTexturedSourceTriangleCount() const {
+        return LastFastTexturedSourceTriangleCount;
     }
 
-    std::size_t Ps2RenderManager3D::GetLastClippedTexturedSliceCount() const {
-        return LastClippedTexturedSliceCount;
+    std::size_t Ps2RenderManager3D::GetLastClippedTexturedSourceTriangleCount() const {
+        return LastClippedTexturedSourceTriangleCount;
     }
 
-    std::size_t Ps2RenderManager3D::GetLastRejectedTexturedSliceCount() const {
-        return LastRejectedTexturedSliceCount;
+    std::size_t Ps2RenderManager3D::GetLastRejectedTexturedSourceTriangleCount() const {
+        return LastRejectedTexturedSourceTriangleCount;
+    }
+
+    std::size_t Ps2RenderManager3D::GetLastGeneratedClippedTexturedTriangleCount() const {
+        return LastGeneratedClippedTexturedTriangleCount;
+    }
+
+    std::size_t Ps2RenderManager3D::GetLastClippedTexturedBatchCount() const {
+        return LastClippedTexturedBatchCount;
     }
 
     std::size_t Ps2RenderManager3D::GetLastVuBatchDispatchCount() const {

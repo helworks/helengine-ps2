@@ -64,17 +64,25 @@ namespace helengine::ps2 {
         std::size_t GetLastFrustumRejectedBatchCount() const;
         std::size_t GetLastFrustumRejectedSliceCount() const;
         /// <summary>
-        /// Returns the frame's textured source slices that retained the unchanged fast VU1 route.
+        /// Returns the frame's original textured source triangles submitted through the unchanged fast VU1 route.
         /// </summary>
-        std::size_t GetLastFastTexturedSliceCount() const;
+        std::size_t GetLastFastTexturedSourceTriangleCount() const;
         /// <summary>
-        /// Returns the frame's textured source slices processed by the VU1 near-plane clipper.
+        /// Returns the frame's original textured source triangles processed by the clipped VU1 route.
         /// </summary>
-        std::size_t GetLastClippedTexturedSliceCount() const;
+        std::size_t GetLastClippedTexturedSourceTriangleCount() const;
         /// <summary>
-        /// Returns the frame's textured source slices rejected fully behind the camera plane.
+        /// Returns the frame's original textured source triangles omitted after classification or clipping.
         /// </summary>
-        std::size_t GetLastRejectedTexturedSliceCount() const;
+        std::size_t GetLastRejectedTexturedSourceTriangleCount() const;
+        /// <summary>
+        /// Returns the frame's clipped fan triangles generated for the pretransformed VU1 route.
+        /// </summary>
+        std::size_t GetLastGeneratedClippedTexturedTriangleCount() const;
+        /// <summary>
+        /// Returns the frame's emitted pretransformed clipped VU1 batch count.
+        /// </summary>
+        std::size_t GetLastClippedTexturedBatchCount() const;
         std::size_t GetLastVuBatchDispatchCount() const;
         std::size_t GetLastVuTriangleVertexCount() const;
         std::size_t GetLastVuPacketByteCount() const;
@@ -192,17 +200,25 @@ namespace helengine::ps2 {
         std::size_t LastCullRejectCount;
         std::size_t LastSubmittedTriangleCount;
         /// <summary>
-        /// Accumulates fast textured source-slice routes for the current frame.
+        /// Accumulates original textured source triangles emitted through the fast route for the current frame.
         /// </summary>
-        std::size_t LastFastTexturedSliceCount;
+        std::size_t LastFastTexturedSourceTriangleCount;
         /// <summary>
-        /// Accumulates clipped textured source-slice routes for the current frame.
+        /// Accumulates original textured source triangles processed by the clipped route for the current frame.
         /// </summary>
-        std::size_t LastClippedTexturedSliceCount;
+        std::size_t LastClippedTexturedSourceTriangleCount;
         /// <summary>
-        /// Accumulates rejected textured source-slice routes for the current frame.
+        /// Accumulates original textured source triangles omitted after route classification or clipping for the current frame.
         /// </summary>
-        std::size_t LastRejectedTexturedSliceCount;
+        std::size_t LastRejectedTexturedSourceTriangleCount;
+        /// <summary>
+        /// Accumulates generated clipped fan triangles for the current frame.
+        /// </summary>
+        std::size_t LastGeneratedClippedTexturedTriangleCount;
+        /// <summary>
+        /// Accumulates emitted pretransformed clipped batches for the current frame.
+        /// </summary>
+        std::size_t LastClippedTexturedBatchCount;
         std::size_t LastVuBatchDispatchCount;
         std::size_t LastVuTriangleVertexCount;
         std::size_t LastVuPacketByteCount;

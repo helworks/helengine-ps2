@@ -191,7 +191,7 @@ namespace {
     constexpr float CubeTriangle2dVertexB2X = 428.156738f;
     constexpr float CubeTriangle2dVertexB2Y = 115.843239f;
     constexpr float CubeTriangle3dDiagnosticDepth = 1.0f;
-        constexpr const char* FrameTimingOverlayBuildNumber = "B297";
+        constexpr const char* FrameTimingOverlayBuildNumber = "B321";
     bool DebugConsoleReady = false;
     bool CubeDiagnosticsShown = false;
     bool CubeRuntimeDiagnosticsCompleted = false;
@@ -221,9 +221,11 @@ namespace {
     double FrameTimingFramePlanMilliseconds = 0.0;
     double FrameTimingVuBatchBuildMilliseconds = 0.0;
     double FrameTimingVuBatchDispatchCount = 0.0;
-    double FrameTimingFastTexturedSliceCount = 0.0;
-    double FrameTimingClippedTexturedSliceCount = 0.0;
-    double FrameTimingRejectedTexturedSliceCount = 0.0;
+    double FrameTimingFastTexturedSourceTriangleCount = 0.0;
+    double FrameTimingClippedTexturedSourceTriangleCount = 0.0;
+    double FrameTimingRejectedTexturedSourceTriangleCount = 0.0;
+    double FrameTimingGeneratedClippedTexturedTriangleCount = 0.0;
+    double FrameTimingClippedTexturedBatchCount = 0.0;
     double FrameTimingVuTriangleSetupMilliseconds = 0.0;
     double FrameTimingVuTrianglePrepMilliseconds = 0.0;
     double FrameTimingVuTriangleEmitMilliseconds = 0.0;
@@ -709,9 +711,11 @@ namespace {
         FrameTimingFramePlanMilliseconds += metrics.FramePlanMilliseconds;
         FrameTimingVuBatchBuildMilliseconds += metrics.VuBatchBuildMilliseconds;
         FrameTimingVuBatchDispatchCount += static_cast<double>(renderManager3DBackend.GetLastVuBatchDispatchCount());
-        FrameTimingFastTexturedSliceCount += static_cast<double>(renderManager3DBackend.GetLastFastTexturedSliceCount());
-        FrameTimingClippedTexturedSliceCount += static_cast<double>(renderManager3DBackend.GetLastClippedTexturedSliceCount());
-        FrameTimingRejectedTexturedSliceCount += static_cast<double>(renderManager3DBackend.GetLastRejectedTexturedSliceCount());
+        FrameTimingFastTexturedSourceTriangleCount += static_cast<double>(renderManager3DBackend.GetLastFastTexturedSourceTriangleCount());
+        FrameTimingClippedTexturedSourceTriangleCount += static_cast<double>(renderManager3DBackend.GetLastClippedTexturedSourceTriangleCount());
+        FrameTimingRejectedTexturedSourceTriangleCount += static_cast<double>(renderManager3DBackend.GetLastRejectedTexturedSourceTriangleCount());
+        FrameTimingGeneratedClippedTexturedTriangleCount += static_cast<double>(renderManager3DBackend.GetLastGeneratedClippedTexturedTriangleCount());
+        FrameTimingClippedTexturedBatchCount += static_cast<double>(renderManager3DBackend.GetLastClippedTexturedBatchCount());
         FrameTimingVuTriangleSetupMilliseconds += renderManager3DBackend.GetLastVuTriangleSetupMilliseconds();
         FrameTimingVuTrianglePrepMilliseconds += renderManager3DBackend.GetLastVuTrianglePrepMilliseconds();
         FrameTimingVuTriangleEmitMilliseconds += renderManager3DBackend.GetLastVuTriangleEmitMilliseconds();
@@ -779,9 +783,11 @@ namespace {
         const double averageFramePlanMilliseconds = FrameTimingFramePlanMilliseconds / sampledFrameCount;
         const double averageVuBatchBuildMilliseconds = FrameTimingVuBatchBuildMilliseconds / sampledFrameCount;
         const double averageVuBatchDispatchCount = FrameTimingVuBatchDispatchCount / sampledFrameCount;
-        const double averageFastTexturedSliceCount = FrameTimingFastTexturedSliceCount / sampledFrameCount;
-        const double averageClippedTexturedSliceCount = FrameTimingClippedTexturedSliceCount / sampledFrameCount;
-        const double averageRejectedTexturedSliceCount = FrameTimingRejectedTexturedSliceCount / sampledFrameCount;
+        const double averageFastTexturedSourceTriangleCount = FrameTimingFastTexturedSourceTriangleCount / sampledFrameCount;
+        const double averageClippedTexturedSourceTriangleCount = FrameTimingClippedTexturedSourceTriangleCount / sampledFrameCount;
+        const double averageRejectedTexturedSourceTriangleCount = FrameTimingRejectedTexturedSourceTriangleCount / sampledFrameCount;
+        const double averageGeneratedClippedTexturedTriangleCount = FrameTimingGeneratedClippedTexturedTriangleCount / sampledFrameCount;
+        const double averageClippedTexturedBatchCount = FrameTimingClippedTexturedBatchCount / sampledFrameCount;
         const double averageVuTriangleSetupMilliseconds = FrameTimingVuTriangleSetupMilliseconds / sampledFrameCount;
         const double averageVuTrianglePrepMilliseconds = FrameTimingVuTrianglePrepMilliseconds / sampledFrameCount;
         const double averageVuTriangleEmitMilliseconds = FrameTimingVuTriangleEmitMilliseconds / sampledFrameCount;
@@ -913,18 +919,16 @@ namespace {
             + " Sub "
             + FormatOverlayMilliseconds(averageVuSubmitMilliseconds);
         FrameTimingOverlayAdditionalText =
-            std::string("Fast ")
-            + std::to_string(static_cast<int>(averageFastTexturedSliceCount))
-            + " Clip "
-            + std::to_string(static_cast<int>(averageClippedTexturedSliceCount))
-            + " Rej "
-            + std::to_string(static_cast<int>(averageRejectedTexturedSliceCount))
-            + " Tri "
-            + std::to_string(static_cast<int>(averageSubmittedTriangleCount))
-            + " Bat "
-            + std::to_string(static_cast<int>(averageVuBatchDispatchCount))
-            + " Bytes "
-            + std::to_string(static_cast<int>(averageVifPacketByteCount));
+            std::string("F ")
+            + std::to_string(static_cast<int>(averageFastTexturedSourceTriangleCount))
+            + " C "
+            + std::to_string(static_cast<int>(averageClippedTexturedSourceTriangleCount))
+            + " R "
+            + std::to_string(static_cast<int>(averageRejectedTexturedSourceTriangleCount))
+            + " G "
+            + std::to_string(static_cast<int>(averageGeneratedClippedTexturedTriangleCount))
+            + " CB "
+            + std::to_string(static_cast<int>(averageClippedTexturedBatchCount));
         FrameTimingOverlayPending = true;
         FrameTimingOverlayPresented = false;
         FrameTimingSampleCompleted = true;
@@ -941,9 +945,11 @@ namespace {
         FrameTimingFramePlanMilliseconds = 0.0;
         FrameTimingVuBatchBuildMilliseconds = 0.0;
         FrameTimingVuBatchDispatchCount = 0.0;
-        FrameTimingFastTexturedSliceCount = 0.0;
-        FrameTimingClippedTexturedSliceCount = 0.0;
-        FrameTimingRejectedTexturedSliceCount = 0.0;
+        FrameTimingFastTexturedSourceTriangleCount = 0.0;
+        FrameTimingClippedTexturedSourceTriangleCount = 0.0;
+        FrameTimingRejectedTexturedSourceTriangleCount = 0.0;
+        FrameTimingGeneratedClippedTexturedTriangleCount = 0.0;
+        FrameTimingClippedTexturedBatchCount = 0.0;
         FrameTimingVuTriangleSetupMilliseconds = 0.0;
         FrameTimingVuTrianglePrepMilliseconds = 0.0;
         FrameTimingVuTriangleEmitMilliseconds = 0.0;

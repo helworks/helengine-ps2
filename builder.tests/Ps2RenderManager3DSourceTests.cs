@@ -560,7 +560,7 @@ public void Ps2BootHost_WhenPublishingFrameTiming_PrefixesTheFpsRowWithBuildNumb
         string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
         string source = File.ReadAllText(sourcePath);
 
-Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B123\";", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B321\";", source, StringComparison.Ordinal);
         Assert.Contains("std::string(FrameTimingOverlayBuildNumber)\n            + \" \"", source, StringComparison.Ordinal);
     }
 
@@ -1210,6 +1210,40 @@ Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B123\";
         Assert.Contains("const bool useTexturedVuSourcePath = !UseDirectGifTexturedSubmission;", source, StringComparison.Ordinal);
         Assert.Contains("Ps2VuVifPacketBuilder::GetMaximumTexturedVuSourceBatchCount()", source, StringComparison.Ordinal);
         Assert.Contains("while (firstTexturedVuBatchIndex < texturedVuBatches.size())", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Requires renderer packet aggregation and the existing profiler row to publish the hybrid source and generated triangle counts.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_PublishesAggregateHybridClippingMetricsThroughTheExistingProfilerRow() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string headerPath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.hpp");
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string bootHostPath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2BootHost.cpp");
+        string header = File.ReadAllText(headerPath);
+        string source = File.ReadAllText(sourcePath);
+        string bootHost = File.ReadAllText(bootHostPath);
+
+        Assert.Contains("GetLastFastTexturedSourceTriangleCount", header, StringComparison.Ordinal);
+        Assert.Contains("GetLastClippedTexturedSourceTriangleCount", header, StringComparison.Ordinal);
+        Assert.Contains("GetLastRejectedTexturedSourceTriangleCount", header, StringComparison.Ordinal);
+        Assert.Contains("GetLastGeneratedClippedTexturedTriangleCount", header, StringComparison.Ordinal);
+        Assert.Contains("GetLastClippedTexturedBatchCount", header, StringComparison.Ordinal);
+        Assert.Contains("LastFastTexturedSourceTriangleCount += VuVifPacketBuilder.GetFastTexturedSourceTriangleCount();", source, StringComparison.Ordinal);
+        Assert.Contains("LastClippedTexturedSourceTriangleCount += VuVifPacketBuilder.GetClippedTexturedSourceTriangleCount();", source, StringComparison.Ordinal);
+        Assert.Contains("LastRejectedTexturedSourceTriangleCount += VuVifPacketBuilder.GetRejectedTexturedSourceTriangleCount();", source, StringComparison.Ordinal);
+        Assert.Contains("LastGeneratedClippedTexturedTriangleCount += VuVifPacketBuilder.GetGeneratedClippedTexturedTriangleCount();", source, StringComparison.Ordinal);
+        Assert.Contains("LastClippedTexturedBatchCount += VuVifPacketBuilder.GetClippedTexturedBatchCount();", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B321\";", bootHost, StringComparison.Ordinal);
+        Assert.Contains("std::string(\"F \")", bootHost, StringComparison.Ordinal);
+        Assert.Contains("+ \" C \"", bootHost, StringComparison.Ordinal);
+        Assert.Contains("+ \" R \"", bootHost, StringComparison.Ordinal);
+        Assert.Contains("+ \" G \"", bootHost, StringComparison.Ordinal);
+        Assert.Contains("+ \" CB \"", bootHost, StringComparison.Ordinal);
+        Assert.DoesNotContain("std::string(\"Fast \")", bootHost, StringComparison.Ordinal);
+        Assert.DoesNotContain("+ \" Tri \"", bootHost, StringComparison.Ordinal);
+        Assert.DoesNotContain("+ \" Bat \"", bootHost, StringComparison.Ordinal);
     }
 
     /// <summary>
