@@ -30,10 +30,10 @@ public sealed class Ps2VuHybridClippedBatchSourceTests {
     }
 
     /// <summary>
-    /// Requires the reserved pretransformed program to consume the Task 2 source contract without reviving VU1 clipping or changing active uploads.
+    /// Requires the active pretransformed program to consume the Task 2 source contract without reviving the retired VU1 clipping program.
     /// </summary>
     [Fact]
-    public void Ps2OpaqueTexturedPretransformedDraw3D_UsesThePretransformedSevenQwordContractWithoutActiveUpload() {
+    public void Ps2OpaqueTexturedPretransformedDraw3D_UsesThePretransformedSevenQwordContractThroughTheActiveUpload() {
         string repositoryRootPath = GetRepositoryRootPath();
         string programPath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedPretransformedDraw3D.vsm");
         string addressPath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuMicroProgramAddresses.hpp");
@@ -47,8 +47,10 @@ public sealed class Ps2VuHybridClippedBatchSourceTests {
         Assert.Contains("Ps2OpaqueTexturedPretransformedDraw3D_CodeStart", programSource, StringComparison.Ordinal);
         Assert.Contains("Ps2OpaqueTexturedPretransformedDraw3D_CodeEnd", programSource, StringComparison.Ordinal);
         Assert.Contains("constexpr std::uint16_t TexturedPretransformedMicroProgramAddress = 320u;", addressSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("Ps2OpaqueTexturedPretransformedDraw3D_CodeStart", bootHostSource, StringComparison.Ordinal);
-        Assert.DoesNotContain("Ps2OpaqueTexturedPretransformedDraw3D.vsm", makefileSource, StringComparison.Ordinal);
+        Assert.Contains("Ps2OpaqueTexturedPretransformedDraw3D_CodeStart", bootHostSource, StringComparison.Ordinal);
+        Assert.Contains("Ps2OpaqueTexturedPretransformedDraw3D.vsm", makefileSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2OpaqueTexturedClipDraw3D_CodeStart", bootHostSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2OpaqueTexturedClipDraw3D.vsm", makefileSource, StringComparison.Ordinal);
 
         Assert.Contains("lq VF08, 0(VI05)", programSource, StringComparison.Ordinal);
         Assert.Contains("lq VF08, 1(VI05)", programSource, StringComparison.Ordinal);
@@ -97,6 +99,28 @@ public sealed class Ps2VuHybridClippedBatchSourceTests {
         Assert.DoesNotContain("fcand", programSource, StringComparison.Ordinal);
         Assert.DoesNotContain("Polygon", programSource, StringComparison.Ordinal);
         Assert.DoesNotContain("0x0000004", programSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Requires the exceptional clipped route to preclassify fixed outer slices before allocation while preserving the ordinary packet budget for safe work.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_PreclassifiesOuterRoutesAndUsesTheExceptionalBudgetOnlyForIntersectingSlices() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr std::uint16_t MaximumTexturedVuSourcePacketQwords = 2048u;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::uint16_t MaximumTexturedVuExceptionalPacketQwords = 4096u;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::size_t MaximumTexturedVuSourceBatchCount", source, StringComparison.Ordinal);
+        Assert.Contains("if (batchCount > MaximumTexturedVuSourceBatchCount)", source, StringComparison.Ordinal);
+        Assert.Contains("std::array<Ps2VuNearPlaneRoute, MaximumTexturedVuSourceBatchCount> outerRoutes", source, StringComparison.Ordinal);
+        Assert.Contains("std::array<::float4x4, MaximumTexturedVuSourceBatchCount> cachedWorldViews", source, StringComparison.Ordinal);
+        Assert.Contains("std::array<::float4x4, MaximumTexturedVuSourceBatchCount> cachedWorldViewProjections", source, StringComparison.Ordinal);
+        Assert.Contains("bool hasClippedOuterRoute = false;", source, StringComparison.Ordinal);
+        Assert.Contains("MaximumTexturedVuExceptionalPacketQwords", source, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuClippedTexturedBatchBuilder::BuildTriangleFan", source, StringComparison.Ordinal);
+        Assert.Contains("TexturedPretransformedMicroProgramAddress", source, StringComparison.Ordinal);
     }
 
     /// <summary>

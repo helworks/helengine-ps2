@@ -71,24 +71,22 @@ public sealed class Ps2VuNearPlaneClippingSourceTests {
     }
 
     /// <summary>
-    /// Ensures textured packet assembly preserves conservative slice classification while selecting the clipping microprogram without diagnostic overrides.
+    /// Ensures textured packet assembly preserves the immutable fast route while sending only refined intersecting triangles through pretransformed clipped batches.
     /// </summary>
     [Fact]
     public void Ps2VuVifPacketBuilder_WhenRoutingNearPlaneSlices_PreservesTheFastProgram() {
         string repositoryRootPath = GetRepositoryRootPath();
         string source = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp"));
 
-        Assert.Matches(@"const\s+Ps2VuNearPlaneRoute\s+classifiedRoute\s*=\s*Ps2VuNearPlaneSliceClassifier::Classify\s*\(", source);
-        Assert.Matches(@"const\s+Ps2VuNearPlaneRoute\s+route\s*=\s*ForceAllTexturedSlicesThroughClipProgramDiagnostics\s*\?\s*Ps2VuNearPlaneRoute::Clipped\s*:\s*classifiedRoute\s*;", source);
+        Assert.Contains("std::array<Ps2VuNearPlaneRoute, MaximumTexturedVuSourceBatchCount> outerRoutes", source, StringComparison.Ordinal);
+        Assert.Contains("const Ps2VuNearPlaneRoute outerRoute = outerRoutes[batchOffset];", source, StringComparison.Ordinal);
         Assert.Contains("Ps2VuNearPlaneRoute::Rejected", source, StringComparison.Ordinal);
-        Assert.Contains("TexturedClipMicroProgramAddress", source, StringComparison.Ordinal);
-        Assert.Contains("route == Ps2VuNearPlaneRoute::Clipped", source, StringComparison.Ordinal);
-        Assert.Contains("TexturedVuClippedSourceTriangleCapacity", source, StringComparison.Ordinal);
-        Assert.Contains("submissionSourceTriangleCapacity", source, StringComparison.Ordinal);
-        Assert.Contains("constexpr bool DropClippedTexturedSlicesForDiagnostics = false;", source, StringComparison.Ordinal);
-        Assert.Contains("constexpr bool UseFastProgramForClippedSliceDiagnostics = false;", source, StringComparison.Ordinal);
-        Assert.Contains("constexpr bool ForceAllTexturedSlicesThroughClipProgramDiagnostics = false;", source, StringComparison.Ordinal);
-        Assert.Contains("packet2_vif_mscal(packet.get(), microProgramAddress, 0);", source, StringComparison.Ordinal);
+        Assert.Contains("TexturedPretransformedMicroProgramAddress", source, StringComparison.Ordinal);
+        Assert.Contains("Ps2VuClippedTexturedBatchBuilder::BuildTriangleFan", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("TexturedClipMicroProgramAddress", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("DropClippedTexturedSlicesForDiagnostics", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("UseFastProgramForClippedSliceDiagnostics", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("ForceAllTexturedSlicesThroughClipProgramDiagnostics", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -125,22 +123,22 @@ public sealed class Ps2VuNearPlaneClippingSourceTests {
     }
 
     /// <summary>
-    /// Ensures the clipping VU program is linked, uploaded at its shared address, and bounded by both VU1 memory contracts.
+    /// Ensures the pretransformed clipping VU program is linked, uploaded at its shared address, and bounded by both VU1 memory contracts.
     /// </summary>
     [Fact]
-    public void Ps2BootHost_WhenUploadingTexturedPrograms_UploadsTheNearClipProgramWithinVuLimits() {
+    public void Ps2BootHost_WhenUploadingTexturedPrograms_UploadsThePretransformedProgramWithinVuLimits() {
         string repositoryRootPath = GetRepositoryRootPath();
         string bootSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2BootHost.cpp"));
         string limitsSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuTexturedSourceLimits.hpp"));
         string addressSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuMicroProgramAddresses.hpp"));
 
-        Assert.Contains("Ps2OpaqueTexturedClipDraw3D_CodeStart", bootSource, StringComparison.Ordinal);
-        Assert.Contains("Ps2OpaqueTexturedClipDraw3D_CodeEnd", bootSource, StringComparison.Ordinal);
+        Assert.Contains("Ps2OpaqueTexturedPretransformedDraw3D_CodeStart", bootSource, StringComparison.Ordinal);
+        Assert.Contains("Ps2OpaqueTexturedPretransformedDraw3D_CodeEnd", bootSource, StringComparison.Ordinal);
         Assert.Contains("Ps2VuMicroProgramAddresses.hpp", bootSource, StringComparison.Ordinal);
-        Assert.Contains("TexturedClipMicroProgramAddress = 320u", addressSource, StringComparison.Ordinal);
+        Assert.Contains("TexturedPretransformedMicroProgramAddress = 320u", addressSource, StringComparison.Ordinal);
         Assert.Contains("TexturedVuMaximumOutputEndQword <= TexturedVuDataMemoryQwordCount", limitsSource, StringComparison.Ordinal);
-        Assert.Contains("texturedProgramEndAddress > helengine::ps2::TexturedClipMicroProgramAddress", bootSource, StringComparison.Ordinal);
-        Assert.Contains("texturedClipProgramEndAddress > Vu1MicroMemoryInstructionCount", bootSource, StringComparison.Ordinal);
+        Assert.Contains("texturedProgramEndAddress > helengine::ps2::TexturedPretransformedMicroProgramAddress", bootSource, StringComparison.Ordinal);
+        Assert.Contains("texturedPretransformedProgramEndAddress > Vu1MicroMemoryInstructionCount", bootSource, StringComparison.Ordinal);
     }
 
     /// <summary>

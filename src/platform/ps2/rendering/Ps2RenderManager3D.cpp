@@ -1731,6 +1731,7 @@ namespace helengine::ps2 {
                     view,
                     projection,
                     viewport,
+                    nearPlaneDistance,
                     lightDirection,
                     GsGlobal,
                     texturedVuTextures,

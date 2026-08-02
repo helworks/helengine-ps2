@@ -14,12 +14,14 @@ public sealed class Ps2TexturedVuReferencePayloadSourceTests {
         string packetCacheSource = File.ReadAllText("../../../../src/platform/ps2/rendering/vu/Ps2VuTexturedPacketCache.cpp");
 
         Assert.Contains("constexpr std::uint32_t XtopGifPacketAddress = 0;", source);
-        Assert.Contains("packet2_utils_vu_open_unpack(packet.get(), XtopGifPacketAddress, 1);", source);
+        Assert.Contains("packet2_utils_vu_open_unpack(packet, XtopGifPacketAddress, 1);", source);
         Assert.Contains("constexpr bool UseCachedTexturedVuSourceReferences = true;", source);
         Assert.Contains("packet2_utils_vu_add_unpack_data(", source);
-        Assert.Contains("cachedSourceTriangles.data()", source);
-        Assert.Contains("ResolveReferencedPackedTriangleSources", packetCacheHeader);
-        Assert.Contains("entry.ReferencedThisFrame = true;", packetCacheSource);
+        Assert.Contains("EmitTexturedFastSourceRun(", source);
+        Assert.Contains("BeginReferencedPacket", packetCacheHeader);
+        Assert.Contains("AppendReferencedPackedTriangleSources", packetCacheHeader);
+        Assert.Contains("ReferencedPacketSources.reserve(triangleCapacity);", packetCacheSource);
+        Assert.DoesNotContain("ResolveReferencedPackedTriangleSources", packetCacheHeader);
         Assert.DoesNotContain("MaximumReferencedTexturedVuSourceSliceCount", source);
         Assert.DoesNotContain("std::vector<Ps2VuTexturedSourceTriangle> sourceTriangles", source);
         Assert.DoesNotContain("VuDoubleBufferBaseAddress", source);
@@ -60,8 +62,8 @@ public sealed class Ps2TexturedVuReferencePayloadSourceTests {
 
         Assert.Contains("const Ps2VuOpaqueBatch* cachedSharedStateBatch = nullptr;", source);
         Assert.Contains("if (cachedSharedStateBatch != batch) {", source);
-        Assert.Contains("sharedState = cachedSharedState;", source);
-        Assert.Contains("sharedState.TriangleCount[0] = static_cast<std::uint32_t>(batchSlice.SourceTriangleCount);", source);
+        Assert.Contains("Ps2VuTexturedSharedState sharedState = cachedSharedState;", source);
+        Assert.Contains("sharedState.TriangleCount[0] = static_cast<std::uint32_t>(sourceTriangleCount);", source);
     }
 
     /// <summary>
@@ -92,16 +94,31 @@ public sealed class Ps2TexturedVuReferencePayloadSourceTests {
     }
 
     /// <summary>
-    /// Confirms consecutive source slices reuse their already pinned immutable triangle vector instead of resolving the packet cache repeatedly.
+    /// Confirms source references use one bounded packet scratch buffer instead of retaining full-model triangle copies.
     /// </summary>
     [Fact]
-    public void TexturedVuPath_ReusesResolvedSourceVectorForConsecutiveBatchSlices() {
+    public void TexturedVuPath_UsesBoundedPacketScratchForReferencedSourceSlices() {
+        string source = File.ReadAllText("../../../../src/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp");
+        string cacheHeader = File.ReadAllText("../../../../src/platform/ps2/rendering/vu/Ps2VuTexturedPacketCache.hpp");
+
+        Assert.Contains("TexturedPacketCache.BeginReferencedPacket(referencedPacketTriangleCapacity);", source);
+        Assert.Contains("TexturedPacketCache.AppendReferencedPackedTriangleSources(", source);
+        Assert.Contains("std::vector<Ps2VuTexturedPackedTriangleSource> ReferencedPacketSources;", cacheHeader);
+        Assert.DoesNotContain("cachedSourceTrianglesForBatch", source);
+    }
+
+    /// <summary>
+    /// Requires frame-local clipped fans to use copied UNPACK transport while safe packed sources retain immutable reference transport.
+    /// </summary>
+    [Fact]
+    public void TexturedVuPath_UsesCopiedUnpackForGeneratedClippedFans() {
         string source = File.ReadAllText("../../../../src/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp");
 
-        Assert.Contains("const Ps2VuOpaqueBatch* cachedSourceBatch = nullptr;", source);
-        Assert.Contains("const std::vector<Ps2VuTexturedPackedTriangleSource>* cachedSourceTrianglesForBatch = nullptr;", source);
-        Assert.Contains("if (cachedSourceBatch != batch) {", source);
-        Assert.Contains("cachedSourceTrianglesForBatch = &TexturedPacketCache.ResolveReferencedPackedTriangleSources(*batch->Model, runtimeModel);", source);
-        Assert.Contains("const std::vector<Ps2VuTexturedPackedTriangleSource>& cachedSourceTriangles = *cachedSourceTrianglesForBatch;", source);
+        Assert.Contains("clippedBatch.GetTriangles()", source, StringComparison.Ordinal);
+        Assert.Contains("sizeof(Ps2VuClippedTexturedTriangleSource)", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_utils_vu_open_unpack(packet, XtopGifPacketAddress + TexturedVuSharedStateQwordCount, 1);", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_utils_vu_add_unpack_data(", source, StringComparison.Ordinal);
+        Assert.Contains("TexturedMicroProgramAddress", source, StringComparison.Ordinal);
+        Assert.Contains("TexturedPretransformedMicroProgramAddress", source, StringComparison.Ordinal);
     }
 }

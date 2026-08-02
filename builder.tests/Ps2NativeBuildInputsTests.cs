@@ -687,6 +687,21 @@ public sealed class Ps2NativeBuildInputsTests {
     }
 
     /// <summary>
+    /// Ensures the active build links and uploads the pretransformed exceptional textured VU program instead of the inactive comparison source.
+    /// </summary>
+    [Fact]
+    public void Ps2_build_inputs_activate_pretransformed_textured_vu_program() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string makefileSource = File.ReadAllText(Path.Combine(repositoryRootPath, "Makefile"));
+        string bootHostSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2BootHost.cpp"));
+
+        Assert.Contains("Ps2OpaqueTexturedPretransformedDraw3D.vsm", makefileSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2OpaqueTexturedClipDraw3D.vsm", makefileSource, StringComparison.Ordinal);
+        Assert.Contains("Ps2OpaqueTexturedPretransformedDraw3D_CodeStart", bootHostSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("Ps2OpaqueTexturedClipDraw3D_CodeStart", bootHostSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 boot host initializes and waits for the CD/DVD subsystem before runtime asset loading begins.
     /// </summary>
     [Fact]

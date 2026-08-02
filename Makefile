@@ -52,11 +52,11 @@ PS2_SOURCES := \
 VU_PROGRAM_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueDraw3D.vsm \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueTexturedDraw3D.vsm \
-	$(SOURCE_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueTexturedClipDraw3D.vsm
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueTexturedPretransformedDraw3D.vsm
 VU_PROGRAM_OBJECTS := \
 	$(BUILD_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueDraw3D.o \
 	$(BUILD_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueTexturedDraw3D.o \
-	$(BUILD_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueTexturedClipDraw3D.o
+	$(BUILD_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueTexturedPretransformedDraw3D.o
 IRX_EMBED_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/audio/irx/audsrv.irx-em \
 	$(SOURCE_DIR)/platform/ps2/audio/irx/libsd.irx-em

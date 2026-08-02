@@ -40,6 +40,7 @@ namespace helengine::ps2 {
             const ::float4x4& view,
             const ::float4x4& projection,
             const ::float4& viewport,
+            float nearPlaneDistance,
             const ::float3& lightDirection,
             GSGLOBAL* gsGlobal,
             const std::vector<GSTEXTURE*>& textures,
