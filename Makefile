@@ -7,7 +7,7 @@ GSKIT_CFLAGS := $(shell $(PKG_CONFIG) --cflags gsKit 2>/dev/null)
 GSKIT_LIBS := $(shell $(PKG_CONFIG) --libs gsKit 2>/dev/null)
 
 ifeq ($(strip $(HELENGINE_CORE_CPP_ROOT)),)
-ifneq ($(strip $(filter-out clean,$(MAKECMDGOALS))),)
+ifneq ($(strip $(filter-out clean ps2-rendering-tests,$(MAKECMDGOALS))),)
 $(error HELENGINE_CORE_CPP_ROOT must point at the generated helengine.core C++ output folder)
 endif
 endif
@@ -102,6 +102,12 @@ HOST_CXXFLAGS := \
 	-Wextra \
 	-Wno-unused-parameter
 
+PS2_RENDERING_TEST_TARGET := $(BUILD_DIR)/tests/ps2-vu-textured-clipper-tests
+PS2_RENDERING_TEST_SOURCES := \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuTexturedClipPolygon.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuTexturedTriangleClipper.cpp \
+	tests/native/Ps2VuTexturedTriangleClipperTests.cpp
+
 LDFLAGS := \
 	-T$(PS2SDK)/ee/startup/linkfile \
 	-L$(PS2SDK)/ee/lib \
@@ -148,9 +154,16 @@ HOST_DEBUGGER_OBJECTS := \
 	$(HOST_DEBUGGER_BUILD_DIR)/generated/runtime/runtime_scene_catalog_manifest.o \
 	$(HOST_DEBUGGER_BUILD_DIR)/generated/runtime/runtime_ps2_asset_path_manifest.o
 
-.PHONY: all clean ps2-host-debugger
+.PHONY: all clean ps2-host-debugger ps2-rendering-tests
 
 all: $(TARGET)
+
+ps2-rendering-tests: $(PS2_RENDERING_TEST_TARGET)
+	$(PS2_RENDERING_TEST_TARGET)
+
+$(PS2_RENDERING_TEST_TARGET): $(PS2_RENDERING_TEST_SOURCES)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) $(HOST_CXXFLAGS) -I$(SOURCE_DIR) $^ -o $@
 
 $(GENERATED_CORE_STAGE_STAMP): $(GENERATED_CORE_STAGE_INPUTS) $(SOURCE_DIR)/app_context_ps2.hpp
 	@rm -rf $(GENERATED_CORE_STAGE_ROOT)
