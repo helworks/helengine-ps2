@@ -80,12 +80,33 @@ namespace {
         Ps2VuTexturedTriangleClipper::ClipTriangle(vertexA, vertexB, vertexC, NearPlaneDistance, polygon);
 
         REQUIRE(polygon.GetVertexCount() == 3u);
-        REQUIRE(polygon.GetVertex(0u).TextureU == vertexA.TextureU);
-        REQUIRE(polygon.GetVertex(1u).TextureU == vertexB.TextureU);
-        REQUIRE(polygon.GetVertex(2u).TextureU == vertexC.TextureU);
         REQUIRE(polygon.GetVertex(0u).ViewX == vertexA.ViewX);
+        REQUIRE(polygon.GetVertex(0u).ViewY == vertexA.ViewY);
+        REQUIRE(polygon.GetVertex(0u).ViewZ == vertexA.ViewZ);
+        REQUIRE(polygon.GetVertex(0u).ClipX == vertexA.ClipX);
+        REQUIRE(polygon.GetVertex(0u).ClipY == vertexA.ClipY);
+        REQUIRE(polygon.GetVertex(0u).ClipZ == vertexA.ClipZ);
+        REQUIRE(polygon.GetVertex(0u).ClipW == vertexA.ClipW);
+        REQUIRE(polygon.GetVertex(0u).TextureU == vertexA.TextureU);
+        REQUIRE(polygon.GetVertex(0u).TextureV == vertexA.TextureV);
         REQUIRE(polygon.GetVertex(1u).ViewX == vertexB.ViewX);
+        REQUIRE(polygon.GetVertex(1u).ViewY == vertexB.ViewY);
+        REQUIRE(polygon.GetVertex(1u).ViewZ == vertexB.ViewZ);
+        REQUIRE(polygon.GetVertex(1u).ClipX == vertexB.ClipX);
+        REQUIRE(polygon.GetVertex(1u).ClipY == vertexB.ClipY);
+        REQUIRE(polygon.GetVertex(1u).ClipZ == vertexB.ClipZ);
+        REQUIRE(polygon.GetVertex(1u).ClipW == vertexB.ClipW);
+        REQUIRE(polygon.GetVertex(1u).TextureU == vertexB.TextureU);
+        REQUIRE(polygon.GetVertex(1u).TextureV == vertexB.TextureV);
         REQUIRE(polygon.GetVertex(2u).ViewX == vertexC.ViewX);
+        REQUIRE(polygon.GetVertex(2u).ViewY == vertexC.ViewY);
+        REQUIRE(polygon.GetVertex(2u).ViewZ == vertexC.ViewZ);
+        REQUIRE(polygon.GetVertex(2u).ClipX == vertexC.ClipX);
+        REQUIRE(polygon.GetVertex(2u).ClipY == vertexC.ClipY);
+        REQUIRE(polygon.GetVertex(2u).ClipZ == vertexC.ClipZ);
+        REQUIRE(polygon.GetVertex(2u).ClipW == vertexC.ClipW);
+        REQUIRE(polygon.GetVertex(2u).TextureU == vertexC.TextureU);
+        REQUIRE(polygon.GetVertex(2u).TextureV == vertexC.TextureV);
         return true;
     }
 
@@ -123,35 +144,52 @@ namespace {
         using helengine::ps2::Ps2VuTexturedTriangleClipper;
 
         const Ps2VuTexturedClipVertex vertexA {
-            0.0f, 0.0f, 0.0f,
-            0.0f, 0.0f, 0.0f, 1.0f,
-            0.0f, 0.0f
+            10.0f, 20.0f, 1.0f,
+            0.2f, -0.4f, 0.8f, 2.0f,
+            0.1f, 0.2f
         };
         const Ps2VuTexturedClipVertex vertexB {
-            1.0f, 0.0f, -2.0f,
-            0.5f, -0.5f, 0.0f, 1.0f,
-            1.0f, 0.0f
+            -2.0f, 4.0f, -3.0f,
+            1.0f, -2.0f, 3.0f, 4.0f,
+            0.7f, 0.9f
         };
         const Ps2VuTexturedClipVertex vertexC {
-            0.0f, 1.0f, -2.0f,
-            0.0f, 0.5f, 0.0f, 1.0f,
-            0.0f, 1.0f
+            6.0f, -8.0f, -3.0f,
+            -1.0f, 2.0f, -4.0f, 5.0f,
+            0.3f, 0.5f
         };
         Ps2VuTexturedClipPolygon polygon;
 
         Ps2VuTexturedTriangleClipper::ClipTriangle(vertexA, vertexB, vertexC, NearPlaneDistance, polygon);
 
         REQUIRE(polygon.GetVertexCount() == 4u);
-        REQUIRE(std::abs(polygon.GetVertex(0u).TextureU - 0.0f) <= Tolerance);
-        REQUIRE(std::abs(polygon.GetVertex(0u).TextureV - 0.5f) <= Tolerance);
-        REQUIRE(std::abs(polygon.GetVertex(1u).TextureU - 0.5f) <= Tolerance);
-        REQUIRE(std::abs(polygon.GetVertex(1u).TextureV - 0.0f) <= Tolerance);
-        REQUIRE(std::abs(polygon.GetVertex(0u).ViewZ + NearPlaneDistance) <= Tolerance);
-        REQUIRE(std::abs(polygon.GetVertex(1u).ViewZ + NearPlaneDistance) <= Tolerance);
-        REQUIRE(std::isfinite(polygon.GetVertex(0u).TextureU));
-        REQUIRE(std::isfinite(polygon.GetVertex(0u).TextureV));
-        REQUIRE(std::isfinite(polygon.GetVertex(1u).TextureU));
-        REQUIRE(std::isfinite(polygon.GetVertex(1u).TextureV));
+        const float expectedAmount = 0.5f;
+        const float firstAmount = (polygon.GetVertex(0u).ViewX - vertexC.ViewX) / (vertexA.ViewX - vertexC.ViewX);
+        const float secondAmount = (polygon.GetVertex(1u).ViewX - vertexA.ViewX) / (vertexB.ViewX - vertexA.ViewX);
+        REQUIRE(std::isfinite(firstAmount));
+        REQUIRE(std::isfinite(secondAmount));
+        REQUIRE(firstAmount >= 0.0f && firstAmount <= 1.0f);
+        REQUIRE(secondAmount >= 0.0f && secondAmount <= 1.0f);
+        REQUIRE(std::abs(firstAmount - expectedAmount) <= Tolerance);
+        REQUIRE(std::abs(secondAmount - expectedAmount) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(0u).ViewX - (vertexC.ViewX + ((vertexA.ViewX - vertexC.ViewX) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(0u).ViewY - (vertexC.ViewY + ((vertexA.ViewY - vertexC.ViewY) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(0u).ViewZ - (vertexC.ViewZ + ((vertexA.ViewZ - vertexC.ViewZ) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(0u).ClipX - (vertexC.ClipX + ((vertexA.ClipX - vertexC.ClipX) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(0u).ClipY - (vertexC.ClipY + ((vertexA.ClipY - vertexC.ClipY) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(0u).ClipZ - (vertexC.ClipZ + ((vertexA.ClipZ - vertexC.ClipZ) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(0u).ClipW - (vertexC.ClipW + ((vertexA.ClipW - vertexC.ClipW) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(0u).TextureU - (vertexC.TextureU + ((vertexA.TextureU - vertexC.TextureU) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(0u).TextureV - (vertexC.TextureV + ((vertexA.TextureV - vertexC.TextureV) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(1u).ViewX - (vertexA.ViewX + ((vertexB.ViewX - vertexA.ViewX) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(1u).ViewY - (vertexA.ViewY + ((vertexB.ViewY - vertexA.ViewY) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(1u).ViewZ - (vertexA.ViewZ + ((vertexB.ViewZ - vertexA.ViewZ) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(1u).ClipX - (vertexA.ClipX + ((vertexB.ClipX - vertexA.ClipX) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(1u).ClipY - (vertexA.ClipY + ((vertexB.ClipY - vertexA.ClipY) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(1u).ClipZ - (vertexA.ClipZ + ((vertexB.ClipZ - vertexA.ClipZ) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(1u).ClipW - (vertexA.ClipW + ((vertexB.ClipW - vertexA.ClipW) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(1u).TextureU - (vertexA.TextureU + ((vertexB.TextureU - vertexA.TextureU) * expectedAmount))) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(1u).TextureV - (vertexA.TextureV + ((vertexB.TextureV - vertexA.TextureV) * expectedAmount))) <= Tolerance);
         return true;
     }
 
@@ -226,24 +264,32 @@ namespace {
 
         Ps2VuTexturedTriangleClipper::ClipTriangle(leftOutside, vertexB, vertexC, NearPlaneDistance, polygon);
         REQUIRE(polygon.GetVertexCount() == 4u);
+        REQUIRE(std::abs(polygon.GetVertex(0u).ClipX + polygon.GetVertex(0u).ClipW) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(1u).ClipX + polygon.GetVertex(1u).ClipW) <= Tolerance);
         for (std::size_t index = 0u; index < polygon.GetVertexCount(); ++index) {
             REQUIRE(polygon.GetVertex(index).ClipX + polygon.GetVertex(index).ClipW >= -Tolerance);
         }
 
         Ps2VuTexturedTriangleClipper::ClipTriangle(rightOutside, vertexB, vertexC, NearPlaneDistance, polygon);
         REQUIRE(polygon.GetVertexCount() == 4u);
+        REQUIRE(std::abs(polygon.GetVertex(0u).ClipW - polygon.GetVertex(0u).ClipX) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(1u).ClipW - polygon.GetVertex(1u).ClipX) <= Tolerance);
         for (std::size_t index = 0u; index < polygon.GetVertexCount(); ++index) {
             REQUIRE(polygon.GetVertex(index).ClipW - polygon.GetVertex(index).ClipX >= -Tolerance);
         }
 
         Ps2VuTexturedTriangleClipper::ClipTriangle(bottomOutside, vertexB, vertexC, NearPlaneDistance, polygon);
         REQUIRE(polygon.GetVertexCount() == 4u);
+        REQUIRE(std::abs(polygon.GetVertex(0u).ClipY + polygon.GetVertex(0u).ClipW) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(1u).ClipY + polygon.GetVertex(1u).ClipW) <= Tolerance);
         for (std::size_t index = 0u; index < polygon.GetVertexCount(); ++index) {
             REQUIRE(polygon.GetVertex(index).ClipY + polygon.GetVertex(index).ClipW >= -Tolerance);
         }
 
         Ps2VuTexturedTriangleClipper::ClipTriangle(topOutside, vertexB, vertexC, NearPlaneDistance, polygon);
         REQUIRE(polygon.GetVertexCount() == 4u);
+        REQUIRE(std::abs(polygon.GetVertex(0u).ClipW - polygon.GetVertex(0u).ClipY) <= Tolerance);
+        REQUIRE(std::abs(polygon.GetVertex(1u).ClipW - polygon.GetVertex(1u).ClipY) <= Tolerance);
         for (std::size_t index = 0u; index < polygon.GetVertexCount(); ++index) {
             REQUIRE(polygon.GetVertex(index).ClipW - polygon.GetVertex(index).ClipY >= -Tolerance);
         }
