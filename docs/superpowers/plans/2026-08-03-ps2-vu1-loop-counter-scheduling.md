@@ -30,7 +30,7 @@
 - Consumes: Existing `VI01` remaining-triangle counter and `VI05` seven-qword source-record pointer.
 - Produces: The exact loop-tail order `isubiu VI01`, `iaddiu VI05`, `ibne VI01` in both active textured VU1 programs.
 
-- [ ] **Step 1: Write the failing source contract**
+- [x] **Step 1: Write the failing source contract**
 
 Add this xUnit test to `Ps2VuHybridClippedBatchSourceTests`:
 
@@ -41,13 +41,15 @@ Add this xUnit test to `Ps2VuHybridClippedBatchSourceTests`:
 [Fact]
 public void Ps2TexturedVuPrograms_ScheduleTheLoopCounterBeforeItsDependentBranch() {
     string repositoryRootPath = GetRepositoryRootPath();
-    string fastProgramSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"));
-    string clippedProgramSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedPretransformedDraw3D.vsm"));
-    string expectedFastLoopTail = string.Join(Environment.NewLine,
+    string fastProgramSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"))
+        .Replace("\r\n", "\n", StringComparison.Ordinal);
+    string clippedProgramSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedPretransformedDraw3D.vsm"))
+        .Replace("\r\n", "\n", StringComparison.Ordinal);
+    string expectedFastLoopTail = string.Join("\n",
         "         NOP                                                        isubiu VI01, VI01, 0x00000001",
         "         NOP                                                        iaddiu VI05, VI05, 0x00000007",
         "         NOP                                                        ibne VI01, VI00, texturedTriangleLoop");
-    string expectedClippedLoopTail = string.Join(Environment.NewLine,
+    string expectedClippedLoopTail = string.Join("\n",
         "         NOP                                                        isubiu VI01, VI01, 0x00000001",
         "         NOP                                                        iaddiu VI05, VI05, 0x00000007",
         "         NOP                                                        ibne VI01, VI00, texturedPretransformedTriangleLoop");
@@ -57,7 +59,7 @@ public void Ps2TexturedVuPrograms_ScheduleTheLoopCounterBeforeItsDependentBranch
 }
 ```
 
-- [ ] **Step 2: Run the new contract and verify RED**
+- [x] **Step 2: Run the new contract and verify RED**
 
 Run:
 
@@ -67,7 +69,7 @@ dotnet test builder.tests\helengine.ps2.builder.tests.csproj --filter "FullyQual
 
 Expected: FAIL because both current programs place `iaddiu VI05` before `isubiu VI01`, leaving the branch immediately dependent on the decrement.
 
-- [ ] **Step 3: Apply the zero-cost instruction reorder**
+- [x] **Step 3: Apply the zero-cost instruction reorder**
 
 Change `Ps2OpaqueTexturedDraw3D.vsm` from:
 
@@ -87,7 +89,7 @@ to:
 
 Apply the same reorder in `Ps2OpaqueTexturedPretransformedDraw3D.vsm`, retaining its branch target `texturedPretransformedTriangleLoop`.
 
-- [ ] **Step 4: Run focused contracts and verify GREEN**
+- [x] **Step 4: Run focused contracts and verify GREEN**
 
 Run:
 
@@ -109,21 +111,21 @@ Expected: all selected tests pass.
 - Consumes: Task 1 microprogram scheduling and isolated scene `test_scene_tilt_trial_level_01_render`.
 - Produces: A fresh B332 ISO plus synchronized HelenUI evidence that two source triangles emit two VU1 triangles.
 
-- [ ] **Step 1: Set B332 markers and isolate the probe scene**
+- [x] **Step 1: Set B332 markers and isolate the probe scene**
 
 Update the diagnostic marker from `B331` to `B332` and its focused source contracts. Temporarily set only the PS2 platform's `selectedSceneIds` and `sceneOrders` to `test_scene_tilt_trial_level_01_render`, preserving every other platform and PS2 option.
 
-- [ ] **Step 2: Build through the deterministic waiter**
+- [x] **Step 2: Build through the deterministic waiter**
 
 Run:
 
 ```powershell
-dotnet run --project C:\dev\helworks\helengine\tools\build-waiter\helengine.buildwaiter.csproj -- --output C:\dev\helworks\builds\helengine-ps2\ps2\B332-vu-loop-counter-scheduling --require game.iso --require disc/SYSTEM.CNF --require disc/HELENGIN.ELF -- powershell -NoProfile -ExecutionPolicy Bypass -File C:\dev\helworks\helengine\scripts\build-platform.ps1 -Project C:\dev\helprojs\demodisc\project.heproj -Platform ps2 -Output C:\dev\helworks\builds\helengine-ps2\ps2\B332-vu-loop-counter-scheduling -Configuration Debug -AdditionalArgs @('--build-profile','ps2-default')
+dotnet run --project C:\dev\helworks\helengine\tools\build-waiter\helengine.buildwaiter.csproj -- --output C:\dev\helworks\builds\helengine-ps2\ps2\B332-vu-loop-counter-scheduling --require game.iso --require disc/SYSTEM.CNF --require disc/HELENGIN.ELF -- powershell -NoProfile -ExecutionPolicy Bypass -File C:\dev\helworks\helengine\scripts\build-platform.ps1 -Project C:\dev\helprojs\demodisc\project.heproj -Platform ps2 -Output C:\dev\helworks\builds\helengine-ps2\ps2\B332-vu-loop-counter-scheduling -Configuration Debug -BuildProfile ps2-default
 ```
 
 Expected: native build, packaged output verification, platform build, and fresh/non-empty waiter checks complete.
 
-- [ ] **Step 3: Restore and verify DemoDisc configuration**
+- [x] **Step 3: Restore and verify DemoDisc configuration**
 
 Restore the full PS2 scene list immediately after packaging, then run:
 
@@ -133,7 +135,7 @@ Restore the full PS2 scene list immediately after packaging, then run:
 
 Expected: `99993AE330D58FACF3819820BC761098C0D8C8705399BA1A5B52B6E8C51B85E7`.
 
-- [ ] **Step 4: Launch the exact B332 artifact**
+- [x] **Step 4: Launch the exact B332 artifact**
 
 Run:
 
@@ -143,18 +145,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\launch_in_emulator.p
 
 Expected: the launcher replaces the prior PCSX2 instance and reports the exact artifact, process ID, and live window.
 
-- [ ] **Step 5: OCR the initial synchronized output**
+- [x] **Step 5: OCR the initial synchronized output**
 
 Capture the PCSX2 window with HelenUI screenshot-cli and analyze it with recognition-cli using the live HWND context. Do not open or inspect the PNG.
 
 Expected: `B332 F2 C0 G0 N2`; A and B form the face and no triangle C is declared.
 
-- [ ] **Step 6: Validate both artifact traversals**
+- [x] **Step 6: Validate both artifact traversals**
 
 Ask Helena to reproduce the outside-triangle traversal, OCR that exact frame, then reproduce the deep-inside traversal and OCR again.
 
 Expected: both positions remain `N2`, no outside or deep-inside extra triangle appears, and draw performance does not regress.
 
-- [ ] **Step 7: Record evidence**
+- [x] **Step 7: Record evidence**
 
 Record artifact hashes, focused test results, configuration restoration hash, initial OCR, traversal OCR, and Helena's visual result in B332 `validation.md` and the existing SDD ledger. Leave the implementation uncommitted until Helena accepts the visual result and requests a commit.

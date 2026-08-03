@@ -17,10 +17,18 @@
 #include "system/io/file-mode.hpp"
 #include "system/io/file-share.hpp"
 #include "system/io/file-stream.hpp"
+#include "runtime/finally.hpp"
 
 namespace helengine::ps2 {
+    namespace {
+        bool DirectFileStreamOpenInProgress = false;
+    }
+
     bool Ps2DiscFileSystem::CanHandlePath(const char* path) {
         if (path == nullptr) {
+            return false;
+        }
+        if (DirectFileStreamOpenInProgress) {
             return false;
         }
 
@@ -65,11 +73,10 @@ namespace helengine::ps2 {
             throw std::runtime_error(std::string("Failed to resolve PS2 cooked runtime path: ") + path);
         }
 
-        if (IsDiscRuntimePath(resolvedPhysicalPath)) {
-            std::vector<uint8_t> fileBytes = ReadDiscFileBytes(resolvedPhysicalPath);
-            return new FileStream(fileBytes.data(), fileBytes.size());
-        }
-
+        DirectFileStreamOpenInProgress = true;
+        [[maybe_unused]] auto directOpenGuard = he_cpp_make_scope_exit([]() {
+            DirectFileStreamOpenInProgress = false;
+        });
         return new FileStream(resolvedPhysicalPath, FileMode::Open, FileAccess::Read, FileShare::Read);
     }
 
@@ -139,54 +146,4 @@ namespace helengine::ps2 {
         return candidatePaths;
     }
 
-    std::vector<uint8_t> Ps2DiscFileSystem::ReadDiscFileBytes(const std::string& path) {
-        const std::vector<std::string> candidatePaths = BuildDiscReadCandidates(path);
-        for (size_t candidateIndex = 0; candidateIndex < candidatePaths.size(); candidateIndex++) {
-            const std::string& candidatePath = candidatePaths[candidateIndex];
-            sceCdlFILE fileInfo {};
-            if (sceCdSearchFile(&fileInfo, candidatePath.c_str()) == 0) {
-                continue;
-            }
-
-            if (fileInfo.size <= 0) {
-                return std::vector<uint8_t>();
-            }
-
-            constexpr size_t SectorSize = 2048;
-            const size_t fileSize = static_cast<size_t>(fileInfo.size);
-            const size_t sectorCount = (fileSize + SectorSize - 1) / SectorSize;
-            const size_t alignedSize = sectorCount * SectorSize;
-            void* sectorBuffer = memalign(64, alignedSize);
-            if (sectorBuffer == nullptr) {
-                throw std::runtime_error(std::string("Failed to allocate disc buffer: ") + candidatePath);
-            }
-            std::memset(sectorBuffer, 0, alignedSize);
-
-            sceCdRMode readMode {};
-            readMode.trycount = 0;
-            readMode.spindlctrl = SCECdSpinNom;
-            readMode.datapattern = SCECdSecS2048;
-            if (sceCdRead(fileInfo.lsn, static_cast<u32>(sectorCount), sectorBuffer, &readMode) == 0) {
-                free(sectorBuffer);
-                throw std::runtime_error(std::string("Failed to read disc file: ") + candidatePath);
-            }
-            sceCdSync(0);
-
-            std::vector<uint8_t> bytes(fileSize);
-            std::memcpy(bytes.data(), sectorBuffer, fileSize);
-            free(sectorBuffer);
-            return bytes;
-        }
-
-        std::string message = std::string("Failed to open file: ") + path + " candidates=";
-        for (size_t candidateIndex = 0; candidateIndex < candidatePaths.size(); candidateIndex++) {
-            if (candidateIndex > 0) {
-                message += ",";
-            }
-
-            message += candidatePaths[candidateIndex];
-        }
-
-        throw std::runtime_error(message);
-    }
 }

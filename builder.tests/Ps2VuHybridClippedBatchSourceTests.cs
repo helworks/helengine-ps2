@@ -5,6 +5,62 @@ namespace helengine.ps2.builder.tests;
 /// </summary>
 public sealed class Ps2VuHybridClippedBatchSourceTests {
     /// <summary>
+    /// Requires every active textured perspective divide to wait for the new Q result before any upper-pipe instruction consumes it.
+    /// </summary>
+    [Fact]
+    public void Ps2TexturedVuPrograms_B328WaitForPerspectiveDivideBeforeConsumingQ() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string fastProgramPath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm");
+        string clippedProgramPath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedPretransformedDraw3D.vsm");
+        string fastProgramSource = File.ReadAllText(fastProgramPath);
+        string clippedProgramSource = File.ReadAllText(clippedProgramPath);
+
+        Assert.Equal(3, fastProgramSource.Split("NOP                                                        waitq", StringSplitOptions.None).Length - 1);
+        Assert.Equal(3, clippedProgramSource.Split("NOP                                                        waitq", StringSplitOptions.None).Length - 1);
+        Assert.DoesNotContain("mulq.xy       VF09, VF09, Q                                waitq", fastProgramSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("mulq.xy       VF09, VF09, Q                                waitq", clippedProgramSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Requires both active textured loops to separate the remaining-count write from its dependent branch with useful pointer work.
+    /// </summary>
+    [Fact]
+    public void Ps2TexturedVuPrograms_ScheduleTheLoopCounterBeforeItsDependentBranch() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string fastProgramSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm"))
+            .Replace("\r\n", "\n", StringComparison.Ordinal);
+        string clippedProgramSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedPretransformedDraw3D.vsm"))
+            .Replace("\r\n", "\n", StringComparison.Ordinal);
+        string expectedFastLoopTail = string.Join("\n",
+            "         NOP                                                        isubiu VI01, VI01, 0x00000001",
+            "         NOP                                                        iaddiu VI05, VI05, 0x00000007",
+            "         NOP                                                        ibne VI01, VI00, texturedTriangleLoop");
+        string expectedClippedLoopTail = string.Join("\n",
+            "         NOP                                                        isubiu VI01, VI01, 0x00000001",
+            "         NOP                                                        iaddiu VI05, VI05, 0x00000007",
+            "         NOP                                                        ibne VI01, VI00, texturedPretransformedTriangleLoop");
+
+        Assert.Contains(expectedFastLoopTail, fastProgramSource, StringComparison.Ordinal);
+        Assert.Contains(expectedClippedLoopTail, clippedProgramSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Requires B327 to bypass TOP/TOPS only in the ordinary fast program while preserving TOP-relative input for clipped generated fans.
+    /// </summary>
+    [Fact]
+    public void Ps2TexturedVuPrograms_B327UsesFixedFastInputAndTopRelativeClippedInput() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string fastProgramPath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedDraw3D.vsm");
+        string clippedProgramPath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "programs", "Ps2OpaqueTexturedPretransformedDraw3D.vsm");
+        string fastProgramSource = File.ReadAllText(fastProgramPath);
+        string clippedProgramSource = File.ReadAllText(clippedProgramPath);
+
+        Assert.Contains("iaddiu VI02, VI00, 0x00000008", fastProgramSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("xtop VI02", fastProgramSource, StringComparison.Ordinal);
+        Assert.Contains("xtop VI02", clippedProgramSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Requires the builder to transform packed local vertices through view and homogeneous clip space before clipping and fan generation.
     /// </summary>
     [Fact]
@@ -63,6 +119,7 @@ public sealed class Ps2VuHybridClippedBatchSourceTests {
         Assert.Contains("iaddiu VI05, VI02, 0x00000015", programSource, StringComparison.Ordinal);
 
         Assert.Contains("iaddiu VI03, VI00, 0x00000100", programSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("iaddiu VI03, VI00, 0x00000300", programSource, StringComparison.Ordinal);
         Assert.Contains("lq VF08, 13(VI02)", programSource, StringComparison.Ordinal);
         Assert.Contains("lq VF08, 20(VI02)", programSource, StringComparison.Ordinal);
         Assert.Contains("sq VF08, 0(VI03)", programSource, StringComparison.Ordinal);
@@ -213,6 +270,42 @@ public sealed class Ps2VuHybridClippedBatchSourceTests {
         Assert.True(emptyFanBranchIndex > generatedCountIndex, "Expected generated accounting before the exact empty-fan classification.");
         Assert.True(rejectedCountIndex > emptyFanBranchIndex, "Expected an empty exact fan to count the source as rejected.");
         Assert.True(clippedCountIndex > rejectedCountIndex, "Expected clipped source accounting only after the empty-fan rejection branch.");
+    }
+
+    /// <summary>
+    /// Requires every textured VU submission to finish its launched microprogram before a following submission can overwrite the shared VU1 input range.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenEmittingConsecutiveTexturedRuns_FlushesAfterEachMicroprogramLaunch() {
+        string repositoryRootPath = GetRepositoryRootPath();
+        string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        int fastRunStartIndex = source.IndexOf("void EmitTexturedFastSourceRun(", StringComparison.Ordinal);
+        int clippedRunStartIndex = source.IndexOf("void EmitTexturedClippedBatch(", fastRunStartIndex, StringComparison.Ordinal);
+        Assert.True(fastRunStartIndex >= 0, "Expected the textured fast-run emitter.");
+        Assert.True(clippedRunStartIndex > fastRunStartIndex, "Expected the clipped emitter after the fast-run emitter.");
+        string fastRunSource = source.Substring(fastRunStartIndex, clippedRunStartIndex - fastRunStartIndex);
+        int fastRunLaunchIndex = fastRunSource.IndexOf("packet2_vif_mscal(packet, TexturedMicroProgramAddress, 0);", StringComparison.Ordinal);
+        int fastRunFlushIndex = fastRunSource.IndexOf("packet2_vif_flush(packet, 0);", StringComparison.Ordinal);
+        Assert.True(fastRunLaunchIndex >= 0, "Expected the fast run to launch its VU1 program.");
+        Assert.True(fastRunFlushIndex > fastRunLaunchIndex, "Expected the fast run to flush after launch so the next UNPACK cannot overwrite live VU1 input.");
+        Assert.Contains(
+            "packet2_vif_mscal(packet, TexturedMicroProgramAddress, 0);\n            packet2_vif_flush(packet, 0);\n            packet2_chain_close_tag(packet);",
+            fastRunSource,
+            StringComparison.Ordinal);
+
+        int clippedRunEndIndex = source.IndexOf("void PopulateUntexturedSharedState(", clippedRunStartIndex, StringComparison.Ordinal);
+        Assert.True(clippedRunEndIndex > clippedRunStartIndex, "Expected the clipped emitter to end before untextured state construction.");
+        string clippedRunSource = source.Substring(clippedRunStartIndex, clippedRunEndIndex - clippedRunStartIndex);
+        int clippedRunLaunchIndex = clippedRunSource.IndexOf("packet2_vif_mscal(packet, TexturedPretransformedMicroProgramAddress, 0);", StringComparison.Ordinal);
+        int clippedRunFlushIndex = clippedRunSource.IndexOf("packet2_vif_flush(packet, 0);", StringComparison.Ordinal);
+        Assert.True(clippedRunLaunchIndex >= 0, "Expected the clipped run to launch its VU1 program.");
+        Assert.True(clippedRunFlushIndex > clippedRunLaunchIndex, "Expected the clipped run to flush after launch so the next UNPACK cannot overwrite live VU1 input.");
+        Assert.Contains(
+            "packet2_vif_mscal(packet, TexturedPretransformedMicroProgramAddress, 0);\n            packet2_vif_flush(packet, 0);\n            packet2_chain_close_tag(packet);",
+            clippedRunSource,
+            StringComparison.Ordinal);
     }
 
     /// <summary>

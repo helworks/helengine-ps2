@@ -412,8 +412,15 @@ public sealed class Ps2NativeBuildInputsTests {
         Assert.Contains("static FileStream* OpenRead(const char* path);", header, StringComparison.Ordinal);
         Assert.Contains("#include \"runtime/runtime_ps2_asset_path_manifest.hpp\"", source, StringComparison.Ordinal);
         Assert.Contains("return path.rfind(\"/cooked/\", 0) == 0;", source, StringComparison.Ordinal);
+        Assert.Contains("if (DirectFileStreamOpenInProgress)", source, StringComparison.Ordinal);
+        Assert.Contains("DirectFileStreamOpenInProgress = true;", source, StringComparison.Ordinal);
         Assert.Contains("const char* physicalPath = he_get_runtime_ps2_asset_physical_path(logicalPath);", source, StringComparison.Ordinal);
         Assert.Contains("return new FileStream(resolvedPhysicalPath, FileMode::Open, FileAccess::Read, FileShare::Read);", source, StringComparison.Ordinal);
+        int openReadIndex = source.IndexOf("FileStream* Ps2DiscFileSystem::OpenRead(const char* path)", StringComparison.Ordinal);
+        int logicalPathIndex = source.IndexOf("bool Ps2DiscFileSystem::IsLogicalCookedPath", StringComparison.Ordinal);
+        Assert.True(openReadIndex >= 0 && logicalPathIndex > openReadIndex, "Expected the PS2 custom filesystem OpenRead implementation.");
+        string openReadMethod = source.Substring(openReadIndex, logicalPathIndex - openReadIndex);
+        Assert.DoesNotContain("ReadDiscFileBytes", openReadMethod, StringComparison.Ordinal);
     }
 
     /// <summary>

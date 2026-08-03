@@ -170,6 +170,47 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
+    /// Ensures immutable cooked textures release their CPU upload buffers after the GS owns the persistent VRAM copy.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenUploadingCookedTextures_ReleasesCpuStagingMemory() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+        int resolveTextureIndex = source.IndexOf("GSTEXTURE* ResolveTexture(GSGLOBAL* gsGlobal, const std::string& textureRelativePath)", StringComparison.Ordinal);
+        Assert.True(resolveTextureIndex >= 0, "Expected the PS2 cooked texture resolver.");
+        string resolveTextureMethod = source.Substring(resolveTextureIndex, Math.Min(5000, source.Length - resolveTextureIndex));
+
+        int uploadIndex = resolveTextureMethod.IndexOf("gsKit_texture_upload(gsGlobal, texture);", StringComparison.Ordinal);
+        int releaseIndex = resolveTextureMethod.IndexOf("ReleaseUploadedTextureStagingMemory(texture);", StringComparison.Ordinal);
+        int cacheIndex = resolveTextureMethod.IndexOf("TextureRecords.emplace(textureRelativePath, texture);", StringComparison.Ordinal);
+        Assert.True(uploadIndex >= 0, "Expected the cooked texture to upload to GS VRAM.");
+        Assert.True(releaseIndex > uploadIndex, "Expected CPU staging memory to release only after the GS upload completes.");
+        Assert.True(cacheIndex > releaseIndex, "Expected the persistent texture record to contain only the uploaded VRAM state.");
+        Assert.Contains("free(texture->Mem);", source, StringComparison.Ordinal);
+        Assert.Contains("texture->Mem = nullptr;", source, StringComparison.Ordinal);
+        Assert.Contains("free(texture->Clut);", source, StringComparison.Ordinal);
+        Assert.Contains("texture->Clut = nullptr;", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures cooked texture records begin with deterministic gsKit state and their temporary file streams are fully destroyed after deserialization.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenLoadingCookedTextures_InitializesTextureStateAndDestroysStreams() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+        int textureBuilderIndex = source.IndexOf("GSTEXTURE* BuildTextureFromAsset(GSGLOBAL* gsGlobal, ::Ps2TextureAsset* data)", StringComparison.Ordinal);
+        Assert.True(textureBuilderIndex >= 0, "Expected the PS2 cooked texture builder helper.");
+        string textureBuilder = source.Substring(textureBuilderIndex, Math.Min(2300, source.Length - textureBuilderIndex));
+        int resolveTextureIndex = source.IndexOf("GSTEXTURE* ResolveTexture(GSGLOBAL* gsGlobal, const std::string& textureRelativePath)", StringComparison.Ordinal);
+        Assert.True(resolveTextureIndex >= 0, "Expected the PS2 cooked texture resolver.");
+        string resolveTextureMethod = source.Substring(resolveTextureIndex, Math.Min(3000, source.Length - resolveTextureIndex));
+
+        Assert.Contains("GSTEXTURE* texture = new GSTEXTURE{};", textureBuilder, StringComparison.Ordinal);
+        Assert.Contains("stream->Dispose();\n                    delete stream;", resolveTextureMethod, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures deferred PS2 3D asset flushes clear cached gsKit textures so later draws cannot retain stale GS VRAM pointers after one global texture-region reset.
     /// </summary>
     [Fact]
@@ -210,6 +251,50 @@ public sealed class Ps2RenderManager3DSourceTests {
         Assert.DoesNotContain("BuildPackedModelSidecarPath(", source, StringComparison.Ordinal);
         Assert.DoesNotContain("::ModelAsset* modelAsset = he_cpp_try_cast<::ModelAsset>(modelAssetBase);", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Ps2PackedModelAsset", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures model payload arrays used only during deserialization are released after the runtime model has copied their contents.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenBuildingRuntimeModels_ReleasesTransientModelPayloadStorage() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("ReleaseDeserializedPs2Asset(modelAssetBase)", source, StringComparison.Ordinal);
+        Assert.Contains("ReleaseOwnedArray(modelAsset->Positions);", source, StringComparison.Ordinal);
+        Assert.Contains("ReleaseOwnedArray(modelAsset->Normals);", source, StringComparison.Ordinal);
+        Assert.Contains("ReleaseOwnedArray(modelAsset->TexCoords);", source, StringComparison.Ordinal);
+        Assert.Contains("ReleaseOwnedArray(modelAsset->Indices16);", source, StringComparison.Ordinal);
+        Assert.Contains("ReleaseOwnedArray(modelAsset->PackedMeshBytes);", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures texture payload arrays are released once the renderer has copied them into its persistent GS texture allocation.
+    /// </summary>
+    [Fact]
+    public void Ps2RenderManager3D_WhenResolvingTextures_ReleasesTransientTexturePayloadStorage() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "Ps2RenderManager3D.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("ReleaseDeserializedPs2Asset(asset)", source, StringComparison.Ordinal);
+        Assert.Contains("array != ::Array<T>::Empty()", source, StringComparison.Ordinal);
+        Assert.Contains("ReleaseOwnedArray(textureAsset->PixelData);", source, StringComparison.Ordinal);
+        Assert.Contains("ReleaseOwnedArray(textureAsset->PaletteData);", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("delete textureAsset->PaletteData;", source, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Ensures textured VU source aggregation streams bounded packets that fit the constrained PS2 runtime heap.
+    /// </summary>
+    [Fact]
+    public void Ps2VuVifPacketBuilder_WhenAggregatingTexturedSources_UsesTheBoundedPacketBudget() {
+        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "rendering", "vu", "Ps2VuVifPacketBuilder.cpp");
+        string source = File.ReadAllText(sourcePath);
+
+        Assert.Contains("constexpr std::uint16_t MaximumTexturedVuSourcePacketQwords = 2048u;", source, StringComparison.Ordinal);
+        Assert.Contains("return (MaximumTexturedVuSourcePacketQwords - MinimumVifPacketOverheadQwords)", source, StringComparison.Ordinal);
+        Assert.Contains("if (maximumPacketQwordCount > MaximumTexturedVuSourcePacketQwords)", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -553,26 +638,27 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
-    /// Ensures the visible PS2 FPS overlay begins with the B324 marker identifying the top-face fast-path probe ISO.
+    /// Ensures the visible PS2 FPS overlay begins with the B332 marker identifying the scheduled VU1 counter-loop probe ISO.
     /// </summary>
     [Fact]
-    public void Ps2BootHost_WhenPublishingFrameTiming_PrefixesTheFpsRowWithBuildNumberB324() {
+    public void Ps2BootHost_WhenPublishingFrameTiming_PrefixesTheFpsRowWithBuildNumberB332() {
         string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
         string source = File.ReadAllText(sourcePath);
 
-        Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B324\";", source, StringComparison.Ordinal);
-        Assert.Contains("std::string(FrameTimingOverlayBuildNumber)\n            + \" \"", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B332\";", source, StringComparison.Ordinal);
+        Assert.Contains("std::string(FrameTimingOverlayBuildNumber)", source, StringComparison.Ordinal);
+        Assert.Contains("+ \" Phy \"", source, StringComparison.Ordinal);
     }
 
     /// <summary>
-    /// Ensures the focused colored-cubes performance build selects its cooked scene at startup.
+    /// Ensures renderer-focused packages use their cooked startup scene instead of a host-side diagnostic override.
     /// </summary>
     [Fact]
-    public void Ps2BootHost_WhenProfilingColoredCubes_UsesTheColoredCubeGridStartupScene() {
+    public void Ps2BootHost_WhenProfilingColoredCubes_UsesTheCookedStartupScene() {
         string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
         string source = File.ReadAllText(sourcePath);
 
-        Assert.Contains("constexpr const char* StartupSceneDiagnosticOverrideId = \"colored_cube_grid\";", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr const char* StartupSceneDiagnosticOverrideId = nullptr;", source, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -1235,7 +1321,7 @@ public sealed class Ps2RenderManager3DSourceTests {
         Assert.Contains("LastRejectedTexturedSourceTriangleCount += VuVifPacketBuilder.GetRejectedTexturedSourceTriangleCount();", source, StringComparison.Ordinal);
         Assert.Contains("LastGeneratedClippedTexturedTriangleCount += VuVifPacketBuilder.GetGeneratedClippedTexturedTriangleCount();", source, StringComparison.Ordinal);
         Assert.Contains("LastClippedTexturedBatchCount += VuVifPacketBuilder.GetClippedTexturedBatchCount();", source, StringComparison.Ordinal);
-        Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B324\";", bootHost, StringComparison.Ordinal);
+        Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B332\";", bootHost, StringComparison.Ordinal);
         Assert.Contains("std::string(\"F \")", bootHost, StringComparison.Ordinal);
         Assert.Contains("+ \" C \"", bootHost, StringComparison.Ordinal);
         Assert.Contains("+ \" R \"", bootHost, StringComparison.Ordinal);

@@ -91,6 +91,34 @@ namespace helengine::ps2 {
             return std::string("cdrom0:\\") + normalizedPath;
         }
 
+        template<typename T>
+        void ReleaseOwnedArray(::Array<T>* array) {
+            if (array != nullptr && array != ::Array<T>::Empty()) {
+                delete array;
+            }
+        }
+
+        void ReleaseDeserializedPs2Asset(::Asset* asset) {
+            if (asset == nullptr) {
+                return;
+            }
+
+            ::Ps2ModelAsset* modelAsset = he_cpp_try_cast<::Ps2ModelAsset>(asset);
+            ::Ps2TextureAsset* textureAsset = he_cpp_try_cast<::Ps2TextureAsset>(asset);
+            if (modelAsset != nullptr) {
+                ReleaseOwnedArray(modelAsset->Positions);
+                ReleaseOwnedArray(modelAsset->Normals);
+                ReleaseOwnedArray(modelAsset->TexCoords);
+                ReleaseOwnedArray(modelAsset->Indices16);
+                ReleaseOwnedArray(modelAsset->PackedMeshBytes);
+            } else if (textureAsset != nullptr) {
+                ReleaseOwnedArray(textureAsset->PixelData);
+                ReleaseOwnedArray(textureAsset->PaletteData);
+            }
+
+            delete asset;
+        }
+
         void AppendDiagnosticToHostBootLog(const std::string& message) {
             const char* candidatePaths[] = {
                 "host:ps2_bootlog.txt",
@@ -145,6 +173,18 @@ namespace helengine::ps2 {
         constexpr std::size_t MaximumBoundedTexturedAggregateSourceTriangleCount = 2048u;
         constexpr std::size_t MaximumBoundedUntexturedAggregateSourceTriangleCount = 64u;
         constexpr std::uint32_t TexturedVuSubmitDiagnosticLogLimit = 16u;
+        constexpr bool EnableTexturedVuOutputReadbackDiagnostics = true;
+        constexpr std::uintptr_t Vu1DataMemoryBaseAddress = 0x1100C000u;
+        constexpr std::uintptr_t Vif1StatusRegisterAddress = 0x10003C00u;
+        constexpr std::uint32_t Vif1ExecutionStatusMask = 0xFu;
+        constexpr std::size_t TexturedVuOutputGifTagQwordAddress = 0x107u;
+        constexpr std::size_t TexturedVuOutputTriangleStartQwordAddress = 0x108u;
+        constexpr std::size_t TexturedVuOutputTriangleQwordCount = 9u;
+        constexpr std::size_t TexturedVuOutputVertex0XyzQwordOffset = 2u;
+        constexpr std::size_t TexturedVuOutputVertex1XyzQwordOffset = 5u;
+        constexpr std::size_t TexturedVuOutputVertex2XyzQwordOffset = 8u;
+        constexpr float GsFixedPointScale = 16.0f;
+        constexpr float GsScreenCoordinateBias = 2048.0f;
         constexpr float VuDirectGifDiagnosticTriangleAX = 211.843231f;
         constexpr float VuDirectGifDiagnosticTriangleAY = 332.156738f;
         constexpr float VuDirectGifDiagnosticTriangleBX = 211.843231f;
@@ -256,7 +296,7 @@ namespace helengine::ps2 {
             return batchIndex;
         }
 
-        void ReleaseTextureRecord(GSTEXTURE* texture) {
+        void ReleaseUploadedTextureStagingMemory(GSTEXTURE* texture) {
             if (texture == nullptr) {
                 return;
             }
@@ -270,6 +310,81 @@ namespace helengine::ps2 {
                 free(texture->Mem);
                 texture->Mem = nullptr;
             }
+        }
+
+        void AppendTextureHeapDiagnosticToHostBootLog(const char* stage, const std::string& path) {
+            const struct mallinfo heapInfo = mallinfo();
+            const char* candidatePaths[] = {
+                "host:ps2_bootlog.txt",
+                "host0:ps2_bootlog.txt"
+            };
+
+            for (const char* candidatePath : candidatePaths) {
+                FILE* file = std::fopen(candidatePath, "a");
+                if (file == nullptr) {
+                    continue;
+                }
+
+                std::fprintf(
+                    file,
+                    "[helengine-ps2] texture heap stage=%s arena=%ld used=%ld free=%ld keep=%ld path=%s\n",
+                    stage,
+                    heapInfo.arena,
+                    heapInfo.uordblks,
+                    heapInfo.fordblks,
+                    heapInfo.keepcost,
+                    path.c_str());
+                std::fclose(file);
+                return;
+            }
+        }
+
+        void AppendTextureAssetDiagnosticToHostBootLog(
+            const char* stage,
+            const std::string& path,
+            const ::Ps2TextureAsset* asset,
+            const GSTEXTURE* texture,
+            const GSGLOBAL* gsGlobal) {
+            const char* candidatePaths[] = {
+                "host:ps2_bootlog.txt",
+                "host0:ps2_bootlog.txt"
+            };
+            const int pixelBytes = asset != nullptr && asset->PixelData != nullptr ? asset->PixelData->Length : 0;
+            const int paletteBytes = asset != nullptr && asset->PaletteData != nullptr ? asset->PaletteData->Length : 0;
+
+            for (const char* candidatePath : candidatePaths) {
+                FILE* file = std::fopen(candidatePath, "a");
+                if (file == nullptr) {
+                    continue;
+                }
+
+                std::fprintf(
+                    file,
+                    "[helengine-ps2] texture asset stage=%s width=%d height=%d pixelBytes=%d paletteBytes=%d pixelPsm=%d clutPsm=%d vramCurrent=%u vramTextureBase=%u texture=%p textureVram=%u textureClutVram=%u path=%s\n",
+                    stage,
+                    asset != nullptr ? asset->Width : 0,
+                    asset != nullptr ? asset->Height : 0,
+                    pixelBytes,
+                    paletteBytes,
+                    asset != nullptr ? static_cast<int>(asset->PixelStorageMode) : -1,
+                    asset != nullptr ? static_cast<int>(asset->ClutPixelStorageMode) : -1,
+                    gsGlobal != nullptr ? gsGlobal->CurrentPointer : 0u,
+                    gsGlobal != nullptr ? gsGlobal->TexturePointer : 0u,
+                    static_cast<const void*>(texture),
+                    texture != nullptr ? texture->Vram : 0u,
+                    texture != nullptr ? texture->VramClut : 0u,
+                    path.c_str());
+                std::fclose(file);
+                return;
+            }
+        }
+
+        void ReleaseTextureRecord(GSTEXTURE* texture) {
+            if (texture == nullptr) {
+                return;
+            }
+
+            ReleaseUploadedTextureStagingMemory(texture);
 
             texture->Vram = 0;
             texture->VramClut = 0;
@@ -677,7 +792,7 @@ namespace helengine::ps2 {
                 return nullptr;
             }
 
-            GSTEXTURE* texture = new GSTEXTURE();
+            GSTEXTURE* texture = new GSTEXTURE{};
             texture->Width = data->Width;
             texture->Height = data->Height;
             texture->PSM = ResolveGsPixelStorageMode(data->PixelStorageMode);
@@ -745,6 +860,7 @@ namespace helengine::ps2 {
             }
 
             const std::string resolvedTexturePath = ResolvePs2CookedAssetOpenPath(textureRelativePath);
+            AppendTextureHeapDiagnosticToHostBootLog("before-open", textureRelativePath);
             ::FileStream* stream = nullptr;
             try {
                 stream = ::File::OpenRead(resolvedTexturePath);
@@ -757,19 +873,30 @@ namespace helengine::ps2 {
                     + "' inner="
                     + exception.what());
             }
+            AppendTextureHeapDiagnosticToHostBootLog("after-open", textureRelativePath);
             [[maybe_unused]] auto streamGuard = he_cpp_make_scope_exit([stream]() {
                 if (stream != nullptr) {
                     stream->Dispose();
+                    delete stream;
                 }
             });
             ::Asset* asset = ::Ps2AssetSerializer::Deserialize(stream);
+            AppendTextureHeapDiagnosticToHostBootLog("after-deserialize", textureRelativePath);
+            [[maybe_unused]] auto assetGuard = he_cpp_make_scope_exit([asset]() {
+                ReleaseDeserializedPs2Asset(asset);
+            });
             ::Ps2TextureAsset* textureAsset = he_cpp_try_cast<::Ps2TextureAsset>(asset);
+            AppendTextureAssetDiagnosticToHostBootLog("before-build", textureRelativePath, textureAsset, nullptr, gsGlobal);
             GSTEXTURE* texture = BuildTextureFromAsset(gsGlobal, textureAsset);
+            AppendTextureAssetDiagnosticToHostBootLog("after-build", textureRelativePath, textureAsset, texture, gsGlobal);
+            AppendTextureHeapDiagnosticToHostBootLog("after-build", textureRelativePath);
             if (texture == nullptr) {
                 return nullptr;
             }
 
             gsKit_texture_upload(gsGlobal, texture);
+            ReleaseUploadedTextureStagingMemory(texture);
+            AppendTextureHeapDiagnosticToHostBootLog("after-upload-release", textureRelativePath);
             TextureRecords.emplace(textureRelativePath, texture);
             return texture;
         }
@@ -897,6 +1024,16 @@ namespace helengine::ps2 {
           LastRejectedTexturedSourceTriangleCount(0),
           LastGeneratedClippedTexturedTriangleCount(0),
           LastClippedTexturedBatchCount(0),
+          LastVuOutputTriangleCount(0),
+          LastVuOutputTriangleVertexA0(),
+          LastVuOutputTriangleVertexA1(),
+          LastVuOutputTriangleVertexA2(),
+          LastVuOutputTriangleVertexB0(),
+          LastVuOutputTriangleVertexB1(),
+          LastVuOutputTriangleVertexB2(),
+          LastVuOutputTriangleVertexC0(),
+          LastVuOutputTriangleVertexC1(),
+          LastVuOutputTriangleVertexC2(),
           LastVuBatchDispatchCount(0),
           LastVuTriangleVertexCount(0),
           LastVuPacketByteCount(0),
@@ -985,6 +1122,9 @@ namespace helengine::ps2 {
             }
         });
         ::Asset* asset = ::Ps2AssetSerializer::Deserialize(stream);
+        [[maybe_unused]] auto assetGuard = he_cpp_make_scope_exit([asset]() {
+            ReleaseDeserializedPs2Asset(asset);
+        });
         ::Ps2MaterialAsset* cookedMaterialAsset = he_cpp_try_cast<::Ps2MaterialAsset>(asset);
         if (cookedMaterialAsset == nullptr) {
             throw std::invalid_argument("PS2 cooked material payload did not deserialize as Ps2MaterialAsset.");
@@ -1018,6 +1158,9 @@ namespace helengine::ps2 {
             }
         });
         ::Asset* modelAssetBase = ::Ps2AssetSerializer::Deserialize(modelStream);
+        [[maybe_unused]] auto modelAssetGuard = he_cpp_make_scope_exit([modelAssetBase]() {
+            ReleaseDeserializedPs2Asset(modelAssetBase);
+        });
         ::Ps2ModelAsset* modelAsset = he_cpp_try_cast<::Ps2ModelAsset>(modelAssetBase);
         if (modelAsset == nullptr) {
             throw std::invalid_argument("PS2 cooked model payload did not deserialize as Ps2ModelAsset.");
@@ -1114,6 +1257,16 @@ namespace helengine::ps2 {
         LastRejectedTexturedSourceTriangleCount = 0;
         LastGeneratedClippedTexturedTriangleCount = 0;
         LastClippedTexturedBatchCount = 0;
+        LastVuOutputTriangleCount = 0;
+        LastVuOutputTriangleVertexA0 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastVuOutputTriangleVertexA1 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastVuOutputTriangleVertexA2 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastVuOutputTriangleVertexB0 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastVuOutputTriangleVertexB1 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastVuOutputTriangleVertexB2 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastVuOutputTriangleVertexC0 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastVuOutputTriangleVertexC1 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
+        LastVuOutputTriangleVertexC2 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         LastVuBatchDispatchCount = 0;
         LastVuTriangleVertexCount = 0;
         LastVuPacketByteCount = 0;
@@ -1774,6 +1927,11 @@ namespace helengine::ps2 {
                 LastPerformanceMetrics.VifSubmitMilliseconds += ResolveMillisecondsFromClockTicks(vuSubmitStartTicks, vuSubmitEndTicks);
                 LastVuBatchDispatchCount += 1u;
                 LastPerformanceMetrics.VifPacketCount += 1u;
+                if (EnableTexturedVuOutputReadbackDiagnostics) {
+                    dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+                    WaitForTexturedVuOutputDiagnostic();
+                    CaptureTexturedVuOutputDiagnostic();
+                }
                 ActiveVuPacketSlotIndex = (ActiveVuPacketSlotIndex + 1u) % 2u;
                 firstTexturedVuBatchIndex = nextTexturedVuBatchIndex;
             }
@@ -2080,6 +2238,63 @@ namespace helengine::ps2 {
         return LastSubmittedTriangleCount;
     }
 
+    void Ps2RenderManager3D::CaptureTexturedVuOutputDiagnostic() {
+        const volatile std::uint32_t* outputTagWords = reinterpret_cast<const volatile std::uint32_t*>(
+            Vu1DataMemoryBaseAddress + (TexturedVuOutputGifTagQwordAddress * 16u));
+        const std::size_t emittedVertexCount = static_cast<std::size_t>(outputTagWords[0] & 0x7FFFu);
+        LastVuOutputTriangleCount = emittedVertexCount / 3u;
+        if (LastVuOutputTriangleCount >= 1u) {
+            LastVuOutputTriangleVertexA0 = ReadTexturedVuOutputDiagnosticVertex(
+                TexturedVuOutputTriangleStartQwordAddress + TexturedVuOutputVertex0XyzQwordOffset);
+            LastVuOutputTriangleVertexA1 = ReadTexturedVuOutputDiagnosticVertex(
+                TexturedVuOutputTriangleStartQwordAddress + TexturedVuOutputVertex1XyzQwordOffset);
+            LastVuOutputTriangleVertexA2 = ReadTexturedVuOutputDiagnosticVertex(
+                TexturedVuOutputTriangleStartQwordAddress + TexturedVuOutputVertex2XyzQwordOffset);
+        }
+        if (LastVuOutputTriangleCount >= 2u) {
+            const std::size_t triangleBStartQwordAddress = TexturedVuOutputTriangleStartQwordAddress
+                + TexturedVuOutputTriangleQwordCount;
+            LastVuOutputTriangleVertexB0 = ReadTexturedVuOutputDiagnosticVertex(
+                triangleBStartQwordAddress + TexturedVuOutputVertex0XyzQwordOffset);
+            LastVuOutputTriangleVertexB1 = ReadTexturedVuOutputDiagnosticVertex(
+                triangleBStartQwordAddress + TexturedVuOutputVertex1XyzQwordOffset);
+            LastVuOutputTriangleVertexB2 = ReadTexturedVuOutputDiagnosticVertex(
+                triangleBStartQwordAddress + TexturedVuOutputVertex2XyzQwordOffset);
+        }
+        if (LastVuOutputTriangleCount >= 3u) {
+            const std::size_t triangleCStartQwordAddress = TexturedVuOutputTriangleStartQwordAddress
+                + (2u * TexturedVuOutputTriangleQwordCount);
+            LastVuOutputTriangleVertexC0 = ReadTexturedVuOutputDiagnosticVertex(
+                triangleCStartQwordAddress + TexturedVuOutputVertex0XyzQwordOffset);
+            LastVuOutputTriangleVertexC1 = ReadTexturedVuOutputDiagnosticVertex(
+                triangleCStartQwordAddress + TexturedVuOutputVertex1XyzQwordOffset);
+            LastVuOutputTriangleVertexC2 = ReadTexturedVuOutputDiagnosticVertex(
+                triangleCStartQwordAddress + TexturedVuOutputVertex2XyzQwordOffset);
+        }
+    }
+
+    void Ps2RenderManager3D::WaitForTexturedVuOutputDiagnostic() {
+        const volatile std::uint32_t* vif1Status = reinterpret_cast<const volatile std::uint32_t*>(
+            Vif1StatusRegisterAddress);
+        while ((*vif1Status & Vif1ExecutionStatusMask) != 0u) {
+            __asm__ volatile("nop");
+        }
+    }
+
+    ::float4 Ps2RenderManager3D::ReadTexturedVuOutputDiagnosticVertex(std::size_t qwordAddress) const {
+        const volatile std::uint32_t* vertexWords = reinterpret_cast<const volatile std::uint32_t*>(
+            Vu1DataMemoryBaseAddress + (qwordAddress * 16u));
+        const std::int32_t fixedX = static_cast<std::int32_t>(vertexWords[0]);
+        const std::int32_t fixedY = static_cast<std::int32_t>(vertexWords[1]);
+        const std::int32_t depth = static_cast<std::int32_t>(vertexWords[2]);
+        const std::int32_t adc = static_cast<std::int32_t>(vertexWords[3]);
+        return ::float4(
+            (static_cast<float>(fixedX) / GsFixedPointScale) - GsScreenCoordinateBias,
+            (static_cast<float>(fixedY) / GsFixedPointScale) - GsScreenCoordinateBias,
+            static_cast<float>(depth),
+            static_cast<float>(adc));
+    }
+
     std::size_t Ps2RenderManager3D::GetLastTexturedSubmittedTriangleCount() const {
         return 0u;
     }
@@ -2118,6 +2333,46 @@ namespace helengine::ps2 {
 
     std::size_t Ps2RenderManager3D::GetLastClippedTexturedBatchCount() const {
         return LastClippedTexturedBatchCount;
+    }
+
+    std::size_t Ps2RenderManager3D::GetLastVuOutputTriangleCount() const {
+        return LastVuOutputTriangleCount;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastVuOutputTriangleVertexA0() const {
+        return LastVuOutputTriangleVertexA0;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastVuOutputTriangleVertexA1() const {
+        return LastVuOutputTriangleVertexA1;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastVuOutputTriangleVertexA2() const {
+        return LastVuOutputTriangleVertexA2;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastVuOutputTriangleVertexB0() const {
+        return LastVuOutputTriangleVertexB0;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastVuOutputTriangleVertexB1() const {
+        return LastVuOutputTriangleVertexB1;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastVuOutputTriangleVertexB2() const {
+        return LastVuOutputTriangleVertexB2;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastVuOutputTriangleVertexC0() const {
+        return LastVuOutputTriangleVertexC0;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastVuOutputTriangleVertexC1() const {
+        return LastVuOutputTriangleVertexC1;
+    }
+
+    ::float4 Ps2RenderManager3D::GetLastVuOutputTriangleVertexC2() const {
+        return LastVuOutputTriangleVertexC2;
     }
 
     std::size_t Ps2RenderManager3D::GetLastVuBatchDispatchCount() const {

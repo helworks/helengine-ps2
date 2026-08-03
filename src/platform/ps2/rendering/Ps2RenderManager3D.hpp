@@ -83,6 +83,46 @@ namespace helengine::ps2 {
         /// Returns the frame's emitted pretransformed clipped VU1 batch count.
         /// </summary>
         std::size_t GetLastClippedTexturedBatchCount() const;
+        /// <summary>
+        /// Returns the number of complete triangles encoded in the most recently captured VU1 textured output packet.
+        /// </summary>
+        std::size_t GetLastVuOutputTriangleCount() const;
+        /// <summary>
+        /// Returns the first captured triangle's first GS-space XYZ vertex, with X and Y converted back to screen pixels.
+        /// </summary>
+        ::float4 GetLastVuOutputTriangleVertexA0() const;
+        /// <summary>
+        /// Returns the first captured triangle's second GS-space XYZ vertex, with X and Y converted back to screen pixels.
+        /// </summary>
+        ::float4 GetLastVuOutputTriangleVertexA1() const;
+        /// <summary>
+        /// Returns the first captured triangle's third GS-space XYZ vertex, with X and Y converted back to screen pixels.
+        /// </summary>
+        ::float4 GetLastVuOutputTriangleVertexA2() const;
+        /// <summary>
+        /// Returns the second captured triangle's first GS-space XYZ vertex, with X and Y converted back to screen pixels.
+        /// </summary>
+        ::float4 GetLastVuOutputTriangleVertexB0() const;
+        /// <summary>
+        /// Returns the second captured triangle's second GS-space XYZ vertex, with X and Y converted back to screen pixels.
+        /// </summary>
+        ::float4 GetLastVuOutputTriangleVertexB1() const;
+        /// <summary>
+        /// Returns the second captured triangle's third GS-space XYZ vertex, with X and Y converted back to screen pixels.
+        /// </summary>
+        ::float4 GetLastVuOutputTriangleVertexB2() const;
+        /// <summary>
+        /// Returns the third captured triangle's first GS-space XYZ vertex, with X and Y converted back to screen pixels.
+        /// </summary>
+        ::float4 GetLastVuOutputTriangleVertexC0() const;
+        /// <summary>
+        /// Returns the third captured triangle's second GS-space XYZ vertex, with X and Y converted back to screen pixels.
+        /// </summary>
+        ::float4 GetLastVuOutputTriangleVertexC1() const;
+        /// <summary>
+        /// Returns the third captured triangle's third GS-space XYZ vertex, with X and Y converted back to screen pixels.
+        /// </summary>
+        ::float4 GetLastVuOutputTriangleVertexC2() const;
         std::size_t GetLastVuBatchDispatchCount() const;
         std::size_t GetLastVuTriangleVertexCount() const;
         std::size_t GetLastVuPacketByteCount() const;
@@ -123,6 +163,20 @@ namespace helengine::ps2 {
         ::RuntimeMaterial* BuildMaterialFromCooked(::Ps2MaterialAsset* materialAsset);
         void RenderOpaqueWithVuPath(const Ps2FramePlan& plan, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance);
         void PublishPerformanceOverlayMetrics() const;
+        /// <summary>
+        /// Captures the bounded first two triangles from the completed textured VU1 GIF output packet for probe diagnostics.
+        /// </summary>
+        void CaptureTexturedVuOutputDiagnostic();
+        /// <summary>
+        /// Waits until VIF1 has consumed its post-MSCAL FLUSH command and VU1 is no longer executing before EE readback.
+        /// </summary>
+        void WaitForTexturedVuOutputDiagnostic();
+        /// <summary>
+        /// Reads one packed GS XYZ qword from VU1 data memory and converts its fixed-point X and Y values to screen pixels.
+        /// </summary>
+        /// <param name="qwordAddress">VU1 data-memory qword containing the packed XYZ value.</param>
+        /// <returns>The decoded X, Y, Z, and ADC words.</returns>
+        ::float4 ReadTexturedVuOutputDiagnosticVertex(std::size_t qwordAddress) const;
         void ReleaseVuPacketSlot(std::size_t slotIndex);
         void WaitForVif1BeforePacketReuse();
         ::float4x4 BuildWorldMatrix(const Ps2RenderProxy& proxy) const;
@@ -219,6 +273,46 @@ namespace helengine::ps2 {
         /// Accumulates emitted pretransformed clipped batches for the current frame.
         /// </summary>
         std::size_t LastClippedTexturedBatchCount;
+        /// <summary>
+        /// Stores the triangle count decoded from the latest completed textured VU1 GIF tag.
+        /// </summary>
+        std::size_t LastVuOutputTriangleCount;
+        /// <summary>
+        /// Stores the first decoded screen-space vertex of captured VU1 output triangle A.
+        /// </summary>
+        ::float4 LastVuOutputTriangleVertexA0;
+        /// <summary>
+        /// Stores the second decoded screen-space vertex of captured VU1 output triangle A.
+        /// </summary>
+        ::float4 LastVuOutputTriangleVertexA1;
+        /// <summary>
+        /// Stores the third decoded screen-space vertex of captured VU1 output triangle A.
+        /// </summary>
+        ::float4 LastVuOutputTriangleVertexA2;
+        /// <summary>
+        /// Stores the first decoded screen-space vertex of captured VU1 output triangle B.
+        /// </summary>
+        ::float4 LastVuOutputTriangleVertexB0;
+        /// <summary>
+        /// Stores the second decoded screen-space vertex of captured VU1 output triangle B.
+        /// </summary>
+        ::float4 LastVuOutputTriangleVertexB1;
+        /// <summary>
+        /// Stores the third decoded screen-space vertex of captured VU1 output triangle B.
+        /// </summary>
+        ::float4 LastVuOutputTriangleVertexB2;
+        /// <summary>
+        /// Stores the first decoded screen-space vertex of captured VU1 output triangle C.
+        /// </summary>
+        ::float4 LastVuOutputTriangleVertexC0;
+        /// <summary>
+        /// Stores the second decoded screen-space vertex of captured VU1 output triangle C.
+        /// </summary>
+        ::float4 LastVuOutputTriangleVertexC1;
+        /// <summary>
+        /// Stores the third decoded screen-space vertex of captured VU1 output triangle C.
+        /// </summary>
+        ::float4 LastVuOutputTriangleVertexC2;
         std::size_t LastVuBatchDispatchCount;
         std::size_t LastVuTriangleVertexCount;
         std::size_t LastVuPacketByteCount;

@@ -53,6 +53,7 @@
 #define HE_PS2_HAS_SCENE_LOAD_TIMING_DIAGNOSTICS_INTERFACE 0
 #endif
 #include "IRuntimeSceneTransitionDiagnosticsProvider.hpp"
+#include "IRuntimeUpdateStageDiagnosticsProvider.hpp"
 #include "IRoundedRectDrawable2D.hpp"
 #include "ISpriteDrawable2D.hpp"
 #include "ITextDrawable2D.hpp"
@@ -159,12 +160,13 @@ namespace {
     constexpr const char* CubeRuntimeDiagnosticSceneId = "textured_cube_grid";
     constexpr bool EnableVerboseEntityDisposalDiagnostics = false;
     constexpr bool EnableFrameTimingDiagnostics = true;
+    constexpr bool EnableVuOutputReadbackOverlayDiagnostics = true;
     constexpr bool EnableFrameTimingDiagnosticHalt = false;
     constexpr bool EnableFirstUpdateStateHalt = false;
     constexpr bool EnablePackagedPhysics3DRegistration = true;
     constexpr bool EnablePhysicsWarmupTrace = true;
     constexpr UpdatePhaseDiagnosticMode ActiveUpdatePhaseDiagnosticMode = UpdatePhaseDiagnosticMode::Full;
-    constexpr const char* StartupSceneDiagnosticOverrideId = "test_scene_tilt_trial_level_01_render";
+    constexpr const char* StartupSceneDiagnosticOverrideId = nullptr;
     constexpr bool EnableStartupSceneLoadTimingDiagnostic = true;
     constexpr bool EnableStartupScenePreRenderHalt = false;
     constexpr bool EnableFrameBoundaryHeartbeatDiagnostics = false;
@@ -191,7 +193,7 @@ namespace {
     constexpr float CubeTriangle2dVertexB2X = 428.156738f;
     constexpr float CubeTriangle2dVertexB2Y = 115.843239f;
     constexpr float CubeTriangle3dDiagnosticDepth = 1.0f;
-        constexpr const char* FrameTimingOverlayBuildNumber = "B324";
+        constexpr const char* FrameTimingOverlayBuildNumber = "B332";
     bool DebugConsoleReady = false;
     bool CubeDiagnosticsShown = false;
     bool CubeRuntimeDiagnosticsCompleted = false;
@@ -333,6 +335,7 @@ namespace {
         : public ::IRuntimeDiagnosticsProvider
         , public ::IRuntimeSceneTransitionDiagnosticsProvider
         , public ::IRuntimeEntityDisposalDiagnosticsProvider
+        , public ::IRuntimeUpdateStageDiagnosticsProvider
 #if HE_PS2_HAS_SCENE_LOAD_TIMING_DIAGNOSTICS_INTERFACE
         , public ::IRuntimeSceneLoadTimingDiagnosticsProvider
 #endif
@@ -403,6 +406,12 @@ namespace {
             }
             LastSceneStage = stage;
             LastSceneStageTicks = nowTicks;
+        }
+
+        void ReportUpdateStage(std::string stage) override {
+            if (String::StartsWith(stage, "Ownership:", StringComparison::Ordinal)) {
+                BootLog(stage);
+            }
         }
 
 #if HE_PS2_HAS_SCENE_LOAD_TIMING_DIAGNOSTICS_INTERFACE
@@ -681,6 +690,28 @@ namespace {
         return std::string(buffer);
     }
 
+    /// <summary>
+    /// Formats one captured VU1 output triangle as compact integer screen coordinates suitable for HelenUI OCR.
+    /// </summary>
+    /// <param name="label">Short triangle label placed at the beginning of the row.</param>
+    /// <param name="vertex0">First decoded VU1 output vertex.</param>
+    /// <param name="vertex1">Second decoded VU1 output vertex.</param>
+    /// <param name="vertex2">Third decoded VU1 output vertex.</param>
+    /// <returns>A compact row containing all three X/Y coordinate pairs.</returns>
+    std::string FormatVuOutputTriangle(
+        const char* label,
+        const ::float4& vertex0,
+        const ::float4& vertex1,
+        const ::float4& vertex2) {
+        return std::string(label)
+            + " " + std::to_string(static_cast<int>(vertex0.X))
+            + "," + std::to_string(static_cast<int>(vertex0.Y))
+            + " " + std::to_string(static_cast<int>(vertex1.X))
+            + "," + std::to_string(static_cast<int>(vertex1.Y))
+            + " " + std::to_string(static_cast<int>(vertex2.X))
+            + "," + std::to_string(static_cast<int>(vertex2.Y));
+    }
+
     void ApplyPlatformPerformanceOverlayRows(::Core* engineCore) {
         if (engineCore == nullptr) {
             return;
@@ -882,53 +913,86 @@ namespace {
             + " fps="
             + std::to_string(averageFramesPerSecond));
         const double averageFrameMilliseconds = averageFramesPerSecond <= 0.0 ? 0.0 : 1000.0 / averageFramesPerSecond;
-        FrameTimingOverlayLine1 =
-            std::string(FrameTimingOverlayBuildNumber)
-            + " Phy "
-            + FormatOverlayMilliseconds(averagePhysicsMilliseconds)
-            + " 3D "
-            + FormatOverlayMilliseconds(averageDraw3dMilliseconds)
-            + " 2D "
-            + FormatOverlayMilliseconds(averageDraw2dMilliseconds)
-            + " Set "
-            + FormatOverlayMilliseconds(averageSetMilliseconds)
-            + " Sync "
-            + FormatOverlayMilliseconds(averageProxySyncMilliseconds);
-        FrameTimingOverlayLine2 =
-            std::string("State ")
-            + FormatOverlayMilliseconds(averageTexturedVuStateBuildMilliseconds)
-            + " Cmd "
-            + FormatOverlayMilliseconds(averageTexturedVuCommandEncodeMilliseconds)
-            + " Setup "
-            + FormatOverlayMilliseconds(averageVuTriangleSetupMilliseconds)
-            + " Enc "
-            + FormatOverlayMilliseconds(averageVuPacketEncodeMilliseconds)
-            + " Prep "
-            + FormatOverlayMilliseconds(averageVuTrianglePrepMilliseconds);
-        FrameTimingOverlayDetailLine =
-            std::string("Emit ")
-            + FormatOverlayMilliseconds(averageVuTriangleEmitMilliseconds)
-            + " Lit "
-            + FormatOverlayMilliseconds(averageVuTriangleLightingMilliseconds)
-            + " Pay "
-            + FormatOverlayMilliseconds(averageVuTrianglePayloadFillMilliseconds)
-            + " Asm "
-            + FormatOverlayMilliseconds(averageVuPacketAssemblyMilliseconds)
-            + " Vif "
-            + FormatOverlayMilliseconds(averageVuWaitMilliseconds)
-            + " Sub "
-            + FormatOverlayMilliseconds(averageVuSubmitMilliseconds);
-        FrameTimingOverlayAdditionalText =
-            std::string("F ")
-            + std::to_string(static_cast<int>(averageFastTexturedSourceTriangleCount))
-            + " C "
-            + std::to_string(static_cast<int>(averageClippedTexturedSourceTriangleCount))
-            + " R "
-            + std::to_string(static_cast<int>(averageRejectedTexturedSourceTriangleCount))
-            + " G "
-            + std::to_string(static_cast<int>(averageGeneratedClippedTexturedTriangleCount))
-            + " CB "
-            + std::to_string(static_cast<int>(averageClippedTexturedBatchCount));
+        if (EnableVuOutputReadbackOverlayDiagnostics) {
+            const ::float4 vuTriangleVertexA0 = renderManager3DBackend.GetLastVuOutputTriangleVertexA0();
+            const ::float4 vuTriangleVertexA1 = renderManager3DBackend.GetLastVuOutputTriangleVertexA1();
+            const ::float4 vuTriangleVertexA2 = renderManager3DBackend.GetLastVuOutputTriangleVertexA2();
+            const ::float4 vuTriangleVertexB0 = renderManager3DBackend.GetLastVuOutputTriangleVertexB0();
+            const ::float4 vuTriangleVertexB1 = renderManager3DBackend.GetLastVuOutputTriangleVertexB1();
+            const ::float4 vuTriangleVertexB2 = renderManager3DBackend.GetLastVuOutputTriangleVertexB2();
+            const ::float4 vuTriangleVertexC0 = renderManager3DBackend.GetLastVuOutputTriangleVertexC0();
+            const ::float4 vuTriangleVertexC1 = renderManager3DBackend.GetLastVuOutputTriangleVertexC1();
+            const ::float4 vuTriangleVertexC2 = renderManager3DBackend.GetLastVuOutputTriangleVertexC2();
+            FrameTimingOverlayLine1 =
+                std::string(FrameTimingOverlayBuildNumber)
+                + " F" + std::to_string(static_cast<int>(averageFastTexturedSourceTriangleCount))
+                + " C" + std::to_string(static_cast<int>(averageClippedTexturedSourceTriangleCount))
+                + " G" + std::to_string(static_cast<int>(averageGeneratedClippedTexturedTriangleCount))
+                + " N" + std::to_string(renderManager3DBackend.GetLastVuOutputTriangleCount());
+            FrameTimingOverlayLine2 = FormatVuOutputTriangle(
+                "A",
+                vuTriangleVertexA0,
+                vuTriangleVertexA1,
+                vuTriangleVertexA2);
+            FrameTimingOverlayDetailLine = FormatVuOutputTriangle(
+                "B",
+                vuTriangleVertexB0,
+                vuTriangleVertexB1,
+                vuTriangleVertexB2);
+            FrameTimingOverlayAdditionalText = FormatVuOutputTriangle(
+                "C",
+                vuTriangleVertexC0,
+                vuTriangleVertexC1,
+                vuTriangleVertexC2);
+        } else {
+            FrameTimingOverlayLine1 =
+                std::string(FrameTimingOverlayBuildNumber)
+                + " Phy "
+                + FormatOverlayMilliseconds(averagePhysicsMilliseconds)
+                + " 3D "
+                + FormatOverlayMilliseconds(averageDraw3dMilliseconds)
+                + " 2D "
+                + FormatOverlayMilliseconds(averageDraw2dMilliseconds)
+                + " Set "
+                + FormatOverlayMilliseconds(averageSetMilliseconds)
+                + " Sync "
+                + FormatOverlayMilliseconds(averageProxySyncMilliseconds);
+            FrameTimingOverlayLine2 =
+                std::string("State ")
+                + FormatOverlayMilliseconds(averageTexturedVuStateBuildMilliseconds)
+                + " Cmd "
+                + FormatOverlayMilliseconds(averageTexturedVuCommandEncodeMilliseconds)
+                + " Setup "
+                + FormatOverlayMilliseconds(averageVuTriangleSetupMilliseconds)
+                + " Enc "
+                + FormatOverlayMilliseconds(averageVuPacketEncodeMilliseconds)
+                + " Prep "
+                + FormatOverlayMilliseconds(averageVuTrianglePrepMilliseconds);
+            FrameTimingOverlayDetailLine =
+                std::string("Emit ")
+                + FormatOverlayMilliseconds(averageVuTriangleEmitMilliseconds)
+                + " Lit "
+                + FormatOverlayMilliseconds(averageVuTriangleLightingMilliseconds)
+                + " Pay "
+                + FormatOverlayMilliseconds(averageVuTrianglePayloadFillMilliseconds)
+                + " Asm "
+                + FormatOverlayMilliseconds(averageVuPacketAssemblyMilliseconds)
+                + " Vif "
+                + FormatOverlayMilliseconds(averageVuWaitMilliseconds)
+                + " Sub "
+                + FormatOverlayMilliseconds(averageVuSubmitMilliseconds);
+            FrameTimingOverlayAdditionalText =
+                std::string("F ")
+                + std::to_string(static_cast<int>(averageFastTexturedSourceTriangleCount))
+                + " C "
+                + std::to_string(static_cast<int>(averageClippedTexturedSourceTriangleCount))
+                + " R "
+                + std::to_string(static_cast<int>(averageRejectedTexturedSourceTriangleCount))
+                + " G "
+                + std::to_string(static_cast<int>(averageGeneratedClippedTexturedTriangleCount))
+                + " CB "
+                + std::to_string(static_cast<int>(averageClippedTexturedBatchCount));
+        }
         FrameTimingOverlayPending = true;
         FrameTimingOverlayPresented = false;
         FrameTimingSampleCompleted = true;
@@ -2050,7 +2114,9 @@ namespace {
             const std::clock_t totalStartTicks = std::clock();
             ::Array<uint8_t>* bufferedBytes = nullptr;
             [[maybe_unused]] auto bufferedBytesGuard = he_cpp_make_scope_exit([&bufferedBytes]() {
+                BootLog("render2d build cooked texture buffered bytes cleanup begin");
                 delete bufferedBytes;
+                BootLog("render2d build cooked texture buffered bytes cleanup end");
             });
             std::clock_t deserializeStartTicks = 0;
             if (IsPs2DiscRuntimePath(resolvedCookedAssetPath)) {
@@ -2118,14 +2184,18 @@ namespace {
             }
             ::MemoryStream* bufferedStream = new ::MemoryStream(bufferedBytes, false);
             [[maybe_unused]] auto bufferedStreamGuard = he_cpp_make_scope_exit([bufferedStream]() {
+                BootLog("render2d build cooked texture buffered stream cleanup begin");
                 if (bufferedStream != nullptr) {
                     bufferedStream->Dispose();
                     delete bufferedStream;
                 }
+                BootLog("render2d build cooked texture buffered stream cleanup end");
             });
             ::Ps2TextureAsset* textureAsset = DeserializePs2TextureAsset(bufferedStream);
             [[maybe_unused]] auto textureAssetGuard = he_cpp_make_scope_exit([textureAsset]() {
+                BootLog("render2d build cooked texture asset cleanup begin");
                 ReleasePs2TextureAsset(textureAsset);
+                BootLog("render2d build cooked texture asset cleanup end");
             });
             const std::clock_t deserializeEndTicks = std::clock();
             CookedTextureDeserializeMilliseconds += ResolveMillisecondsFromClockTicks(deserializeStartTicks, deserializeEndTicks);

@@ -8,7 +8,7 @@
 		.global	Ps2OpaqueTexturedDraw3D_CodeEnd
 Ps2OpaqueTexturedDraw3D_CodeStart:
 __ps2_opaque_textured_draw_3d:
-         NOP                                                        xtop VI02
+         NOP                                                        iaddiu VI02, VI00, 0x00000008
          NOP                                                        lq VF01, 0(VI02)
          NOP                                                        lq VF02, 1(VI02)
          NOP                                                        lq VF03, 2(VI02)
@@ -83,7 +83,8 @@ texturedTriangleLoop:
          NOP                                                        NOP
          NOP                                                        NOP
          NOP                                                        div           Q, VF00w, VF08w
-         mulq.xy       VF09, VF09, Q                                waitq
+         NOP                                                        waitq
+         mulq.xy       VF09, VF09, Q                                NOP
          addq.z        VF09, VF00, Q                                NOP
          mulq.xyz      VF08, VF08, Q                                NOP
          add.xy        VF18, VF08, VF00                              NOP
@@ -111,7 +112,8 @@ texturedTriangleLoop:
          NOP                                                        NOP
          NOP                                                        NOP
          NOP                                                        div           Q, VF00w, VF08w
-         mulq.xy       VF09, VF09, Q                                waitq
+         NOP                                                        waitq
+         mulq.xy       VF09, VF09, Q                                NOP
          addq.z        VF09, VF00, Q                                NOP
          mulq.xyz      VF08, VF08, Q                                NOP
          add.xy        VF19, VF08, VF00                              NOP
@@ -139,7 +141,8 @@ texturedTriangleLoop:
          NOP                                                        NOP
          NOP                                                        NOP
          NOP                                                        div           Q, VF00w, VF08w
-         mulq.xy       VF09, VF09, Q                                waitq
+         NOP                                                        waitq
+         mulq.xy       VF09, VF09, Q                                NOP
          addq.z        VF09, VF00, Q                                NOP
          mulq.xyz      VF08, VF08, Q                                NOP
          add.xy        VF20, VF08, VF00                              NOP
@@ -186,8 +189,8 @@ texturedTriangleAccepted:
          NOP                                                        iaddiu VI03, VI03, 0x00000009
          NOP                                                        iaddiu VI06, VI06, 0x00000001
 texturedTriangleLoopTail:
-         NOP                                                        iaddiu VI05, VI05, 0x00000007
          NOP                                                        isubiu VI01, VI01, 0x00000001
+         NOP                                                        iaddiu VI05, VI05, 0x00000007
          NOP                                                        ibne VI01, VI00, texturedTriangleLoop
          NOP                                                        NOP
          NOP                                                        iadd VI07, VI06, VI06

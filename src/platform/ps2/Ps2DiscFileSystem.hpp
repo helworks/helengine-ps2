@@ -18,6 +18,5 @@ namespace helengine::ps2 {
         static bool IsDiscRuntimePath(const std::string& path);
         static std::string ResolvePhysicalPath(const char* logicalPath);
         static std::vector<std::string> BuildDiscReadCandidates(const std::string& path);
-        static std::vector<uint8_t> ReadDiscFileBytes(const std::string& path);
     };
 }

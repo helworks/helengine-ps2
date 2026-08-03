@@ -16,15 +16,15 @@ namespace helengine.ps2.builder.tests {
         }
 
         /// <summary>
-        /// Ensures the visible B324 runtime marker identifies the package that probes only the top textured face.
+        /// Ensures the visible B332 runtime marker identifies the scheduled VU1 counter-loop diagnostic package.
         /// </summary>
         [Fact]
-        public void Ps2BootHost_WhenRemovingTheDiagnosticOverride_UsesBuildMarkerB324() {
+        public void Ps2BootHost_WhenCapturingVuOutput_UsesBuildMarkerB332() {
             string repositoryRootPath = GetRepositoryRootPath();
             string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2BootHost.cpp");
             string source = File.ReadAllText(sourcePath);
 
-            Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B324\";", source, StringComparison.Ordinal);
+            Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B332\";", source, StringComparison.Ordinal);
         }
 
         /// <summary>

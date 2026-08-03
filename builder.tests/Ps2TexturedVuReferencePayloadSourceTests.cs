@@ -15,7 +15,7 @@ public sealed class Ps2TexturedVuReferencePayloadSourceTests {
 
         Assert.Contains("constexpr std::uint32_t XtopGifPacketAddress = 0;", source);
         Assert.Contains("packet2_utils_vu_open_unpack(packet, XtopGifPacketAddress, 1);", source);
-        Assert.Contains("constexpr bool UseCachedTexturedVuSourceReferences = true;", source);
+        Assert.Contains("constexpr bool UseCachedTexturedVuSourceReferences = false;", source);
         Assert.Contains("packet2_utils_vu_add_unpack_data(", source);
         Assert.Contains("EmitTexturedFastSourceRun(", source);
         Assert.Contains("BeginReferencedPacket", packetCacheHeader);
@@ -29,6 +29,19 @@ public sealed class Ps2TexturedVuReferencePayloadSourceTests {
         Assert.DoesNotContain("std::vector<Ps2VuTexturedSourceTriangle> sourceTriangles", source);
         Assert.DoesNotContain("VuDoubleBufferBaseAddress", source);
         Assert.DoesNotContain("MaximumPrimedTexturedVuSourceSliceCount", source);
+    }
+
+    /// <summary>
+    /// Requires B327 to copy the fast-path shared state and source records into one fixed VU1 input range without TOP-relative addressing.
+    /// </summary>
+    [Fact]
+    public void TexturedVuPath_B327DiagnosticUsesCopiedFixedAddressFastSourcePayloads() {
+        string source = File.ReadAllText("../../../../src/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp");
+
+        Assert.Contains("constexpr bool UseCachedTexturedVuSourceReferences = false;", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr std::uint32_t DiagnosticFixedTexturedInputAddress = 8u;", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_utils_vu_open_unpack(packet, DiagnosticFixedTexturedInputAddress, 0);", source, StringComparison.Ordinal);
+        Assert.Contains("packet2_utils_vu_open_unpack(packet, DiagnosticFixedTexturedInputAddress + TexturedVuSharedStateQwordCount, 0);", source, StringComparison.Ordinal);
     }
 
     /// <summary>

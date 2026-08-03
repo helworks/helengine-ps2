@@ -34,6 +34,7 @@
 namespace helengine::ps2 {
     namespace {
         constexpr std::uint32_t XtopGifPacketAddress = 0;
+        constexpr std::uint32_t DiagnosticFixedTexturedInputAddress = 8u;
         constexpr std::uint32_t MinimumVifPacketOverheadQwords = 32;
         constexpr std::uint16_t MaximumOpaqueUntexturedPacketQwords = 4096u;
         constexpr std::uint16_t MaximumOpaqueUntexturedDirectGifQwords = 0xFFFFu;
@@ -64,7 +65,7 @@ namespace helengine::ps2 {
         constexpr std::size_t DirectGifOpaqueTriangleVertexWordCount = 6u;
         constexpr std::size_t TexturedTrianglePacketWordCount = 22u;
         constexpr std::size_t TexturedTrianglePacketByteCount = TexturedTrianglePacketWordCount * sizeof(std::uint64_t);
-        constexpr bool UseCachedTexturedVuSourceReferences = true;
+        constexpr bool UseCachedTexturedVuSourceReferences = false;
         constexpr std::size_t UntexturedTriangleSourceQwordCount = 3u;
         constexpr std::size_t UntexturedTriangleGifPacketQwordOffset = UntexturedTriangleSourceQwordCount;
         constexpr std::size_t UntexturedTriangleRecordQwordCount = UntexturedTriangleGifPacketQwordOffset + TriangleGifPacketTemplateQwordCount;
@@ -348,26 +349,26 @@ namespace helengine::ps2 {
                 0,
                 GIF_FLG_PACKED,
                 3);
-            packet2_utils_vu_open_unpack(packet, XtopGifPacketAddress, 1);
+            packet2_utils_vu_open_unpack(packet, DiagnosticFixedTexturedInputAddress, 0);
             std::memcpy(packet->next, &sharedState, sizeof(sharedState));
             packet2_advance_next(packet, sizeof(sharedState));
             packet2_utils_vu_close_unpack(packet);
             if (useReferencedSource) {
                 packet2_utils_vu_add_unpack_data(
                     packet,
-                    XtopGifPacketAddress + TexturedVuSharedStateQwordCount,
+                    DiagnosticFixedTexturedInputAddress + TexturedVuSharedStateQwordCount,
                     const_cast<Ps2VuTexturedPackedTriangleSource*>(sourceTriangles),
                     static_cast<std::uint32_t>(sourceQwordCount),
-                    1);
+                    0);
             } else {
-                packet2_utils_vu_open_unpack(packet, XtopGifPacketAddress + TexturedVuSharedStateQwordCount, 1);
+                packet2_utils_vu_open_unpack(packet, DiagnosticFixedTexturedInputAddress + TexturedVuSharedStateQwordCount, 0);
                 std::memcpy(packet->next, sourceTriangles, sourceByteCount);
                 packet2_advance_next(packet, sourceByteCount);
                 packet2_utils_vu_close_unpack(packet);
             }
             packet2_chain_open_cnt(packet, 0, 0, 0);
-            packet2_vif_flush(packet, 0);
             packet2_vif_mscal(packet, TexturedMicroProgramAddress, 0);
+            packet2_vif_flush(packet, 0);
             packet2_chain_close_tag(packet);
         }
 
@@ -410,8 +411,8 @@ namespace helengine::ps2 {
             packet2_advance_next(packet, clippedByteCount);
             packet2_utils_vu_close_unpack(packet);
             packet2_chain_open_cnt(packet, 0, 0, 0);
-            packet2_vif_flush(packet, 0);
             packet2_vif_mscal(packet, TexturedPretransformedMicroProgramAddress, 0);
+            packet2_vif_flush(packet, 0);
             packet2_chain_close_tag(packet);
         }
 
