@@ -19,12 +19,12 @@ namespace helengine.ps2.builder.tests {
         /// Ensures the visible runtime marker identifies the current package that removes the diagnostic scene override.
         /// </summary>
         [Fact]
-    public void Ps2BootHost_WhenRemovingTheDiagnosticOverride_UsesBuildMarkerB135() {
+    public void Ps2BootHost_WhenRemovingTheDiagnosticOverride_UsesBuildMarkerB323() {
             string repositoryRootPath = GetRepositoryRootPath();
             string sourcePath = Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2BootHost.cpp");
             string source = File.ReadAllText(sourcePath);
 
-            Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B135\";", source, StringComparison.Ordinal);
+            Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B323\";", source, StringComparison.Ordinal);
         }
 
         /// <summary>

@@ -553,14 +553,14 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
-/// Ensures the visible PS2 FPS overlay begins with the manually incremented B120 build number used to distinguish stale ISO images.
+/// Ensures the visible PS2 FPS overlay begins with the manually incremented B323 build number used to distinguish stale ISO images.
     /// </summary>
     [Fact]
-public void Ps2BootHost_WhenPublishingFrameTiming_PrefixesTheFpsRowWithBuildNumberB120() {
+public void Ps2BootHost_WhenPublishingFrameTiming_PrefixesTheFpsRowWithBuildNumberB323() {
         string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
         string source = File.ReadAllText(sourcePath);
 
-        Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B321\";", source, StringComparison.Ordinal);
+        Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B323\";", source, StringComparison.Ordinal);
         Assert.Contains("std::string(FrameTimingOverlayBuildNumber)\n            + \" \"", source, StringComparison.Ordinal);
     }
 
@@ -1235,7 +1235,7 @@ public void Ps2BootHost_WhenPublishingFrameTiming_PrefixesTheFpsRowWithBuildNumb
         Assert.Contains("LastRejectedTexturedSourceTriangleCount += VuVifPacketBuilder.GetRejectedTexturedSourceTriangleCount();", source, StringComparison.Ordinal);
         Assert.Contains("LastGeneratedClippedTexturedTriangleCount += VuVifPacketBuilder.GetGeneratedClippedTexturedTriangleCount();", source, StringComparison.Ordinal);
         Assert.Contains("LastClippedTexturedBatchCount += VuVifPacketBuilder.GetClippedTexturedBatchCount();", source, StringComparison.Ordinal);
-        Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B321\";", bootHost, StringComparison.Ordinal);
+        Assert.Contains("constexpr const char* FrameTimingOverlayBuildNumber = \"B323\";", bootHost, StringComparison.Ordinal);
         Assert.Contains("std::string(\"F \")", bootHost, StringComparison.Ordinal);
         Assert.Contains("+ \" C \"", bootHost, StringComparison.Ordinal);
         Assert.Contains("+ \" R \"", bootHost, StringComparison.Ordinal);
