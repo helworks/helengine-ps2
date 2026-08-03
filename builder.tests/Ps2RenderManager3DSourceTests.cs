@@ -553,10 +553,10 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
-/// Ensures the visible PS2 FPS overlay begins with the B324 marker identifying the top-face fast-path probe ISO.
+    /// Ensures the visible PS2 FPS overlay begins with the B324 marker identifying the top-face fast-path probe ISO.
     /// </summary>
     [Fact]
-public void Ps2BootHost_WhenPublishingFrameTiming_PrefixesTheFpsRowWithBuildNumberB324() {
+    public void Ps2BootHost_WhenPublishingFrameTiming_PrefixesTheFpsRowWithBuildNumberB324() {
         string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
         string source = File.ReadAllText(sourcePath);
 
