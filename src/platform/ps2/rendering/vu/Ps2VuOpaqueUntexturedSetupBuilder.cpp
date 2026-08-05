@@ -133,10 +133,10 @@ namespace helengine::ps2 {
             triangleSetup.LightDirection[2] = normalizedLightDirection.Z;
             triangleSetup.GsScale[0] = viewport.Z * 0.5f;
             triangleSetup.GsScale[1] = viewport.W * -0.5f;
-            triangleSetup.GsScale[2] = -4194304.0f;
+            triangleSetup.GsScale[2] = -65535.0f;
             triangleSetup.GsOffset[0] = 2048.0f + viewport.X + (viewport.Z * 0.5f);
             triangleSetup.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
-            triangleSetup.GsOffset[2] = 4194304.0f;
+            triangleSetup.GsOffset[2] = 65535.0f;
         }
     }
 
@@ -220,11 +220,11 @@ namespace helengine::ps2 {
 
             float worldViewProjectionMatrixWords[16];
             float lightDirectionWords[4] = { normalizedLightDirection.X, normalizedLightDirection.Y, normalizedLightDirection.Z, 0.0f };
-            float gsScaleWords[4] = { viewport.Z * 0.5f, viewport.W * -0.5f, -4194304.0f, 0.0f };
+            float gsScaleWords[4] = { viewport.Z * 0.5f, viewport.W * -0.5f, -65535.0f, 0.0f };
             float gsOffsetWords[4] = {
                 2048.0f + viewport.X + (viewport.Z * 0.5f),
                 2048.0f + viewport.Y + (viewport.W * 0.5f),
-                4194304.0f,
+                65535.0f,
                 0.0f
             };
             CopyMatrix(worldViewProjectionMatrix, worldViewProjectionMatrixWords);

@@ -39,10 +39,15 @@ namespace helengine::ps2 {
     constexpr std::size_t TexturedVuClippedTriangleSourceQwordCount = 7u;
 
     /// <summary>
-    /// Limits pretransformed clipped input records to the qwords below the textured GIF output region.
+    /// Identifies the first VU1 data-memory qword the VIF double-buffer base points textured input uploads at.
+    /// </summary>
+    constexpr std::size_t TexturedVuInputBaseQword = 8u;
+
+    /// <summary>
+    /// Limits pretransformed clipped input records to the qwords between the input base and the textured GIF output region.
     /// </summary>
     constexpr std::size_t TexturedVuClippedInputTriangleCapacity =
-        (TexturedVuOutputStartQword - TexturedVuSharedStateQwordCount)
+        (TexturedVuOutputStartQword - TexturedVuInputBaseQword - TexturedVuSharedStateQwordCount)
         / TexturedVuClippedTriangleSourceQwordCount;
 
     /// <summary>
@@ -60,9 +65,26 @@ namespace helengine::ps2 {
             ? TexturedVuClippedInputTriangleCapacity
             : TexturedVuClippedOutputTriangleCapacity;
 
-    static_assert(TexturedVuClippedTriangleCapacity == 33u);
-    static_assert(TexturedVuSharedStateQwordCount
+    /// <summary>
+    /// Counts the qwords one complete textured GIF output buffer occupies: the copied GIF state plus every expanded triangle.
+    /// </summary>
+    constexpr std::size_t TexturedVuOutputBufferQwordStride = TexturedVuGifStateQwordCount
+        + (TexturedVuClippedTriangleCapacity * TexturedVuOutputQwordsPerTriangle);
+
+    /// <summary>
+    /// Identifies the first qword of the second textured GIF output buffer so consecutive dispatches never overwrite an in-flight XGKICK transfer.
+    /// </summary>
+    constexpr std::size_t TexturedVuSecondOutputStartQword = TexturedVuOutputStartQword + TexturedVuOutputBufferQwordStride;
+
+    static_assert(TexturedVuClippedTriangleCapacity == 32u);
+    static_assert(TexturedVuSecondOutputStartQword + TexturedVuOutputBufferQwordStride <= TexturedVuDataMemoryQwordCount);
+    static_assert(TexturedVuInputBaseQword
+        + TexturedVuSharedStateQwordCount
         + (TexturedVuClippedTriangleCapacity * TexturedVuClippedTriangleSourceQwordCount)
+        <= TexturedVuOutputStartQword);
+    static_assert(TexturedVuInputBaseQword
+        + TexturedVuSharedStateQwordCount
+        + (TexturedVuSourceTriangleCapacity * TexturedVuClippedTriangleSourceQwordCount)
         <= TexturedVuOutputStartQword);
     static_assert(TexturedVuOutputStartQword + TexturedVuGifStateQwordCount
         + (TexturedVuClippedTriangleCapacity * TexturedVuOutputQwordsPerTriangle)

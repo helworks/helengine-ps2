@@ -14,11 +14,11 @@ __ps2_opaque_textured_pretransformed_draw_3d:
          NOP                                                        lq VF07, 6(VI02)
          NOP                                                        ilw.x VI01, 7(VI02)
          NOP                                                        ilw.y VI08, 7(VI02)
+         NOP                                                        ilw.z VI03, 7(VI02)
          NOP                                                        lq VF11, 8(VI02)
          NOP                                                        lq VF12, 9(VI02)
          NOP                                                        lq VF13, 10(VI02)
          NOP                                                        lq VF14, 12(VI02)
-         NOP                                                        iaddiu VI03, VI00, 0x00000100
          NOP                                                        iaddiu VI04, VI03, 0x00000000
          NOP                                                        iaddiu VI05, VI02, 0x00000015
          NOP                                                        iaddiu VI06, VI00, 0x00000000

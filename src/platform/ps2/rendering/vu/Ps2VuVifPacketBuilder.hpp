@@ -93,6 +93,14 @@ namespace helengine::ps2 {
         /// Returns the number of pretransformed clipped batches emitted in the current packet.
         /// </summary>
         std::size_t GetClippedTexturedBatchCount() const;
+        /// <summary>
+        /// Returns the triangle count of the most recently emitted pretransformed clipped batch in the current packet.
+        /// </summary>
+        std::size_t GetLastEmittedClippedBatchTriangleCount() const;
+        /// <summary>
+        /// Returns the VU1 output buffer start qword used by the most recently emitted textured dispatch in the current packet.
+        /// </summary>
+        std::uint32_t GetLastDispatchedTexturedOutputStartQword() const;
         std::size_t GetSubmittedTriangleCount() const;
         ::float4 GetSubmittedScreenBounds() const;
         ::float4 GetSubmittedTriangleBoundsA() const;
@@ -105,6 +113,11 @@ namespace helengine::ps2 {
         ::float4 GetSubmittedTriangleVertexB2() const;
 
     private:
+        /// <summary>
+        /// Returns the next alternating VU1 GIF output buffer start qword and records it for diagnostics readback.
+        /// </summary>
+        std::uint32_t AcquireNextTexturedOutputStartQword();
+
         packet2_t* Packet = nullptr;
         std::vector<std::uint8_t> GifPacketBytes;
         std::vector<std::uint64_t> DirectGifPacketWords;
@@ -138,6 +151,18 @@ namespace helengine::ps2 {
         /// Counts pretransformed clipped batch submissions emitted in the current packet.
         /// </summary>
         std::size_t ClippedTexturedBatchCount = 0u;
+        /// <summary>
+        /// Triangle count of the most recently emitted pretransformed clipped batch in the current packet.
+        /// </summary>
+        std::size_t LastEmittedClippedBatchTriangleCount = 0u;
+        /// <summary>
+        /// Alternates textured dispatches between the two VU1 GIF output buffers so a new dispatch never overwrites the previous dispatch's in-flight XGKICK data.
+        /// </summary>
+        bool UseSecondTexturedOutputBuffer = false;
+        /// <summary>
+        /// Holds the VU1 output buffer start qword used by the most recently emitted textured dispatch in the current packet.
+        /// </summary>
+        std::uint32_t LastDispatchedTexturedOutputStartQwordValue = 0u;
         std::size_t SubmittedTriangleCount = 0;
         ::float4 SubmittedScreenBounds = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
         ::float4 SubmittedTriangleBoundsA = ::float4(0.0f, 0.0f, 0.0f, 0.0f);

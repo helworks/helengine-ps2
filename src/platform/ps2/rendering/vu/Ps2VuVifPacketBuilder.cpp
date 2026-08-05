@@ -74,6 +74,18 @@ namespace helengine::ps2 {
             | (static_cast<std::uint64_t>(GIF_REG_XYZ2) << 4u);
         constexpr std::uint32_t TexturedVuDiagnosticLogLimit = 16u;
         constexpr bool EnableTexturedWhiteColorDiagnostics = false;
+        // Temporary depth-clip-probe diagnostic: drops every clipped-route submission so the screen
+        // shows holes where clipped geometry would draw, isolating whether clipped triangles are
+        // the ones stomping other meshes' pixels.
+        constexpr bool DisableClippedTexturedSubmissionForDiagnosis = false;
+        // Temporary depth-clip-probe diagnostic: renders green-dominant materials' clipped-route
+        // triangles magenta so contested pixels reveal whether the occluded mesh's clipped geometry
+        // is actually rasterized there and losing depth, or never drawn at all.
+        constexpr bool EnableClippedRouteMagentaDiagnostics = false;
+        // Temporary depth-clip-probe diagnostic: routes every fast-classified triangle through the
+        // clipped path so far-away views (known-correct under the fast route) reveal whether the
+        // clipped route breaks depth behavior even for trivial unclipped geometry.
+        constexpr bool ForceClippedTexturedRouteForDiagnosis = false;
         constexpr double CpuLightingScale = 124.15;
         constexpr double CpuLightingBias = 64.0;
         constexpr float DirectionalLightDiffuseIntensity = 0.65f;
@@ -328,7 +340,8 @@ namespace helengine::ps2 {
             const Ps2VuTexturedSharedState& cachedSharedState,
             const Ps2VuTexturedPackedTriangleSource* sourceTriangles,
             std::size_t sourceTriangleCount,
-            bool useReferencedSource) {
+            bool useReferencedSource,
+            std::uint32_t outputStartQword) {
             if (packet == nullptr || sourceTriangles == nullptr || sourceTriangleCount == 0u) {
                 throw std::invalid_argument("PS2 textured fast VU submission requires an aligned non-empty source run.");
             }
@@ -342,6 +355,7 @@ namespace helengine::ps2 {
 
             Ps2VuTexturedSharedState sharedState = cachedSharedState;
             sharedState.TriangleCount[0] = static_cast<std::uint32_t>(sourceTriangleCount);
+            sharedState.TriangleCount[2] = outputStartQword;
             sharedState.StateTemplate[7].Low = GIF_SET_TAG(
                 static_cast<std::uint32_t>(sourceTriangleCount * 3u),
                 1,
@@ -381,7 +395,8 @@ namespace helengine::ps2 {
         void EmitTexturedClippedBatch(
             packet2_t* packet,
             const Ps2VuTexturedSharedState& cachedSharedState,
-            const Ps2VuClippedTexturedBatch& clippedBatch) {
+            const Ps2VuClippedTexturedBatch& clippedBatch,
+            std::uint32_t outputStartQword) {
             const std::size_t generatedTriangleCount = clippedBatch.GetTriangleCount();
             const Ps2VuClippedTexturedTriangleSource* clippedTriangles = clippedBatch.GetTriangles();
             if (packet == nullptr || clippedTriangles == nullptr || generatedTriangleCount == 0u) {
@@ -395,6 +410,14 @@ namespace helengine::ps2 {
 
             Ps2VuTexturedSharedState sharedState = cachedSharedState;
             sharedState.TriangleCount[0] = static_cast<std::uint32_t>(generatedTriangleCount);
+            sharedState.TriangleCount[2] = outputStartQword;
+            if (EnableClippedRouteMagentaDiagnostics
+                && cachedSharedState.MaterialLighting[1] > cachedSharedState.MaterialLighting[2]) {
+                sharedState.MaterialLighting[0] = 1.0f;
+                sharedState.MaterialLighting[1] = 0.0f;
+                sharedState.MaterialLighting[2] = 1.0f;
+                sharedState.MaterialLighting[3] = 0.0f;
+            }
             sharedState.StateTemplate[7].Low = GIF_SET_TAG(
                 static_cast<std::uint32_t>(generatedTriangleCount * 3u),
                 1,
@@ -423,11 +446,11 @@ namespace helengine::ps2 {
             CopyMatrixWords(worldViewProjection, sharedState.WorldViewProjectionMatrix);
             sharedState.GsScale[0] = viewport.Z * 0.5f;
             sharedState.GsScale[1] = viewport.W * -0.5f;
-            sharedState.GsScale[2] = -4194304.0f;
+            sharedState.GsScale[2] = -65535.0f;
             sharedState.GsScale[3] = 0.0f;
             sharedState.GsOffset[0] = 2048.0f + viewport.X + (viewport.Z * 0.5f);
             sharedState.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
-            sharedState.GsOffset[2] = 4194304.0f;
+            sharedState.GsOffset[2] = 65535.0f;
             sharedState.GsOffset[3] = 0.0f;
         }
 
@@ -2325,6 +2348,9 @@ namespace helengine::ps2 {
                     batchSlice.FirstSourceTriangle,
                     batchSlice.SourceTriangleCount),
                 cachedWorldViewProjections[batchOffset]);
+            if (ForceClippedTexturedRouteForDiagnosis && outerRoutes[batchOffset] == Ps2VuNearPlaneRoute::Fast) {
+                outerRoutes[batchOffset] = Ps2VuNearPlaneRoute::Clipped;
+            }
             hasClippedOuterRoute = hasClippedOuterRoute || outerRoutes[batchOffset] == Ps2VuNearPlaneRoute::Clipped;
             if (useCachedSourceReference && outerRoutes[batchOffset] != Ps2VuNearPlaneRoute::Rejected) {
                 referencedPacketTriangleCapacity += batches[firstBatchIndex + batchOffset].SourceTriangleCount;
@@ -2390,11 +2416,11 @@ namespace helengine::ps2 {
                 CopyMatrixWords(cachedWorldViewProjections[batchOffset], cachedSharedState.WorldViewProjectionMatrix);
                 cachedSharedState.GsScale[0] = viewport.Z * 0.5f;
                 cachedSharedState.GsScale[1] = viewport.W * -0.5f;
-                cachedSharedState.GsScale[2] = -4194304.0f;
+                cachedSharedState.GsScale[2] = -65535.0f;
                 cachedSharedState.GsScale[3] = 0.0f;
                 cachedSharedState.GsOffset[0] = 2048.0f + viewport.X + (viewport.Z * 0.5f);
                 cachedSharedState.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
-                cachedSharedState.GsOffset[2] = 4194304.0f;
+                cachedSharedState.GsOffset[2] = 65535.0f;
                 cachedSharedState.GsOffset[3] = 0.0f;
                 Ps2VuLightingConstants lightingConstants {};
                 PopulateLightingConstants(*batch->Material, lightingConstants);
@@ -2403,6 +2429,7 @@ namespace helengine::ps2 {
                 cachedSharedState.MaterialLighting[2] = static_cast<float>(lightingConstants.BaseColorB) / 255.0f;
                 cachedSharedState.MaterialLighting[3] = static_cast<float>(lightingConstants.DiffuseScale) * DirectionalLightDiffuseIntensity;
                 cachedSharedState.TriangleCount[1] = batch->Material->GetDoubleSided() ? 1u : 0u;
+                cachedSharedState.TriangleCount[2] = static_cast<std::uint32_t>(TexturedVuOutputStartQword);
                 CopyMatrixWords(worlds[batchIndex], cachedSharedState.WorldNormalMatrix);
                 cachedSharedState.WorldLightDirection[0] = normalizedLightDirection.X;
                 cachedSharedState.WorldLightDirection[1] = normalizedLightDirection.Y;
@@ -2444,7 +2471,8 @@ namespace helengine::ps2 {
                     cachedSharedState,
                     outerSourceTriangles,
                     batchSlice.SourceTriangleCount,
-                    useCachedSourceReference);
+                    useCachedSourceReference,
+                    AcquireNextTexturedOutputStartQword());
                 if (EnableTexturedVuPerSliceTimingDiagnostics) {
                     LastTrianglePayloadFillMilliseconds += ResolveMillisecondsFromClockTicks(sourcePayloadFillStartTicks, std::clock());
                 }
@@ -2463,9 +2491,12 @@ namespace helengine::ps2 {
                 sourceTriangleOffset < batchSlice.SourceTriangleCount;
                 sourceTriangleOffset++) {
                 const Ps2VuTexturedPackedTriangleSource* sourceTriangle = outerSourceTriangles + sourceTriangleOffset;
-                const Ps2VuNearPlaneRoute sourceTriangleRoute = Ps2VuNearPlaneSliceClassifier::Classify(
+                Ps2VuNearPlaneRoute sourceTriangleRoute = Ps2VuNearPlaneSliceClassifier::Classify(
                     batch->Model->GetTexturedSourceTriangleBounds(firstSourceTriangle + sourceTriangleOffset),
                     cachedWorldViewProjections[batchOffset]);
+                if (ForceClippedTexturedRouteForDiagnosis && sourceTriangleRoute == Ps2VuNearPlaneRoute::Fast) {
+                    sourceTriangleRoute = Ps2VuNearPlaneRoute::Clipped;
+                }
                 if (sourceTriangleRoute == Ps2VuNearPlaneRoute::Fast) {
                     if (pendingFastSourceTriangleCount == 0u) {
                         pendingFastSourceTriangles = sourceTriangle;
@@ -2480,7 +2511,8 @@ namespace helengine::ps2 {
                         cachedSharedState,
                         pendingFastSourceTriangles,
                         pendingFastSourceTriangleCount,
-                        useCachedSourceReference);
+                        useCachedSourceReference,
+                        AcquireNextTexturedOutputStartQword());
                     FastTexturedSourceTriangleCount += pendingFastSourceTriangleCount;
                     SubmittedTriangleCount += pendingFastSourceTriangleCount;
                     pendingFastSourceTriangles = nullptr;
@@ -2503,12 +2535,18 @@ namespace helengine::ps2 {
                     RejectedTexturedSourceTriangleCount++;
                     continue;
                 }
+                if (DisableClippedTexturedSubmissionForDiagnosis
+                    && cachedSharedState.MaterialLighting[2] > cachedSharedState.MaterialLighting[1]) {
+                    RejectedTexturedSourceTriangleCount++;
+                    continue;
+                }
                 ClippedTexturedSourceTriangleCount++;
                 if (!clippedBatch.CanAppend(clippedFan.GetTriangleCount())) {
                     if (clippedBatch.GetTriangleCount() == 0u) {
                         throw std::runtime_error("PS2 textured clipped triangle fan exceeds the fixed VU1 batch capacity.");
                     }
-                    EmitTexturedClippedBatch(packet.get(), cachedSharedState, clippedBatch);
+                    LastEmittedClippedBatchTriangleCount = clippedBatch.GetTriangleCount();
+                    EmitTexturedClippedBatch(packet.get(), cachedSharedState, clippedBatch, AcquireNextTexturedOutputStartQword());
                     SubmittedTriangleCount += clippedBatch.GetTriangleCount();
                     ClippedTexturedBatchCount++;
                     clippedBatch.Clear();
@@ -2521,12 +2559,14 @@ namespace helengine::ps2 {
                     cachedSharedState,
                     pendingFastSourceTriangles,
                     pendingFastSourceTriangleCount,
-                    useCachedSourceReference);
+                    useCachedSourceReference,
+                    AcquireNextTexturedOutputStartQword());
                 FastTexturedSourceTriangleCount += pendingFastSourceTriangleCount;
                 SubmittedTriangleCount += pendingFastSourceTriangleCount;
             }
             if (clippedBatch.GetTriangleCount() != 0u) {
-                EmitTexturedClippedBatch(packet.get(), cachedSharedState, clippedBatch);
+                LastEmittedClippedBatchTriangleCount = clippedBatch.GetTriangleCount();
+                EmitTexturedClippedBatch(packet.get(), cachedSharedState, clippedBatch, AcquireNextTexturedOutputStartQword());
                 SubmittedTriangleCount += clippedBatch.GetTriangleCount();
                 ClippedTexturedBatchCount++;
             }
@@ -3038,6 +3078,23 @@ namespace helengine::ps2 {
 
     std::size_t Ps2VuVifPacketBuilder::GetClippedTexturedBatchCount() const {
         return ClippedTexturedBatchCount;
+    }
+
+    std::size_t Ps2VuVifPacketBuilder::GetLastEmittedClippedBatchTriangleCount() const {
+        return LastEmittedClippedBatchTriangleCount;
+    }
+
+    std::uint32_t Ps2VuVifPacketBuilder::GetLastDispatchedTexturedOutputStartQword() const {
+        return LastDispatchedTexturedOutputStartQwordValue;
+    }
+
+    std::uint32_t Ps2VuVifPacketBuilder::AcquireNextTexturedOutputStartQword() {
+        const std::uint32_t outputStartQword = UseSecondTexturedOutputBuffer
+            ? static_cast<std::uint32_t>(TexturedVuSecondOutputStartQword)
+            : static_cast<std::uint32_t>(TexturedVuOutputStartQword);
+        UseSecondTexturedOutputBuffer = !UseSecondTexturedOutputBuffer;
+        LastDispatchedTexturedOutputStartQwordValue = outputStartQword;
+        return outputStartQword;
     }
 
     std::size_t Ps2VuVifPacketBuilder::GetSubmittedTriangleCount() const {

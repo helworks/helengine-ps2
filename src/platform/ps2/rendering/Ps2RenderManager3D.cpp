@@ -177,6 +177,8 @@ namespace helengine::ps2 {
         constexpr std::uintptr_t Vu1DataMemoryBaseAddress = 0x1100C000u;
         constexpr std::uintptr_t Vif1StatusRegisterAddress = 0x10003C00u;
         constexpr std::uint32_t Vif1ExecutionStatusMask = 0xFu;
+        constexpr std::size_t TexturedVuOutputBufferBaseQwordAddress = 0x100u;
+        constexpr std::size_t TexturedVuSecondOutputBufferBaseQwordAddress = 0x228u;
         constexpr std::size_t TexturedVuOutputGifTagQwordAddress = 0x107u;
         constexpr std::size_t TexturedVuOutputTriangleStartQwordAddress = 0x108u;
         constexpr std::size_t TexturedVuOutputTriangleQwordCount = 9u;
@@ -1023,6 +1025,7 @@ namespace helengine::ps2 {
           LastClippedTexturedSourceTriangleCount(0),
           LastRejectedTexturedSourceTriangleCount(0),
           LastGeneratedClippedTexturedTriangleCount(0),
+          LastEmittedClippedBatchTriangleCount(0),
           LastClippedTexturedBatchCount(0),
           LastVuOutputTriangleCount(0),
           LastVuOutputTriangleVertexA0(),
@@ -1034,6 +1037,8 @@ namespace helengine::ps2 {
           LastVuOutputTriangleVertexC0(),
           LastVuOutputTriangleVertexC1(),
           LastVuOutputTriangleVertexC2(),
+          LastFrameView(),
+          LastFrameProjection(),
           LastVuBatchDispatchCount(0),
           LastVuTriangleVertexCount(0),
           LastVuPacketByteCount(0),
@@ -1256,6 +1261,7 @@ namespace helengine::ps2 {
         LastClippedTexturedSourceTriangleCount = 0;
         LastRejectedTexturedSourceTriangleCount = 0;
         LastGeneratedClippedTexturedTriangleCount = 0;
+        LastEmittedClippedBatchTriangleCount = 0;
         LastClippedTexturedBatchCount = 0;
         LastVuOutputTriangleCount = 0;
         LastVuOutputTriangleVertexA0 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
@@ -1445,7 +1451,7 @@ namespace helengine::ps2 {
         }
 
         ::Core::get_Instance()->SetPerformanceOverlayMetrics(
-            true,
+            false,
             LastVuTriangleSetupMilliseconds,
             LastVuTrianglePrepMilliseconds,
             LastVuTriangleEmitMilliseconds,
@@ -1457,6 +1463,8 @@ namespace helengine::ps2 {
     }
 
     void Ps2RenderManager3D::RenderOpaqueWithVuPath(const Ps2FramePlan& plan, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance) {
+        LastFrameView = view;
+        LastFrameProjection = projection;
         const std::clock_t vuBatchBuildStartTicks = std::clock();
         std::vector<Ps2VuOpaqueBatch> batches = VuOpaqueBatchBuilder.Build(plan);
         const std::clock_t vuBatchBuildEndTicks = std::clock();
@@ -1911,6 +1919,9 @@ namespace helengine::ps2 {
                 LastRejectedTexturedSourceTriangleCount += VuVifPacketBuilder.GetRejectedTexturedSourceTriangleCount();
                 LastGeneratedClippedTexturedTriangleCount += VuVifPacketBuilder.GetGeneratedClippedTexturedTriangleCount();
                 LastClippedTexturedBatchCount += VuVifPacketBuilder.GetClippedTexturedBatchCount();
+                if (LastEmittedClippedBatchTriangleCount == 0u && VuVifPacketBuilder.GetLastEmittedClippedBatchTriangleCount() != 0u) {
+                    LastEmittedClippedBatchTriangleCount = VuVifPacketBuilder.GetLastEmittedClippedBatchTriangleCount();
+                }
                 for (std::size_t batchIndex = firstTexturedVuBatchIndex; batchIndex < nextTexturedVuBatchIndex; batchIndex++) {
                     LastVuTriangleVertexCount += texturedVuBatches[batchIndex].SourceTriangleCount * 3u;
                 }
@@ -1930,7 +1941,9 @@ namespace helengine::ps2 {
                 if (EnableTexturedVuOutputReadbackDiagnostics) {
                     dma_channel_wait(DMA_CHANNEL_VIF1, 0);
                     WaitForTexturedVuOutputDiagnostic();
-                    CaptureTexturedVuOutputDiagnostic();
+                    if (LastVuOutputTriangleCount == 0u && VuVifPacketBuilder.GetClippedTexturedBatchCount() > 0u) {
+                        CaptureTexturedVuOutputDiagnostic();
+                    }
                 }
                 ActiveVuPacketSlotIndex = (ActiveVuPacketSlotIndex + 1u) % 2u;
                 firstTexturedVuBatchIndex = nextTexturedVuBatchIndex;
@@ -2239,20 +2252,32 @@ namespace helengine::ps2 {
     }
 
     void Ps2RenderManager3D::CaptureTexturedVuOutputDiagnostic() {
+        std::size_t outputStartQwordAddress = static_cast<std::size_t>(VuVifPacketBuilder.GetLastDispatchedTexturedOutputStartQword());
         const volatile std::uint32_t* outputTagWords = reinterpret_cast<const volatile std::uint32_t*>(
-            Vu1DataMemoryBaseAddress + (TexturedVuOutputGifTagQwordAddress * 16u));
-        const std::size_t emittedVertexCount = static_cast<std::size_t>(outputTagWords[0] & 0x7FFFu);
+            Vu1DataMemoryBaseAddress + ((outputStartQwordAddress + (TexturedVuOutputGifTagQwordAddress - TexturedVuOutputBufferBaseQwordAddress)) * 16u));
+        std::size_t emittedVertexCount = static_cast<std::size_t>(outputTagWords[0] & 0x7FFFu);
+        if (emittedVertexCount == 0u) {
+            outputStartQwordAddress = outputStartQwordAddress == TexturedVuOutputBufferBaseQwordAddress
+                ? TexturedVuSecondOutputBufferBaseQwordAddress
+                : TexturedVuOutputBufferBaseQwordAddress;
+            outputTagWords = reinterpret_cast<const volatile std::uint32_t*>(
+                Vu1DataMemoryBaseAddress + ((outputStartQwordAddress + (TexturedVuOutputGifTagQwordAddress - TexturedVuOutputBufferBaseQwordAddress)) * 16u));
+            emittedVertexCount = static_cast<std::size_t>(outputTagWords[0] & 0x7FFFu);
+        }
+        const std::size_t outputGifTagQwordAddress = outputStartQwordAddress + (TexturedVuOutputGifTagQwordAddress - TexturedVuOutputBufferBaseQwordAddress);
+        const std::size_t outputTriangleStartQwordAddress = outputStartQwordAddress + (TexturedVuOutputTriangleStartQwordAddress - TexturedVuOutputBufferBaseQwordAddress);
+        static_cast<void>(outputGifTagQwordAddress);
         LastVuOutputTriangleCount = emittedVertexCount / 3u;
         if (LastVuOutputTriangleCount >= 1u) {
             LastVuOutputTriangleVertexA0 = ReadTexturedVuOutputDiagnosticVertex(
-                TexturedVuOutputTriangleStartQwordAddress + TexturedVuOutputVertex0XyzQwordOffset);
+                outputTriangleStartQwordAddress + TexturedVuOutputVertex0XyzQwordOffset);
             LastVuOutputTriangleVertexA1 = ReadTexturedVuOutputDiagnosticVertex(
-                TexturedVuOutputTriangleStartQwordAddress + TexturedVuOutputVertex1XyzQwordOffset);
+                outputTriangleStartQwordAddress + TexturedVuOutputVertex1XyzQwordOffset);
             LastVuOutputTriangleVertexA2 = ReadTexturedVuOutputDiagnosticVertex(
-                TexturedVuOutputTriangleStartQwordAddress + TexturedVuOutputVertex2XyzQwordOffset);
+                outputTriangleStartQwordAddress + TexturedVuOutputVertex2XyzQwordOffset);
         }
         if (LastVuOutputTriangleCount >= 2u) {
-            const std::size_t triangleBStartQwordAddress = TexturedVuOutputTriangleStartQwordAddress
+            const std::size_t triangleBStartQwordAddress = outputTriangleStartQwordAddress
                 + TexturedVuOutputTriangleQwordCount;
             LastVuOutputTriangleVertexB0 = ReadTexturedVuOutputDiagnosticVertex(
                 triangleBStartQwordAddress + TexturedVuOutputVertex0XyzQwordOffset);
@@ -2262,7 +2287,7 @@ namespace helengine::ps2 {
                 triangleBStartQwordAddress + TexturedVuOutputVertex2XyzQwordOffset);
         }
         if (LastVuOutputTriangleCount >= 3u) {
-            const std::size_t triangleCStartQwordAddress = TexturedVuOutputTriangleStartQwordAddress
+            const std::size_t triangleCStartQwordAddress = outputTriangleStartQwordAddress
                 + (2u * TexturedVuOutputTriangleQwordCount);
             LastVuOutputTriangleVertexC0 = ReadTexturedVuOutputDiagnosticVertex(
                 triangleCStartQwordAddress + TexturedVuOutputVertex0XyzQwordOffset);
@@ -2331,6 +2356,10 @@ namespace helengine::ps2 {
         return LastGeneratedClippedTexturedTriangleCount;
     }
 
+    std::size_t Ps2RenderManager3D::GetLastEmittedClippedBatchTriangleCount() const {
+        return LastEmittedClippedBatchTriangleCount;
+    }
+
     std::size_t Ps2RenderManager3D::GetLastClippedTexturedBatchCount() const {
         return LastClippedTexturedBatchCount;
     }
@@ -2373,6 +2402,14 @@ namespace helengine::ps2 {
 
     ::float4 Ps2RenderManager3D::GetLastVuOutputTriangleVertexC2() const {
         return LastVuOutputTriangleVertexC2;
+    }
+
+    ::float4x4 Ps2RenderManager3D::GetLastFrameView() const {
+        return LastFrameView;
+    }
+
+    ::float4x4 Ps2RenderManager3D::GetLastFrameProjection() const {
+        return LastFrameProjection;
     }
 
     std::size_t Ps2RenderManager3D::GetLastVuBatchDispatchCount() const {

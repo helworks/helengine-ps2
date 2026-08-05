@@ -706,10 +706,13 @@ namespace {
         return std::string(label)
             + " " + std::to_string(static_cast<int>(vertex0.X))
             + "," + std::to_string(static_cast<int>(vertex0.Y))
+            + "," + std::to_string(static_cast<int>(vertex0.Z))
             + " " + std::to_string(static_cast<int>(vertex1.X))
             + "," + std::to_string(static_cast<int>(vertex1.Y))
+            + "," + std::to_string(static_cast<int>(vertex1.Z))
             + " " + std::to_string(static_cast<int>(vertex2.X))
-            + "," + std::to_string(static_cast<int>(vertex2.Y));
+            + "," + std::to_string(static_cast<int>(vertex2.Y))
+            + "," + std::to_string(static_cast<int>(vertex2.Z));
     }
 
     void ApplyPlatformPerformanceOverlayRows(::Core* engineCore) {
@@ -920,15 +923,15 @@ namespace {
             const ::float4 vuTriangleVertexB0 = renderManager3DBackend.GetLastVuOutputTriangleVertexB0();
             const ::float4 vuTriangleVertexB1 = renderManager3DBackend.GetLastVuOutputTriangleVertexB1();
             const ::float4 vuTriangleVertexB2 = renderManager3DBackend.GetLastVuOutputTriangleVertexB2();
-            const ::float4 vuTriangleVertexC0 = renderManager3DBackend.GetLastVuOutputTriangleVertexC0();
-            const ::float4 vuTriangleVertexC1 = renderManager3DBackend.GetLastVuOutputTriangleVertexC1();
-            const ::float4 vuTriangleVertexC2 = renderManager3DBackend.GetLastVuOutputTriangleVertexC2();
             FrameTimingOverlayLine1 =
                 std::string(FrameTimingOverlayBuildNumber)
-                + " F" + std::to_string(static_cast<int>(averageFastTexturedSourceTriangleCount))
-                + " C" + std::to_string(static_cast<int>(averageClippedTexturedSourceTriangleCount))
-                + " G" + std::to_string(static_cast<int>(averageGeneratedClippedTexturedTriangleCount))
-                + " N" + std::to_string(renderManager3DBackend.GetLastVuOutputTriangleCount());
+                + " F" + std::to_string(renderManager3DBackend.GetLastFastTexturedSourceTriangleCount())
+                + " C" + std::to_string(renderManager3DBackend.GetLastClippedTexturedSourceTriangleCount())
+                + " G" + std::to_string(renderManager3DBackend.GetLastGeneratedClippedTexturedTriangleCount())
+                + " R" + std::to_string(renderManager3DBackend.GetLastRejectedTexturedSourceTriangleCount())
+                + " N" + std::to_string(renderManager3DBackend.GetLastVuOutputTriangleCount())
+                + " S" + std::to_string(renderManager3DBackend.GetLastSubmittedTriangleCount())
+                + " E" + std::to_string(renderManager3DBackend.GetLastEmittedClippedBatchTriangleCount());
             FrameTimingOverlayLine2 = FormatVuOutputTriangle(
                 "A",
                 vuTriangleVertexA0,
@@ -939,11 +942,12 @@ namespace {
                 vuTriangleVertexB0,
                 vuTriangleVertexB1,
                 vuTriangleVertexB2);
-            FrameTimingOverlayAdditionalText = FormatVuOutputTriangle(
-                "C",
-                vuTriangleVertexC0,
-                vuTriangleVertexC1,
-                vuTriangleVertexC2);
+            const ::float4x4 lastFrameView = renderManager3DBackend.GetLastFrameView();
+            FrameTimingOverlayAdditionalText =
+                std::string("V1 ") + std::to_string(lastFrameView.M11) + "," + std::to_string(lastFrameView.M12) + "," + std::to_string(lastFrameView.M13) + "," + std::to_string(lastFrameView.M14)
+                + "\nV2 " + std::to_string(lastFrameView.M21) + "," + std::to_string(lastFrameView.M22) + "," + std::to_string(lastFrameView.M23) + "," + std::to_string(lastFrameView.M24)
+                + "\nV3 " + std::to_string(lastFrameView.M31) + "," + std::to_string(lastFrameView.M32) + "," + std::to_string(lastFrameView.M33) + "," + std::to_string(lastFrameView.M34)
+                + "\nV4 " + std::to_string(lastFrameView.M41) + "," + std::to_string(lastFrameView.M42) + "," + std::to_string(lastFrameView.M43) + "," + std::to_string(lastFrameView.M44);
         } else {
             FrameTimingOverlayLine1 =
                 std::string(FrameTimingOverlayBuildNumber)
@@ -1873,7 +1877,10 @@ namespace {
 
     void InitializeVuOpaqueDoubleBuffer() {
         packet2_t* packet2 = packet2_create(1, P2_TYPE_NORMAL, P2_MODE_CHAIN, 1);
-        packet2_utils_vu_add_double_buffer(packet2, 8, 496);
+        // A zero offset pins TOPS at qword 8 for every dispatch: the fast textured program reads its
+        // input from fixed address 8, so an alternating second buffer would feed it stale data, and
+        // the per-dispatch VIF flush already serializes uploads against microprogram execution.
+        packet2_utils_vu_add_double_buffer(packet2, 8, 0);
         packet2_utils_vu_add_end_tag(packet2);
         dma_channel_send_packet2(packet2, DMA_CHANNEL_VIF1, 1);
         dma_channel_wait(DMA_CHANNEL_VIF1, 0);

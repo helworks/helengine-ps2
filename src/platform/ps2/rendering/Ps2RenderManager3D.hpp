@@ -84,6 +84,10 @@ namespace helengine::ps2 {
         /// </summary>
         std::size_t GetLastClippedTexturedBatchCount() const;
         /// <summary>
+        /// Returns the triangle count the CPU emitted for the most recently dispatched pretransformed clipped VU1 batch this frame.
+        /// </summary>
+        std::size_t GetLastEmittedClippedBatchTriangleCount() const;
+        /// <summary>
         /// Returns the number of complete triangles encoded in the most recently captured VU1 textured output packet.
         /// </summary>
         std::size_t GetLastVuOutputTriangleCount() const;
@@ -123,6 +127,14 @@ namespace helengine::ps2 {
         /// Returns the third captured triangle's third GS-space XYZ vertex, with X and Y converted back to screen pixels.
         /// </summary>
         ::float4 GetLastVuOutputTriangleVertexC2() const;
+        /// <summary>
+        /// Returns the view matrix used by the most recent opaque VU-path render call, for offline diagnostic reproduction.
+        /// </summary>
+        ::float4x4 GetLastFrameView() const;
+        /// <summary>
+        /// Returns the projection matrix used by the most recent opaque VU-path render call, for offline diagnostic reproduction.
+        /// </summary>
+        ::float4x4 GetLastFrameProjection() const;
         std::size_t GetLastVuBatchDispatchCount() const;
         std::size_t GetLastVuTriangleVertexCount() const;
         std::size_t GetLastVuPacketByteCount() const;
@@ -270,6 +282,10 @@ namespace helengine::ps2 {
         /// </summary>
         std::size_t LastGeneratedClippedTexturedTriangleCount;
         /// <summary>
+        /// Holds the triangle count the CPU emitted for the most recently dispatched pretransformed clipped VU1 batch this frame.
+        /// </summary>
+        std::size_t LastEmittedClippedBatchTriangleCount;
+        /// <summary>
         /// Accumulates emitted pretransformed clipped batches for the current frame.
         /// </summary>
         std::size_t LastClippedTexturedBatchCount;
@@ -313,6 +329,14 @@ namespace helengine::ps2 {
         /// Stores the third decoded screen-space vertex of captured VU1 output triangle C.
         /// </summary>
         ::float4 LastVuOutputTriangleVertexC2;
+        /// <summary>
+        /// Stores the view matrix passed into the most recent opaque VU-path render call, for offline diagnostic reproduction.
+        /// </summary>
+        ::float4x4 LastFrameView;
+        /// <summary>
+        /// Stores the projection matrix passed into the most recent opaque VU-path render call, for offline diagnostic reproduction.
+        /// </summary>
+        ::float4x4 LastFrameProjection;
         std::size_t LastVuBatchDispatchCount;
         std::size_t LastVuTriangleVertexCount;
         std::size_t LastVuPacketByteCount;
