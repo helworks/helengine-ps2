@@ -159,7 +159,7 @@ namespace {
     constexpr double CubeRuntimeDiagnosticWatchSeconds = 5.0;
     constexpr const char* CubeRuntimeDiagnosticSceneId = "textured_cube_grid";
     constexpr bool EnableVerboseEntityDisposalDiagnostics = false;
-    constexpr bool EnableFrameTimingDiagnostics = true;
+    constexpr bool EnableFrameTimingDiagnostics = false;
     constexpr bool EnableVuOutputReadbackOverlayDiagnostics = true;
     constexpr bool EnableFrameTimingDiagnosticHalt = false;
     constexpr bool EnableFirstUpdateStateHalt = false;
