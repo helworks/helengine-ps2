@@ -13,6 +13,7 @@
 #include <cerrno>
 #include <algorithm>
 #include <ctime>
+#include <cstdlib>
 #include <cstring>
 #include <cstdio>
 #include <cmath>
@@ -259,6 +260,31 @@ namespace {
     bool FrameTimingOverlayPresented = false;
     bool MemoryDiagnosticsFirstSampleCaptured = false;
     int MemoryDiagnosticsCapturedSampleCount = 0;
+    // Temporary leak-hunt diagnostic: brackets every updateable's Update() with heap probes via the
+    // core's per-updateable stage reports and accumulates surviving bytes per component type hash.
+    constexpr bool EnableUpdateableHeapProbeDiagnostics = false;
+    // Temporary crash-trace diagnostic: logs every per-updateable stage report so the boot log's
+    // final Before line names the component whose Update() raised the frame exception.
+    constexpr bool EnableUpdateableCrashTraceDiagnostics = false;
+    constexpr int UpdateableHeapProbeTableCapacity = 32;
+    constexpr int UpdateableHeapProbeDumpAfterEventCount = 3600;
+    long UpdateableHeapProbeBeforeBytes = 0;
+    std::uint32_t UpdateableHeapProbeEntryHashes[UpdateableHeapProbeTableCapacity] = {};
+    long long UpdateableHeapProbeEntrySumBytes[UpdateableHeapProbeTableCapacity] = {};
+    long UpdateableHeapProbeEntryCounts[UpdateableHeapProbeTableCapacity] = {};
+    int UpdateableHeapProbeEntryCount = 0;
+    int UpdateableHeapProbeEventCount = 0;
+    // Temporary leak-hunt diagnostic: brackets every frame phase with heap probes and logs which
+    // phase's allocations survive, isolating the main-menu per-frame leak.
+    constexpr bool EnableFrameHeapPhaseDiagnostics = false;
+    constexpr int FrameHeapPhaseSampleFrameCount = 300;
+    long FrameHeapPhaseUpdateBytes = 0;
+    long FrameHeapPhaseDraw3dBytes = 0;
+    long FrameHeapPhaseDraw2dBytes = 0;
+    long FrameHeapPhasePresentBytes = 0;
+    long FrameHeapPhaseBetweenFramesBytes = 0;
+    int FrameHeapPhaseFrameCount = 0;
+    long FrameHeapPhasePreviousFrameEndHeapBytes = -1;
     bool FirstFramePresentCheckpointLogged = false;
     std::string FrameTimingOverlayLine1;
     std::string FrameTimingOverlayLine2;
@@ -412,6 +438,82 @@ namespace {
             if (String::StartsWith(stage, "Ownership:", StringComparison::Ordinal)) {
                 BootLog(stage);
             }
+
+            if (EnableUpdateableCrashTraceDiagnostics
+                && (String::StartsWith(stage, "BeforeObjectManagerUpdateable", StringComparison::Ordinal)
+                    || String::StartsWith(stage, "AfterObjectManagerUpdateable", StringComparison::Ordinal))) {
+                BootLog(stage);
+            }
+
+            if (!EnableUpdateableHeapProbeDiagnostics) {
+                return;
+            }
+
+            if (String::StartsWith(stage, "BeforeObjectManagerUpdateable", StringComparison::Ordinal)) {
+                UpdateableHeapProbeBeforeBytes = static_cast<long>(mallinfo().uordblks);
+                return;
+            }
+
+            if (!String::StartsWith(stage, "AfterObjectManagerUpdateable", StringComparison::Ordinal)) {
+                return;
+            }
+
+            const long deltaBytes = static_cast<long>(mallinfo().uordblks) - UpdateableHeapProbeBeforeBytes;
+            const std::uint32_t typeHash = ParseUpdateableStageTypeHash(stage);
+            AccumulateUpdateableHeapDelta(typeHash, deltaBytes);
+        }
+
+        /// <summary>
+        /// Extracts the reported stable component type hash from one per-updateable stage label.
+        /// </summary>
+        /// <param name="stage">Stage label of the form "...Updateable index=N hash=H owner=O".</param>
+        /// <returns>The parsed type hash, or zero when the label carries none.</returns>
+        static std::uint32_t ParseUpdateableStageTypeHash(const std::string& stage) {
+            const std::size_t position = stage.find(" hash=");
+            if (position == std::string::npos) {
+                return 0u;
+            }
+
+            return static_cast<std::uint32_t>(std::strtoul(stage.c_str() + position + 6u, nullptr, 10));
+        }
+
+        /// <summary>
+        /// Accumulates one surviving-heap delta for a component type hash and periodically logs every entry.
+        /// </summary>
+        /// <param name="typeHash">Stable component type hash reported by the object manager.</param>
+        /// <param name="deltaBytes">Heap bytes surviving the component's Update() call.</param>
+        static void AccumulateUpdateableHeapDelta(std::uint32_t typeHash, long deltaBytes) {
+            int entryIndex = -1;
+            for (int index = 0; index < UpdateableHeapProbeEntryCount; index++) {
+                if (UpdateableHeapProbeEntryHashes[index] == typeHash) {
+                    entryIndex = index;
+                    break;
+                }
+            }
+            if (entryIndex < 0 && UpdateableHeapProbeEntryCount < UpdateableHeapProbeTableCapacity) {
+                entryIndex = UpdateableHeapProbeEntryCount;
+                UpdateableHeapProbeEntryHashes[entryIndex] = typeHash;
+                UpdateableHeapProbeEntryCount += 1;
+            }
+            if (entryIndex >= 0) {
+                UpdateableHeapProbeEntrySumBytes[entryIndex] += deltaBytes;
+                UpdateableHeapProbeEntryCounts[entryIndex] += 1;
+            }
+
+            UpdateableHeapProbeEventCount += 1;
+            if (UpdateableHeapProbeEventCount < UpdateableHeapProbeDumpAfterEventCount) {
+                return;
+            }
+
+            for (int index = 0; index < UpdateableHeapProbeEntryCount; index++) {
+                HostLogOnly(
+                    std::string("updateable heap hash=") + std::to_string(UpdateableHeapProbeEntryHashes[index])
+                    + " sum=" + std::to_string(UpdateableHeapProbeEntrySumBytes[index])
+                    + " count=" + std::to_string(UpdateableHeapProbeEntryCounts[index]));
+                UpdateableHeapProbeEntrySumBytes[index] = 0;
+                UpdateableHeapProbeEntryCounts[index] = 0;
+            }
+            UpdateableHeapProbeEventCount = 0;
         }
 
 #if HE_PS2_HAS_SCENE_LOAD_TIMING_DIAGNOSTICS_INTERFACE
@@ -3115,6 +3217,13 @@ namespace helengine::ps2 {
                 std::clock_t frameGifWaitEndTicks = frameUpdateStartTicks;
                 std::clock_t frameDrawEndTicks = frameUpdateStartTicks;
                 std::clock_t framePresentEndTicks = frameUpdateStartTicks;
+                const long frameHeapStartBytes = EnableFrameHeapPhaseDiagnostics ? static_cast<long>(mallinfo().uordblks) : 0;
+                if (EnableFrameHeapPhaseDiagnostics && FrameHeapPhasePreviousFrameEndHeapBytes >= 0) {
+                    FrameHeapPhaseBetweenFramesBytes += frameHeapStartBytes - FrameHeapPhasePreviousFrameEndHeapBytes;
+                }
+                long frameHeapAfterUpdateBytes = frameHeapStartBytes;
+                long frameHeapAfterDraw3dBytes = frameHeapStartBytes;
+                long frameHeapAfterDraw2dBytes = frameHeapStartBytes;
                 if (EngineCore != 0) {
                     try {
                         if (ActiveUpdatePhaseDiagnosticMode == UpdatePhaseDiagnosticMode::Full) {
@@ -3253,6 +3362,11 @@ namespace helengine::ps2 {
                     }
                 }
                 frameUpdateEndTicks = std::clock();
+                if (EnableFrameHeapPhaseDiagnostics) {
+                    frameHeapAfterUpdateBytes = static_cast<long>(mallinfo().uordblks);
+                    frameHeapAfterDraw3dBytes = frameHeapAfterUpdateBytes;
+                    frameHeapAfterDraw2dBytes = frameHeapAfterUpdateBytes;
+                }
                 if (EnableFrameBoundaryHeartbeatDiagnostics) {
                     BootLog(std::string("frame heartbeat=") + std::to_string(frameHeartbeat) + " stage=AfterUpdate");
                 }
@@ -3328,6 +3442,10 @@ namespace helengine::ps2 {
                         BootLog(std::string("frame heartbeat=") + std::to_string(frameHeartbeat) + " stage=AfterDraw3d");
                     }
                     frameDraw3dEndTicks = std::clock();
+                    if (EnableFrameHeapPhaseDiagnostics) {
+                        frameHeapAfterDraw3dBytes = static_cast<long>(mallinfo().uordblks);
+                        frameHeapAfterDraw2dBytes = frameHeapAfterDraw3dBytes;
+                    }
 
                     // VU opaque rendering emits GIF work through VIF1. Complete VIF1 first so the
                     // following GIF drain measures work the VU actually submitted, not an idle GIF channel.
@@ -3471,6 +3589,9 @@ namespace helengine::ps2 {
                     frameGifWaitEndTicks = std::clock();
                 }
                 frameDrawEndTicks = std::clock();
+                if (EnableFrameHeapPhaseDiagnostics) {
+                    frameHeapAfterDraw2dBytes = static_cast<long>(mallinfo().uordblks);
+                }
 
                 try {
                     if (!FirstFramePresentCheckpointLogged) {
@@ -3503,6 +3624,30 @@ namespace helengine::ps2 {
                     }
                 }
                 framePresentEndTicks = std::clock();
+                if (EnableFrameHeapPhaseDiagnostics) {
+                    const long frameHeapEndBytes = static_cast<long>(mallinfo().uordblks);
+                    FrameHeapPhaseUpdateBytes += frameHeapAfterUpdateBytes - frameHeapStartBytes;
+                    FrameHeapPhaseDraw3dBytes += frameHeapAfterDraw3dBytes - frameHeapAfterUpdateBytes;
+                    FrameHeapPhaseDraw2dBytes += frameHeapAfterDraw2dBytes - frameHeapAfterDraw3dBytes;
+                    FrameHeapPhasePresentBytes += frameHeapEndBytes - frameHeapAfterDraw2dBytes;
+                    FrameHeapPhasePreviousFrameEndHeapBytes = frameHeapEndBytes;
+                    FrameHeapPhaseFrameCount += 1;
+                    if (FrameHeapPhaseFrameCount >= FrameHeapPhaseSampleFrameCount) {
+                        HostLogOnly(
+                            std::string("heap phase frames=") + std::to_string(FrameHeapPhaseFrameCount)
+                            + " update=" + std::to_string(FrameHeapPhaseUpdateBytes)
+                            + " draw3d=" + std::to_string(FrameHeapPhaseDraw3dBytes)
+                            + " draw2d=" + std::to_string(FrameHeapPhaseDraw2dBytes)
+                            + " present=" + std::to_string(FrameHeapPhasePresentBytes)
+                            + " between=" + std::to_string(FrameHeapPhaseBetweenFramesBytes));
+                        FrameHeapPhaseUpdateBytes = 0;
+                        FrameHeapPhaseDraw3dBytes = 0;
+                        FrameHeapPhaseDraw2dBytes = 0;
+                        FrameHeapPhasePresentBytes = 0;
+                        FrameHeapPhaseBetweenFramesBytes = 0;
+                        FrameHeapPhaseFrameCount = 0;
+                    }
+                }
                 if (EnableFrameBoundaryHeartbeatDiagnostics) {
                     BootLog(std::string("frame heartbeat=") + std::to_string(frameHeartbeat) + " stage=AfterPresent");
                 }
