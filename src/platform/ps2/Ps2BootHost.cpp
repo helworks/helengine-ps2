@@ -2015,7 +2015,7 @@ namespace {
         List<::StandardPlatformActionBinding*>* bindings = new List<::StandardPlatformActionBinding*>(static_cast<int32_t>(count));
         for (int32_t index = 0; index < static_cast<int32_t>(count); index++) {
             const HERuntimeStandardPlatformActionEntry& manifestEntry = manifestEntries[index];
-            bindings->Add(new ::StandardPlatformActionBinding(
+            bindings->AddOwned(new ::StandardPlatformActionBinding(
                 static_cast<::StandardPlatformAction>(manifestEntry.ActionId),
                 ::InputControlId(
                     static_cast<::InputDeviceKind>(manifestEntry.DeviceKind),
