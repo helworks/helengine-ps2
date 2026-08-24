@@ -152,8 +152,8 @@ public sealed class Ps2VuUntexturedPathSourceTests {
         Assert.Contains("struct Ps2VuLightingConstants final", vifSource, StringComparison.Ordinal);
         Assert.Contains("Ps2VuLightingConstants lightingConstants {};", untexturedBranch, StringComparison.Ordinal);
         Assert.Contains("PopulateLightingConstants(*batch.Material, lightingConstants);", untexturedBranch, StringComparison.Ordinal);
-        Assert.Contains("const std::uint64_t triangleColor = ResolveTexturedVertexColor(lightingConstants, worldFaceNormal, normalizedLightDirection);", untexturedBranch, StringComparison.Ordinal);
-        Assert.DoesNotContain("ResolveTexturedVertexColor(*batch.Material, worldFaceNormal, normalizedLightDirection);", untexturedBranch, StringComparison.Ordinal);
+        Assert.Contains("const std::uint64_t triangleColor = ResolveTexturedVertexColor(lightingConstants, worldFaceNormal, normalizedLightDirection, lightColor);", untexturedBranch, StringComparison.Ordinal);
+        Assert.DoesNotContain("ResolveTexturedVertexColor(*batch.Material, worldFaceNormal, normalizedLightDirection, lightColor);", untexturedBranch, StringComparison.Ordinal);
     }
 
     /// <summary>

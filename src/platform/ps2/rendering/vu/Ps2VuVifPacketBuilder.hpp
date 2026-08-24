@@ -21,7 +21,7 @@ namespace helengine::ps2 {
     public:
         ~Ps2VuVifPacketBuilder();
         void Reset();
-        void AddOpaqueBatch(const Ps2VuOpaqueBatch& batch, const ::float4x4& world, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance, const ::float3& lightDirection, GSGLOBAL* gsGlobal, GSTEXTURE* texture, int textureWidth, int textureHeight);
+        void AddOpaqueBatch(const Ps2VuOpaqueBatch& batch, const ::float4x4& world, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance, const ::float3& lightDirection, const ::float3& lightColor, GSGLOBAL* gsGlobal, GSTEXTURE* texture, int textureWidth, int textureHeight);
         std::size_t AddOpaqueUntexturedBatches(
             const std::vector<const Ps2VuOpaqueBatch*>& batches,
             const std::vector<::float4x4>& worlds,
@@ -30,6 +30,7 @@ namespace helengine::ps2 {
             const ::float4& viewport,
             float nearPlaneDistance,
             const ::float3& lightDirection,
+            const ::float3& lightColor,
             GSGLOBAL* gsGlobal,
             bool createVifPacket);
         void AddOpaqueTexturedVuBatches(
@@ -42,6 +43,7 @@ namespace helengine::ps2 {
             const ::float4& viewport,
             float nearPlaneDistance,
             const ::float3& lightDirection,
+            const ::float3& lightColor,
             GSGLOBAL* gsGlobal,
             const std::vector<GSTEXTURE*>& textures,
             const std::vector<int>& textureWidths,
@@ -55,6 +57,7 @@ namespace helengine::ps2 {
             const ::float4& viewport,
             float nearPlaneDistance,
             const ::float3& lightDirection,
+            const ::float3& lightColor,
             GSGLOBAL* gsGlobal,
             const std::vector<GSTEXTURE*>& textures,
             const std::vector<int>& textureWidths,

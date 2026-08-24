@@ -1473,7 +1473,8 @@ namespace helengine::ps2 {
         LastVuWaitMilliseconds = 0.0;
         LastVuSubmitMilliseconds = 0.0;
         ::float3 lightDirection = DefaultForward;
-        TryResolveDirectionalLightDirection(lightDirection);
+        ::float3 lightColor(1.0f, 1.0f, 1.0f);
+        TryResolveDirectionalLightState(lightDirection, lightColor);
         LastVuBatchDispatchCount = 0u;
         LastVuRejectedMissingMaterialCount = VuOpaqueBatchBuilder.GetLastRejectedMissingMaterialCount();
         LastVuRejectedMissingModelCount = VuOpaqueBatchBuilder.GetLastRejectedMissingModelCount();
@@ -1630,6 +1631,7 @@ namespace helengine::ps2 {
                         viewport,
                         nearPlaneDistance,
                         lightDirection,
+                        lightColor,
                         GsGlobal,
                         !UseDirectGifUntexturedSubmission);
                     packet2_t* packet = VuVifPacketBuilder.GetPacket();
@@ -1742,6 +1744,7 @@ namespace helengine::ps2 {
                 viewport,
                 nearPlaneDistance,
                 lightDirection,
+                lightColor,
                 GsGlobal,
                 batchTexture,
                 batchTextureWidth,
@@ -1898,6 +1901,7 @@ namespace helengine::ps2 {
                     viewport,
                     nearPlaneDistance,
                     lightDirection,
+                    lightColor,
                     GsGlobal,
                     texturedVuTextures,
                     texturedVuTextureWidths,
@@ -1990,6 +1994,7 @@ namespace helengine::ps2 {
                 viewport,
                 nearPlaneDistance,
                 lightDirection,
+                lightColor,
                 GsGlobal,
                 packetTexturedTextures,
                 packetTexturedTextureWidths,
@@ -2594,7 +2599,8 @@ namespace helengine::ps2 {
 
         const bool doubleSided = material->GetDoubleSided();
         ::float3 lightDirection = ::float3(0.0f, -0.70710678f, -0.70710678f);
-        TryResolveDirectionalLightDirection(lightDirection);
+        ::float3 lightColor(1.0f, 1.0f, 1.0f);
+        TryResolveDirectionalLightState(lightDirection, lightColor);
 
         GSTEXTURE* texture = nullptr;
         if (!useDiagnosticFlatColor && !useLightingOnlyDiagnostics && material->HasTextureRelativePath()) {
@@ -2645,9 +2651,9 @@ namespace helengine::ps2 {
             ::float3 viewPositionC = TransformPosition(positionC, view);
 
             const std::uint64_t diagnosticColor = ResolveDiagnosticProxyColor(proxy);
-            const std::uint64_t colorA = useDiagnosticFlatColor ? diagnosticColor : ResolveVertexColor(*material, normalA, lightDirection);
-            const std::uint64_t colorB = useDiagnosticFlatColor ? diagnosticColor : ResolveVertexColor(*material, normalB, lightDirection);
-            const std::uint64_t colorC = useDiagnosticFlatColor ? diagnosticColor : ResolveVertexColor(*material, normalC, lightDirection);
+            const std::uint64_t colorA = useDiagnosticFlatColor ? diagnosticColor : ResolveVertexColor(*material, normalA, lightDirection, lightColor);
+            const std::uint64_t colorB = useDiagnosticFlatColor ? diagnosticColor : ResolveVertexColor(*material, normalB, lightDirection, lightColor);
+            const std::uint64_t colorC = useDiagnosticFlatColor ? diagnosticColor : ResolveVertexColor(*material, normalC, lightDirection, lightColor);
 
             Ps2ClipVertex vertexA = CreateClipVertex(viewPositionA, texCoords.size() > indexA ? texCoords[indexA] : ::float2(0.0f, 0.0f), colorA);
             Ps2ClipVertex vertexB = CreateClipVertex(viewPositionB, texCoords.size() > indexB ? texCoords[indexB] : ::float2(0.0f, 0.0f), colorB);
@@ -3168,7 +3174,7 @@ namespace helengine::ps2 {
         }
     }
 
-    bool Ps2RenderManager3D::TryResolveDirectionalLightDirection(::float3& lightDirection) const {
+    bool Ps2RenderManager3D::TryResolveDirectionalLightState(::float3& lightDirection, ::float3& lightColor) const {
         ::Core* core = ::Core::get_Instance();
         if (core == nullptr || core->get_ObjectManager() == nullptr || core->get_ObjectManager()->get_DirectionalLights() == nullptr) {
             return false;
@@ -3188,13 +3194,19 @@ namespace helengine::ps2 {
 
             const ::float3 emittedLightDirection = ::float4::RotateVector(::float3(0.0f, 0.0f, -1.0f), parent->get_Orientation());
             lightDirection = ::float3(-emittedLightDirection.X, -emittedLightDirection.Y, -emittedLightDirection.Z);
+            const ::float4 authoredLightColor = directionalLight->get_Color();
+            const float authoredLightIntensity = directionalLight->get_Intensity();
+            lightColor = ::float3(
+                std::clamp(authoredLightColor.X * authoredLightIntensity, 0.0f, 1.0f),
+                std::clamp(authoredLightColor.Y * authoredLightIntensity, 0.0f, 1.0f),
+                std::clamp(authoredLightColor.Z * authoredLightIntensity, 0.0f, 1.0f));
             return true;
         }
 
         return false;
     }
 
-    std::uint64_t Ps2RenderManager3D::ResolveVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection) {
+    std::uint64_t Ps2RenderManager3D::ResolveVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection, const ::float3& lightColor) {
         if (material.GetLightingMode() == ::Ps2MaterialLightingMode::Unlit) {
             return GS_SETREG_RGBAQ(
                 material.GetBaseColorR(),
@@ -3208,7 +3220,12 @@ namespace helengine::ps2 {
             + static_cast<double>(normal.Y) * static_cast<double>(normal.Y)
             + static_cast<double>(normal.Z) * static_cast<double>(normal.Z);
         if (normalLengthSquared <= 0.000001) {
-            return GS_SETREG_RGBAQ(0x40, 0x40, 0x40, 0x80, 0x00);
+            return GS_SETREG_RGBAQ(
+                static_cast<std::uint8_t>(std::clamp(std::lround(64.0 * static_cast<double>(lightColor.X)), 0l, 255l)),
+                static_cast<std::uint8_t>(std::clamp(std::lround(64.0 * static_cast<double>(lightColor.Y)), 0l, 255l)),
+                static_cast<std::uint8_t>(std::clamp(std::lround(64.0 * static_cast<double>(lightColor.Z)), 0l, 255l)),
+                0x80,
+                0x00);
         }
 
         ::float3 normalizedNormal = ::float3::Normalize(normal);
@@ -3236,15 +3253,16 @@ namespace helengine::ps2 {
         }
 
         const std::uint8_t intensity = static_cast<std::uint8_t>(std::clamp(std::lround(intensityValue), 0l, 255l));
-        const auto applyIntensity = [intensity](std::uint8_t channel) {
-            const double litChannel = (static_cast<double>(channel) * static_cast<double>(intensity)) / 255.0;
+        const auto applyIntensity = [intensity](std::uint8_t channel, float lightColorChannel) {
+            const double resolvedLightColorChannel = std::clamp(static_cast<double>(lightColorChannel), 0.0, 1.0);
+            const double litChannel = (static_cast<double>(channel) * static_cast<double>(intensity) * resolvedLightColorChannel) / 255.0;
             return static_cast<std::uint8_t>(std::clamp(std::lround(litChannel), 0l, 255l));
         };
 
         return GS_SETREG_RGBAQ(
-            applyIntensity(material.GetBaseColorR()),
-            applyIntensity(material.GetBaseColorG()),
-            applyIntensity(material.GetBaseColorB()),
+            applyIntensity(material.GetBaseColorR(), lightColor.X),
+            applyIntensity(material.GetBaseColorG(), lightColor.Y),
+            applyIntensity(material.GetBaseColorB(), lightColor.Z),
             material.GetBaseColorA(),
             0x00);
     }

@@ -89,6 +89,7 @@ namespace helengine::ps2 {
         constexpr double CpuLightingScale = 124.15;
         constexpr double CpuLightingBias = 64.0;
         constexpr float DirectionalLightDiffuseIntensity = 0.65f;
+        const ::float3 WhiteLightColor(1.0f, 1.0f, 1.0f);
 
         int ResolveGsTextureDimensionExponent(int textureDimension) {
             if (textureDimension <= 0) {
@@ -267,9 +268,9 @@ namespace helengine::ps2 {
 
         void PopulateLightingConstants(const Ps2RuntimeMaterial& material, Ps2VuLightingConstants& lightingConstants);
 
-        std::uint64_t ResolveTexturedVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection);
+        std::uint64_t ResolveTexturedVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection, const ::float3& lightColor);
 
-        std::uint64_t ResolveTexturedVertexColor(const Ps2VuLightingConstants& lightingConstants, const ::float3& normalizedFaceNormal, const ::float3& normalizedLightDirection);
+        std::uint64_t ResolveTexturedVertexColor(const Ps2VuLightingConstants& lightingConstants, const ::float3& normalizedFaceNormal, const ::float3& normalizedLightDirection, const ::float3& lightColor);
 
         static_assert((sizeof(Ps2VuUntexturedTriangleRecord) % 16u) == 0u);
         static_assert((sizeof(Ps2VuUntexturedSharedState) % 16u) == 0u);
@@ -1230,9 +1231,10 @@ namespace helengine::ps2 {
             return GS_SETREG_UV(static_cast<std::uint32_t>(u), static_cast<std::uint32_t>(v));
         }
 
-        std::uint8_t ApplyIntensityToChannel(std::uint8_t channel, std::uint8_t intensity) {
-            const std::uint32_t litChannel = (static_cast<std::uint32_t>(channel) * static_cast<std::uint32_t>(intensity)) + 127u;
-            return static_cast<std::uint8_t>(litChannel / 255u);
+        std::uint8_t ApplyIntensityToChannel(std::uint8_t channel, std::uint8_t intensity, float lightColorChannel) {
+            const double resolvedLightColorChannel = std::clamp(static_cast<double>(lightColorChannel), 0.0, 1.0);
+            const double litChannel = (static_cast<double>(channel) * static_cast<double>(intensity) * resolvedLightColorChannel) / 255.0;
+            return static_cast<std::uint8_t>(std::clamp(std::lround(litChannel), 0l, 255l));
         }
 
         void PopulateLightingConstants(const Ps2RuntimeMaterial& material, Ps2VuLightingConstants& lightingConstants) {
@@ -1279,7 +1281,7 @@ namespace helengine::ps2 {
             return specularFactor * lightingConstants.SpecularScale;
         }
 
-        std::uint64_t ResolveTexturedVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection) {
+        std::uint64_t ResolveTexturedVertexColor(const Ps2RuntimeMaterial& material, const ::float3& normal, const ::float3& lightDirection, const ::float3& lightColor) {
             Ps2VuLightingConstants lightingConstants {};
             PopulateLightingConstants(material, lightingConstants);
             if (lightingConstants.Unlit) {
@@ -1290,15 +1292,20 @@ namespace helengine::ps2 {
                 + static_cast<double>(normal.Y) * static_cast<double>(normal.Y)
                 + static_cast<double>(normal.Z) * static_cast<double>(normal.Z);
             if (normalLengthSquared <= 0.000001) {
-                return GS_SETREG_RGBAQ(0x40, 0x40, 0x40, 0x80, 0x00);
+                return GS_SETREG_RGBAQ(
+                    ApplyIntensityToChannel(0xFF, 0x40, lightColor.X),
+                    ApplyIntensityToChannel(0xFF, 0x40, lightColor.Y),
+                    ApplyIntensityToChannel(0xFF, 0x40, lightColor.Z),
+                    0x80,
+                    0x00);
             }
 
             const ::float3 normalizedFaceNormal = NormalizeOrFallback(normal, ::float3(0.0f, 0.0f, -1.0f));
             const ::float3 normalizedLightDirection = NormalizeOrFallback(lightDirection, ::float3(0.0f, 0.0f, -1.0f));
-            return ResolveTexturedVertexColor(lightingConstants, normalizedFaceNormal, normalizedLightDirection);
+            return ResolveTexturedVertexColor(lightingConstants, normalizedFaceNormal, normalizedLightDirection, lightColor);
         }
 
-        std::uint64_t ResolveTexturedVertexColor(const Ps2VuLightingConstants& lightingConstants, const ::float3& normalizedFaceNormal, const ::float3& normalizedLightDirection) {
+        std::uint64_t ResolveTexturedVertexColor(const Ps2VuLightingConstants& lightingConstants, const ::float3& normalizedFaceNormal, const ::float3& normalizedLightDirection, const ::float3& lightColor) {
             if (lightingConstants.Unlit) {
                 return GS_SETREG_RGBAQ(lightingConstants.BaseColorR, lightingConstants.BaseColorG, lightingConstants.BaseColorB, lightingConstants.BaseColorA, 0x00);
             }
@@ -1317,9 +1324,9 @@ namespace helengine::ps2 {
 
             const std::uint8_t intensity = static_cast<std::uint8_t>(std::clamp(std::lround(intensityValue), 0l, 255l));
             return GS_SETREG_RGBAQ(
-                ApplyIntensityToChannel(lightingConstants.BaseColorR, intensity),
-                ApplyIntensityToChannel(lightingConstants.BaseColorG, intensity),
-                ApplyIntensityToChannel(lightingConstants.BaseColorB, intensity),
+                ApplyIntensityToChannel(lightingConstants.BaseColorR, intensity, lightColor.X),
+                ApplyIntensityToChannel(lightingConstants.BaseColorG, intensity, lightColor.Y),
+                ApplyIntensityToChannel(lightingConstants.BaseColorB, intensity, lightColor.Z),
                 lightingConstants.BaseColorA,
                 0x00);
         }
@@ -1478,7 +1485,7 @@ namespace helengine::ps2 {
         SubmittedTriangleVertexB2 = ::float4(0.0f, 0.0f, 0.0f, 0.0f);
     }
 
-    void Ps2VuVifPacketBuilder::AddOpaqueBatch(const Ps2VuOpaqueBatch& batch, const ::float4x4& world, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance, const ::float3& lightDirection, GSGLOBAL* gsGlobal, GSTEXTURE* texture, int textureWidth, int textureHeight) {
+    void Ps2VuVifPacketBuilder::AddOpaqueBatch(const Ps2VuOpaqueBatch& batch, const ::float4x4& world, const ::float4x4& view, const ::float4x4& projection, const ::float4& viewport, float nearPlaneDistance, const ::float3& lightDirection, const ::float3& lightColor, GSGLOBAL* gsGlobal, GSTEXTURE* texture, int textureWidth, int textureHeight) {
         if (batch.Model == nullptr || batch.Material == nullptr) {
             return;
         }
@@ -1519,7 +1526,7 @@ namespace helengine::ps2 {
         const std::clock_t triangleSetupStartTicks = std::clock();
         if (EnableVuFixedTriangleDiagnostics) {
             Ps2VuUntexturedTrianglePayload payload {};
-            const std::uint64_t triangleColor = ResolveTexturedVertexColor(*batch.Material, ::float3(0.0f, 0.0f, -1.0f), normalizedLightDirection);
+            const std::uint64_t triangleColor = ResolveTexturedVertexColor(*batch.Material, ::float3(0.0f, 0.0f, -1.0f), normalizedLightDirection, lightColor);
             Ps2VuFlatColor flatColor {};
             flatColor.Red = static_cast<std::uint8_t>(triangleColor & 0xFFu);
             flatColor.Green = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
@@ -1620,7 +1627,7 @@ namespace helengine::ps2 {
                     continue;
                 }
 
-                const std::uint64_t triangleColor = ResolveTexturedVertexColor(lightingConstants, worldFaceNormal, normalizedLightDirection);
+                const std::uint64_t triangleColor = ResolveTexturedVertexColor(lightingConstants, worldFaceNormal, normalizedLightDirection, lightColor);
                 Ps2VuFlatColor flatColor {};
                 flatColor.Red = static_cast<std::uint8_t>(triangleColor & 0xFFu);
                 flatColor.Green = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
@@ -1817,7 +1824,7 @@ namespace helengine::ps2 {
                             batch.Material->GetBaseColorB(),
                             batch.Material->GetBaseColorA(),
                             0x00)
-                        : ResolveTexturedVertexColor(lightingConstants, triangleWorldNormal, normalizedLightDirection);
+                        : ResolveTexturedVertexColor(lightingConstants, triangleWorldNormal, normalizedLightDirection, lightColor);
 
                     texturedTrianglePackets.push_back(
                         BuildTexturedTriangleGifPacketBytes(
@@ -2035,6 +2042,7 @@ namespace helengine::ps2 {
         const ::float4& viewport,
         float nearPlaneDistance,
         const ::float3& lightDirection,
+        const ::float3& lightColor,
         GSGLOBAL* gsGlobal,
         bool createVifPacket) {
         if (batches.size() != worlds.size()) {
@@ -2148,7 +2156,7 @@ namespace helengine::ps2 {
                     continue;
                 }
 
-                const std::uint64_t triangleColor = ResolveTexturedVertexColor(lightingConstants, worldFaceNormal, normalizedLightDirection);
+                const std::uint64_t triangleColor = ResolveTexturedVertexColor(lightingConstants, worldFaceNormal, normalizedLightDirection, lightColor);
                 Ps2VuFlatColor flatColor {};
                 flatColor.Red = static_cast<std::uint8_t>(triangleColor & 0xFFu);
                 flatColor.Green = static_cast<std::uint8_t>((triangleColor >> 8u) & 0xFFu);
@@ -2292,6 +2300,7 @@ namespace helengine::ps2 {
         const ::float4& viewport,
         float nearPlaneDistance,
         const ::float3& lightDirection,
+        const ::float3& lightColor,
         GSGLOBAL* gsGlobal,
         const std::vector<GSTEXTURE*>& textures,
         const std::vector<int>& textureWidths,
@@ -2424,9 +2433,10 @@ namespace helengine::ps2 {
                 cachedSharedState.GsOffset[3] = 0.0f;
                 Ps2VuLightingConstants lightingConstants {};
                 PopulateLightingConstants(*batch->Material, lightingConstants);
-                cachedSharedState.MaterialLighting[0] = static_cast<float>(lightingConstants.BaseColorR) / 255.0f;
-                cachedSharedState.MaterialLighting[1] = static_cast<float>(lightingConstants.BaseColorG) / 255.0f;
-                cachedSharedState.MaterialLighting[2] = static_cast<float>(lightingConstants.BaseColorB) / 255.0f;
+                const ::float3 resolvedLightColor = lightingConstants.Unlit ? WhiteLightColor : lightColor;
+                cachedSharedState.MaterialLighting[0] = (static_cast<float>(lightingConstants.BaseColorR) / 255.0f) * resolvedLightColor.X;
+                cachedSharedState.MaterialLighting[1] = (static_cast<float>(lightingConstants.BaseColorG) / 255.0f) * resolvedLightColor.Y;
+                cachedSharedState.MaterialLighting[2] = (static_cast<float>(lightingConstants.BaseColorB) / 255.0f) * resolvedLightColor.Z;
                 cachedSharedState.MaterialLighting[3] = static_cast<float>(lightingConstants.DiffuseScale) * DirectionalLightDiffuseIntensity;
                 cachedSharedState.TriangleCount[1] = batch->Material->GetDoubleSided() ? 1u : 0u;
                 cachedSharedState.TriangleCount[2] = static_cast<std::uint32_t>(TexturedVuOutputStartQword);
@@ -2589,6 +2599,7 @@ namespace helengine::ps2 {
         const ::float4& viewport,
         float nearPlaneDistance,
         const ::float3& lightDirection,
+        const ::float3& lightColor,
         GSGLOBAL* gsGlobal,
         const std::vector<GSTEXTURE*>& textures,
         const std::vector<int>& textureWidths,
@@ -2744,7 +2755,7 @@ namespace helengine::ps2 {
                             batch->Material->GetBaseColorB(),
                             batch->Material->GetBaseColorA(),
                             0x00)
-                        : ResolveTexturedVertexColor(lightingConstants, triangleWorldNormal, normalizedLightDirection);
+                        : ResolveTexturedVertexColor(lightingConstants, triangleWorldNormal, normalizedLightDirection, lightColor);
 
                     const std::array<std::uint64_t, TexturedTrianglePacketWordCount> trianglePacket = BuildTexturedTriangleGifPacketBytes(
                         gsGlobal,
@@ -2848,7 +2859,7 @@ namespace helengine::ps2 {
                             batch->Material->GetBaseColorB(),
                             batch->Material->GetBaseColorA(),
                             0x00)
-                        : ResolveTexturedVertexColor(lightingConstants, triangleWorldNormal, normalizedLightDirection);
+                        : ResolveTexturedVertexColor(lightingConstants, triangleWorldNormal, normalizedLightDirection, lightColor);
 
                     const std::array<std::uint64_t, TexturedTrianglePacketWordCount> trianglePacket = BuildTexturedTriangleGifPacketBytes(
                         gsGlobal,
