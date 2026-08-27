@@ -66,7 +66,9 @@ public static class Program {
                 ],
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,

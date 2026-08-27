@@ -340,7 +340,9 @@ public class Ps2PlatformAssetBuilderTests {
                 ],
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = CreateBuildRequest(manifest, outputRoot, workingRoot, generatedCoreRoot);
             Ps2PlatformAssetBuilder builder = new(new FakePs2NativeBuildExecutor());
@@ -681,7 +683,7 @@ public class Ps2PlatformAssetBuilderTests {
         Assert.False(materialAsset.CastShadows);
         Assert.True(materialAsset.UseVertexColor);
         Assert.False(materialAsset.ExpensiveModeAllowed);
-        Assert.Empty(result.ReferencedShaderAssetIds);
+        Assert.Empty(result.ReferencedShaderDependencies);
     }
 
     /// <summary>
@@ -930,7 +932,9 @@ public class Ps2PlatformAssetBuilderTests {
                 ],
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -1070,7 +1074,9 @@ public class Ps2PlatformAssetBuilderTests {
                 ],
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -1258,7 +1264,9 @@ public class Ps2PlatformAssetBuilderTests {
                 ],
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -1436,7 +1444,9 @@ public class Ps2PlatformAssetBuilderTests {
                 ],
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -1587,7 +1597,9 @@ public class Ps2PlatformAssetBuilderTests {
                 ],
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -1711,7 +1723,9 @@ public class Ps2PlatformAssetBuilderTests {
                 ],
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -1836,7 +1850,9 @@ public class Ps2PlatformAssetBuilderTests {
                 ],
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -1960,7 +1976,9 @@ public class Ps2PlatformAssetBuilderTests {
                 ],
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -2075,7 +2093,9 @@ public class Ps2PlatformAssetBuilderTests {
                 ],
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -2196,7 +2216,9 @@ public class Ps2PlatformAssetBuilderTests {
                 ],
                 Array.Empty<PlatformBuildCodeModule>(),
                 Array.Empty<PlatformArtifactPlacement>(),
-                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+                new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+                Array.Empty<PlatformCookWorkItem>(),
+                PlatformBuildRuntimeFeatureManifest.Empty);
 
             PlatformBuildRequest request = new(
                 manifest,
@@ -2916,7 +2938,8 @@ public class Ps2PlatformAssetBuilderTests {
                     "sha256:settings",
                     serializedSettings,
                     Array.Empty<PlatformCookWorkItemMetadata>())
-            ]);
+            ],
+            PlatformBuildRuntimeFeatureManifest.Empty);
     }
 
     /// <summary>

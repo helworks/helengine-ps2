@@ -43,7 +43,9 @@ public sealed class Ps2RuntimeAssetPathManifestWriterTests {
             ],
             Array.Empty<PlatformBuildCodeModule>(),
             Array.Empty<PlatformArtifactPlacement>(),
-            new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+            new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+            Array.Empty<PlatformCookWorkItem>(),
+            PlatformBuildRuntimeFeatureManifest.Empty);
 
         Dictionary<string, string> logicalToPhysicalPaths = new(StringComparer.OrdinalIgnoreCase) {
             ["cooked/scenes/DemoDiscMainMenu.hasset"] = "\\COOKED\\SCENES\\DEMODISC.HAS;1",
@@ -100,7 +102,9 @@ public sealed class Ps2RuntimeAssetPathManifestWriterTests {
             Array.Empty<PlatformBuildArtifact>(),
             Array.Empty<PlatformBuildCodeModule>(),
             Array.Empty<PlatformArtifactPlacement>(),
-            new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+            new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+            Array.Empty<PlatformCookWorkItem>(),
+            PlatformBuildRuntimeFeatureManifest.Empty);
 
         Ps2RuntimeAssetPathManifestWriter writer = new();
 
@@ -152,7 +156,9 @@ public sealed class Ps2RuntimeAssetPathManifestWriterTests {
             Array.Empty<PlatformBuildArtifact>(),
             Array.Empty<PlatformBuildCodeModule>(),
             Array.Empty<PlatformArtifactPlacement>(),
-            new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()));
+            new PlatformContainerWritePlan("ps2-disc-layout", Array.Empty<PlatformContainerArtifact>()),
+            Array.Empty<PlatformCookWorkItem>(),
+            PlatformBuildRuntimeFeatureManifest.Empty);
 
         Ps2RuntimeAssetPathManifestWriter writer = new();
 
