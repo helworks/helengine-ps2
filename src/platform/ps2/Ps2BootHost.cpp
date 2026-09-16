@@ -340,6 +340,55 @@ namespace {
     double ResolveMillisecondsFromClockTicks(std::clock_t startTicks, std::clock_t endTicks);
     std::string FormatOverlayMilliseconds(double milliseconds);
     std::string FormatFloat4(const ::float4& value);
+
+    u8 ResolveCameraClearColorComponent(float component, float maximumValue) {
+        const double clampedComponent = std::clamp(static_cast<double>(component), 0.0, 1.0);
+        return static_cast<u8>(std::clamp(
+            std::lround(clampedComponent * static_cast<double>(maximumValue)),
+            0l,
+            static_cast<long>(maximumValue)));
+    }
+
+    u64 ResolveFrameClearColor(::Core* engineCore) {
+        constexpr u8 DefaultClearComponent = 0x10;
+        constexpr u8 DefaultClearAlpha = 0x00;
+        if (engineCore == nullptr || engineCore->get_ObjectManager() == nullptr) {
+            return GS_SETREG_RGBAQ(DefaultClearComponent, DefaultClearComponent, DefaultClearComponent, DefaultClearAlpha, 0x00);
+        }
+
+        List<::ICamera*>* cameras = engineCore->get_ObjectManager()->get_Cameras();
+        if (cameras == nullptr) {
+            return GS_SETREG_RGBAQ(DefaultClearComponent, DefaultClearComponent, DefaultClearComponent, DefaultClearAlpha, 0x00);
+        }
+
+        for (int32_t cameraIndex = 0; cameraIndex < cameras->get_Count(); cameraIndex++) {
+            ::CameraComponent* camera = he_cpp_try_cast<::CameraComponent>((*cameras)[cameraIndex]);
+            if (camera == nullptr || camera->get_IsDisposed()) {
+                continue;
+            }
+
+            ::Entity* cameraParent = camera->get_ParentUnsafe();
+            if (cameraParent == nullptr || cameraParent->get_IsDisposed()) {
+                continue;
+            }
+
+            ::CameraClearSettings clearSettings = camera->get_ClearSettings();
+            if (!clearSettings.get_ClearColorEnabled()) {
+                return GS_SETREG_RGBAQ(DefaultClearComponent, DefaultClearComponent, DefaultClearComponent, DefaultClearAlpha, 0x00);
+            }
+
+            const ::float4 clearColor = clearSettings.get_ClearColor();
+            return GS_SETREG_RGBAQ(
+                ResolveCameraClearColorComponent(clearColor.X, 255.0f),
+                ResolveCameraClearColorComponent(clearColor.Y, 255.0f),
+                ResolveCameraClearColorComponent(clearColor.Z, 255.0f),
+                ResolveCameraClearColorComponent(clearColor.W, 128.0f),
+                0x00);
+        }
+
+        return GS_SETREG_RGBAQ(DefaultClearComponent, DefaultClearComponent, DefaultClearComponent, DefaultClearAlpha, 0x00);
+    }
+
     void ApplyPlatformPerformanceOverlayRows(::Core* engineCore);
     void BootLog(const char* message);
 
@@ -3108,6 +3157,8 @@ namespace helengine::ps2 {
         InitializeVuOpaqueDoubleBuffer();
 
         gsKit_init_screen(GsGlobal);
+        // Repeat-mode texture addressing so tiled UVs wrap instead of smearing the edge texels.
+        gsKit_set_clamp(GsGlobal, GS_CMODE_REPEAT);
         EngineRenderManager3D->AddWindow(
             0,
             static_cast<int32_t>(GsGlobal->Width),
@@ -3371,7 +3422,7 @@ namespace helengine::ps2 {
                     BootLog(std::string("frame heartbeat=") + std::to_string(frameHeartbeat) + " stage=AfterUpdate");
                 }
 
-                const u64 clearColor = GS_SETREG_RGBAQ(0x10, 0x10, 0x10, 0x00, 0x00);
+                const u64 clearColor = ResolveFrameClearColor(EngineCore);
                 gsKit_clear(GsGlobal, clearColor);
                 gsKit_set_test(GsGlobal, GS_ATEST_OFF);
                 gsKit_set_primalpha(GsGlobal, GS_SETREG_ALPHA(0, 0, 0, 0, 0), 0);
