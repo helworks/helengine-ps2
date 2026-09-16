@@ -92,6 +92,8 @@ namespace helengine::ps2 {
         if (analogAvailable) {
             snapshot.LeftStickX = NormalizeAnalogAxis(buttons.ljoy_h);
             snapshot.LeftStickY = NormalizeAnalogAxis(buttons.ljoy_v);
+            snapshot.RightStickX = NormalizeAnalogAxis(buttons.rjoy_h);
+            snapshot.RightStickY = NormalizeAnalogAxis(buttons.rjoy_v);
         }
         return snapshot;
     }
@@ -135,6 +137,8 @@ namespace helengine::ps2 {
         gamepad.set_RightTrigger(CurrentButtons.R2 ? 32767 : 0);
         gamepad.set_LeftStickX(CurrentButtons.LeftStickX);
         gamepad.set_LeftStickY(CurrentButtons.LeftStickY);
+        gamepad.set_RightStickX(CurrentButtons.RightStickX);
+        gamepad.set_RightStickY(CurrentButtons.RightStickY);
         return gamepad;
     }
 

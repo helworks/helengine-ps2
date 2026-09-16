@@ -384,6 +384,23 @@ public sealed class Ps2NativeBuildInputsTests {
     }
 
     /// <summary>
+    /// Ensures the PS2 DualShock right analog axes are normalized and published through the shared gamepad state used by the Tilt Trial camera.
+    /// </summary>
+    [Fact]
+    public void Ps2_input_backend_maps_dualshock_right_stick_axes() {
+        string repositoryRootPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+        string mapperHeader = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2PadInputMapper.hpp"));
+        string inputSource = File.ReadAllText(Path.Combine(repositoryRootPath, "src", "platform", "ps2", "Ps2InputBackend.cpp"));
+
+        Assert.Contains("int16_t RightStickX = 0;", mapperHeader, StringComparison.Ordinal);
+        Assert.Contains("int16_t RightStickY = 0;", mapperHeader, StringComparison.Ordinal);
+        Assert.Contains("snapshot.RightStickX = NormalizeAnalogAxis(buttons.rjoy_h);", inputSource, StringComparison.Ordinal);
+        Assert.Contains("snapshot.RightStickY = NormalizeAnalogAxis(buttons.rjoy_v);", inputSource, StringComparison.Ordinal);
+        Assert.Contains("gamepad.set_RightStickX(CurrentButtons.RightStickX);", inputSource, StringComparison.Ordinal);
+        Assert.Contains("gamepad.set_RightStickY(CurrentButtons.RightStickY);", inputSource, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Ensures the PS2 controller mapper remains gamepad-only and never imports desktop keyboard generated-core state.
     /// </summary>
     [Fact]

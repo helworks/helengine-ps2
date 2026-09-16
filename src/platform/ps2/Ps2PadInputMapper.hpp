@@ -21,6 +21,8 @@ namespace helengine::ps2 {
         bool Select = false;
         int16_t LeftStickX = 0;
         int16_t LeftStickY = 0;
+        int16_t RightStickX = 0;
+        int16_t RightStickY = 0;
     };
 
     inline bool WasButtonJustPressed(bool current, bool previous) {
