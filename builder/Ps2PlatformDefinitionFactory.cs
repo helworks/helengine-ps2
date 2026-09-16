@@ -520,9 +520,11 @@ public static class Ps2PlatformDefinitionFactory {
                 TextureAssetColorFormat.Indexed8.ToString()
             ],
             [
+                TextureAssetAlphaPrecision.Opaque,
                 TextureAssetAlphaPrecision.A8
             ],
             [
+                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Rgba32.ToString(), TextureAssetAlphaPrecision.Opaque),
                 new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Rgba32.ToString(), TextureAssetAlphaPrecision.A8),
                 new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed4.ToString(), TextureAssetAlphaPrecision.A8),
                 new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed8.ToString(), TextureAssetAlphaPrecision.A8)

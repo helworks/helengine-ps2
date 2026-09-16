@@ -48,7 +48,9 @@ public sealed class Ps2RuntimeTextureCooker {
         if (processedTexture.Colors == null || processedTexture.Colors.Length == 0) {
             throw new InvalidOperationException("Decoded source textures must contain pixel data.");
         }
-        if (processedTexture.ColorFormat == TextureAssetColorFormat.Rgba32 && processedTexture.AlphaPrecision == TextureAssetAlphaPrecision.A8) {
+        if (processedTexture.ColorFormat == TextureAssetColorFormat.Rgba32 &&
+            (processedTexture.AlphaPrecision == TextureAssetAlphaPrecision.Opaque ||
+             processedTexture.AlphaPrecision == TextureAssetAlphaPrecision.A8)) {
             return new Ps2TextureAsset {
                 Width = processedTexture.Width,
                 Height = processedTexture.Height,

@@ -212,7 +212,7 @@ public class Ps2PlatformAssetBuilderTests {
             },
             textureFormatCapabilities.SupportedColorFormatIds);
         Assert.Equal(
-            new[] { TextureAssetAlphaPrecision.A8 },
+            new[] { TextureAssetAlphaPrecision.Opaque, TextureAssetAlphaPrecision.A8 },
             textureFormatCapabilities.SupportedAlphaPrecisions);
         Assert.Collection(
             textureFormatCapabilities.SupportedCombinations.OrderBy(combination => combination.ColorFormatId, StringComparer.Ordinal),
@@ -223,6 +223,10 @@ public class Ps2PlatformAssetBuilderTests {
             combination => {
                 Assert.Equal(TextureAssetColorFormat.Indexed8.ToString(), combination.ColorFormatId);
                 Assert.Equal(TextureAssetAlphaPrecision.A8, combination.AlphaPrecision);
+            },
+            combination => {
+                Assert.Equal(TextureAssetColorFormat.Rgba32.ToString(), combination.ColorFormatId);
+                Assert.Equal(TextureAssetAlphaPrecision.Opaque, combination.AlphaPrecision);
             },
             combination => {
                 Assert.Equal(TextureAssetColorFormat.Rgba32.ToString(), combination.ColorFormatId);
