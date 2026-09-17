@@ -438,6 +438,13 @@ public static class Ps2PlatformDefinitionFactory {
                 PlatformSettingKind.Text,
                 "helengine::ps2::Ps2DiscFileSystem",
                 true,
+                []),
+            new PlatformSettingDefinition(
+                "codegen-use-rtti",
+                "Use Compiler RTTI",
+                PlatformSettingKind.Boolean,
+                "true",
+                true,
                 [])
         ];
     }
