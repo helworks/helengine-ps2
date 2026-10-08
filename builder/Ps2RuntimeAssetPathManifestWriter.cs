@@ -35,14 +35,27 @@ public sealed class Ps2RuntimeAssetPathManifestWriter {
             throw new InvalidOperationException($"The startup scene '{startupLogicalPath}' was not staged into a PS2 physical disc path.");
         }
 
-        File.WriteAllText(Path.Combine(runtimeRootPath, "runtime_ps2_asset_path_manifest.hpp"), BuildHeaderContents());
-        File.WriteAllText(
+        WriteTextIfChanged(Path.Combine(runtimeRootPath, "runtime_ps2_asset_path_manifest.hpp"), BuildHeaderContents());
+        WriteTextIfChanged(
             Path.Combine(runtimeRootPath, "runtime_ps2_asset_path_manifest.cpp"),
             BuildSourceContents(BuildRuntimePhysicalPath(startupPhysicalPath), logicalToPhysicalPaths));
-        File.WriteAllText(Path.Combine(runtimeRootPath, "runtime_scene_catalog_manifest.hpp"), BuildSceneCatalogHeaderContents());
-        File.WriteAllText(
+        WriteTextIfChanged(Path.Combine(runtimeRootPath, "runtime_scene_catalog_manifest.hpp"), BuildSceneCatalogHeaderContents());
+        WriteTextIfChanged(
             Path.Combine(runtimeRootPath, "runtime_scene_catalog_manifest.cpp"),
             BuildSceneCatalogSourceContents(manifest, logicalToPhysicalPaths));
+    }
+
+    /// <summary>
+    /// Writes generated text only when its contents changed so native dependency files do not trigger redundant compilation.
+    /// </summary>
+    /// <param name="path">Destination generated-source path.</param>
+    /// <param name="contents">Complete generated source contents.</param>
+    static void WriteTextIfChanged(string path, string contents) {
+        if (File.Exists(path) && string.Equals(File.ReadAllText(path), contents, StringComparison.Ordinal)) {
+            return;
+        }
+
+        File.WriteAllText(path, contents);
     }
 
     /// <summary>

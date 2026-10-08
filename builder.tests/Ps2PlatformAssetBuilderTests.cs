@@ -161,7 +161,8 @@ public class Ps2PlatformAssetBuilderTests {
         try {
             Directory.SetCurrentDirectory(stagingRoot);
 
-            Ps2PlatformAssetBuilder builder = new(new FakePs2NativeBuildExecutor());
+            FakePs2NativeBuildExecutor nativeBuildExecutor = new();
+            Ps2PlatformAssetBuilder builder = new(nativeBuildExecutor);
             PlatformBuildManifest manifest = CreateManifestWithTextureWorkItem(
                 sourceTexturePath,
                 "texture",
@@ -179,6 +180,9 @@ public class Ps2PlatformAssetBuilderTests {
             PlatformBuildReport report = await builder.BuildAsync(request, progressReporter, diagnosticReporter, CancellationToken.None);
 
             Assert.True(report.Succeeded);
+            Assert.Equal(
+                Path.Combine(workingRoot, "native-cache", "helengine_ps2.elf"),
+                nativeBuildExecutor.LastWorkspace.NativeExecutablePath);
             string stagedTexturePath = Path.Combine(request.WorkingRoot, "ps2-staging", "cooked", "textures", "logo.hasset");
             Assert.True(File.Exists(stagedTexturePath));
             using FileStream textureStream = File.OpenRead(stagedTexturePath);
@@ -2744,7 +2748,7 @@ public class Ps2PlatformAssetBuilderTests {
             }
         };
 
-        MaterialAssetSettingsService settingsService = new();
+        MaterialAssetSettingsService settingsService = new(projectRoot);
         settingsService.Save(materialPath, settings);
     }
 
@@ -2985,7 +2989,8 @@ public class Ps2PlatformAssetBuilderTests {
             new Dictionary<string, string>(),
             generatedCoreRoot,
             "ps2-install-tree",
-            "disc-layout");
+            "disc-layout",
+            nativeObjectCacheRoot: Path.Combine(workingRoot, "native-cache"));
     }
 
     /// <summary>

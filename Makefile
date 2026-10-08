@@ -92,7 +92,9 @@ CXXFLAGS := \
 	-O2 \
 	-Wall \
 	-Wextra \
-	-Wno-unused-parameter
+	-Wno-unused-parameter \
+	-MMD \
+	-MP
 
 HOST_CPPFLAGS := \
 	-I$(SOURCE_DIR) \
@@ -137,6 +139,9 @@ LDLIBS := \
 	-ldma \
 	-lgraph
 
+NATIVE_CONFIG_FINGERPRINT := $(shell { $(CXX) --version 2>/dev/null | head -1; $(AS) --version 2>/dev/null | head -1; $(EE_DVP) --version 2>/dev/null | head -1; sha256sum Dockerfile 2>/dev/null; printf '%s\n' '$(CPPFLAGS)' '$(CXXFLAGS)' '$(LDFLAGS)' '$(LDLIBS)' '$(GSKIT_CFLAGS)' '$(GSKIT_LIBS)'; } | sha256sum | cut -d ' ' -f 1)
+NATIVE_CONFIG_STAMP := $(BUILD_DIR)/.native-config
+
 HOST_DEBUGGER_SOURCES := \
 	$(HOST_DEBUGGER_DIR)/main.cpp \
 	$(HOST_DEBUGGER_DIR)/Ps2HostDebugSession.cpp \
@@ -164,6 +169,18 @@ HOST_DEBUGGER_OBJECTS := \
 .PHONY: all clean ps2-host-debugger ps2-rendering-tests
 
 all: $(TARGET)
+
+.PHONY: FORCE_NATIVE_CONFIG
+FORCE_NATIVE_CONFIG:
+
+$(NATIVE_CONFIG_STAMP): FORCE_NATIVE_CONFIG
+	@mkdir -p $(dir $@)
+	@printf '%s\n' '$(NATIVE_CONFIG_FINGERPRINT)' > $@.tmp
+	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm $@.tmp; fi
+
+$(OBJECTS): Makefile $(NATIVE_CONFIG_STAMP)
+
+-include $(OBJECTS:.o=.d)
 
 ps2-rendering-tests: $(PS2_RENDERING_TEST_TARGET)
 	$(PS2_RENDERING_TEST_TARGET)

@@ -489,7 +489,10 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         }
 
         string repositoryRootPath = ResolveRepositoryRootPath();
-        string nativeExecutablePath = Path.Combine(request.WorkingRoot, "ps2-native", "helengine_ps2.elf");
+        string nativeBuildRootPath = string.IsNullOrWhiteSpace(request.NativeObjectCacheRoot)
+            ? Path.Combine(request.WorkingRoot, "ps2-native")
+            : request.NativeObjectCacheRoot;
+        string nativeExecutablePath = Path.Combine(nativeBuildRootPath, "helengine_ps2.elf");
         string stagingRootPath = Path.Combine(request.WorkingRoot, "ps2-staging");
         string artifactRootPath = Path.Combine(request.WorkingRoot, "ps2-artifacts");
         return new Ps2BuildWorkspace(
