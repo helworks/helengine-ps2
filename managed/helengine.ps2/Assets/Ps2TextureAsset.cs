@@ -2,7 +2,7 @@ namespace helengine {
     /// <summary>
     /// Stores one PS2-owned cooked runtime texture payload emitted by the PS2 builder.
     /// </summary>
-    public class Ps2TextureAsset : Asset {
+    public class Ps2TextureAsset : Asset, IDisposable {
         /// <summary>
         /// Gets or sets the cooked texture width in pixels.
         /// </summary>
@@ -36,11 +36,19 @@ namespace helengine {
         /// <summary>
         /// Gets or sets the packed PS2 texture pixel payload.
         /// </summary>
+        [NativeOwnedMember]
         public byte[] PixelData;
 
         /// <summary>
         /// Gets or sets the optional packed PS2 palette payload.
         /// </summary>
+        [NativeOwnedMember]
         public byte[] PaletteData;
+
+        /// <summary>Releases the independently owned compact pixel and CLUT buffers without changing serialized identity.</summary>
+        public void Dispose() {
+            NativeOwnership.Release(ref PixelData);
+            NativeOwnership.Release(ref PaletteData);
+        }
     }
 }

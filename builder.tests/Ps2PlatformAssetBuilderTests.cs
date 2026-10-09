@@ -213,13 +213,13 @@ public class Ps2PlatformAssetBuilderTests {
                 TextureAssetColorFormat.Rgba32.ToString(),
                 TextureAssetColorFormat.Indexed4.ToString(),
                 TextureAssetColorFormat.Indexed8.ToString()
-            },
+            }.Concat(Ps2GsTextureFormatCatalog.Formats.Select(format => format.Id)),
             textureFormatCapabilities.SupportedColorFormatIds);
         Assert.Equal(
-            new[] { TextureAssetAlphaPrecision.Opaque, TextureAssetAlphaPrecision.A8 },
+            Ps2GsTextureFormatCatalog.Formats.SelectMany(format => format.SupportedAlphaPrecisions).Distinct().OrderBy(alpha => alpha),
             textureFormatCapabilities.SupportedAlphaPrecisions);
         Assert.Collection(
-            textureFormatCapabilities.SupportedCombinations.OrderBy(combination => combination.ColorFormatId, StringComparer.Ordinal),
+            textureFormatCapabilities.SupportedCombinations.Where(combination => !combination.ColorFormatId.StartsWith("PS2.", StringComparison.Ordinal)).OrderBy(combination => combination.ColorFormatId, StringComparer.Ordinal),
             combination => {
                 Assert.Equal(TextureAssetColorFormat.Indexed4.ToString(), combination.ColorFormatId);
                 Assert.Equal(TextureAssetAlphaPrecision.A8, combination.AlphaPrecision);
@@ -236,6 +236,10 @@ public class Ps2PlatformAssetBuilderTests {
                 Assert.Equal(TextureAssetColorFormat.Rgba32.ToString(), combination.ColorFormatId);
                 Assert.Equal(TextureAssetAlphaPrecision.A8, combination.AlphaPrecision);
             });
+        foreach (Ps2GsTextureFormatDefinition format in Ps2GsTextureFormatCatalog.Formats) {
+            Assert.Equal(format.SupportedAlphaPrecisions,
+                textureFormatCapabilities.SupportedCombinations.Where(combination => combination.ColorFormatId == format.Id).Select(combination => combination.AlphaPrecision));
+        }
     }
 
     /// <summary>

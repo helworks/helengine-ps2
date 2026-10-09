@@ -527,21 +527,22 @@ public static class Ps2PlatformDefinitionFactory {
     /// </summary>
     /// <returns>Texture capability metadata for PS2 builder-owned texture cook contracts.</returns>
     static PlatformTextureFormatCapabilityDefinition CreateTextureFormatCapabilities() {
+        List<string> formatIds = ["Rgba32", "Indexed4", "Indexed8"];
+        HashSet<TextureAssetAlphaPrecision> alphaPrecisions = [TextureAssetAlphaPrecision.Opaque, TextureAssetAlphaPrecision.A8];
+        List<PlatformTextureFormatCombinationDefinition> combinations = [
+            new("Rgba32", TextureAssetAlphaPrecision.Opaque),
+            new("Rgba32", TextureAssetAlphaPrecision.A8),
+            new("Indexed4", TextureAssetAlphaPrecision.A8),
+            new("Indexed8", TextureAssetAlphaPrecision.A8)
+        ];
+        foreach (Ps2GsTextureFormatDefinition format in Ps2GsTextureFormatCatalog.Formats) {
+            formatIds.Add(format.Id);
+            foreach (TextureAssetAlphaPrecision alpha in format.SupportedAlphaPrecisions) {
+                alphaPrecisions.Add(alpha);
+                combinations.Add(new PlatformTextureFormatCombinationDefinition(format.Id, alpha));
+            }
+        }
         return new PlatformTextureFormatCapabilityDefinition(
-            [
-                TextureAssetColorFormat.Rgba32.ToString(),
-                TextureAssetColorFormat.Indexed4.ToString(),
-                TextureAssetColorFormat.Indexed8.ToString()
-            ],
-            [
-                TextureAssetAlphaPrecision.Opaque,
-                TextureAssetAlphaPrecision.A8
-            ],
-            [
-                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Rgba32.ToString(), TextureAssetAlphaPrecision.Opaque),
-                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Rgba32.ToString(), TextureAssetAlphaPrecision.A8),
-                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed4.ToString(), TextureAssetAlphaPrecision.A8),
-                new PlatformTextureFormatCombinationDefinition(TextureAssetColorFormat.Indexed8.ToString(), TextureAssetAlphaPrecision.A8)
-            ]);
+            formatIds, alphaPrecisions.OrderBy(alpha => alpha).ToArray(), combinations);
     }
 }

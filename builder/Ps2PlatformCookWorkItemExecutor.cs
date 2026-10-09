@@ -12,7 +12,9 @@ namespace helengine.ps2.builder;
 /// Executes builder-owned PS2 platform cook work items and writes their final runtime artifacts into staging.
 /// </summary>
 public sealed class Ps2PlatformCookWorkItemExecutor {
+    /// <summary>Reads authored images and standalone engine texture payloads.</summary>
     readonly Ps2SourceTextureDecoder SourceTextureDecoder;
+    /// <summary>Produces native GS texels and CLUTs from validated settings.</summary>
     readonly Ps2RuntimeTextureCooker RuntimeTextureCooker;
 
     /// <summary>
@@ -50,77 +52,82 @@ public sealed class Ps2PlatformCookWorkItemExecutor {
             throw new ArgumentNullException(nameof(progressReporter));
         }
 
+        try {
+            ExecuteBatch(request, progressReporter, cancellationToken);
+        } catch (OperationCanceledException) {
+            throw;
+        } catch (Exception exception) {
+            AddDiagnostic(diagnostics, diagnosticReporter, PlatformBuildDiagnosticSeverity.Error, "PS2BUILD003",
+                "Failed PS2 texture cook batch: " + exception.Message, string.Empty, string.Empty, request.WorkingRoot);
+        }
+    }
+
+    /// <summary>
+    /// Preflights every work item and prepares all serialized payloads before publishing any texture output.
+    /// </summary>
+    /// <param name="request">Active build request.</param>
+    /// <param name="progressReporter">Receives successful publication updates.</param>
+    /// <param name="cancellationToken">Cancels preparation without altering the preceding texture outputs.</param>
+    void ExecuteBatch(PlatformBuildRequest request, IPlatformBuildProgressReporter progressReporter, CancellationToken cancellationToken) {
+        IReadOnlyList<Ps2TextureCookWorkPlan> plans = Prepare(request, cancellationToken);
+        Publish(plans, progressReporter, cancellationToken);
+    }
+
+    /// <summary>Prepares native texture bytes without altering staged artifacts, allowing the builder to validate before other staging work.</summary>
+    internal IReadOnlyList<Ps2TextureCookWorkPlan> Prepare(PlatformBuildRequest request, CancellationToken cancellationToken) {
         PlatformCookWorkItem[] workItems = request.Manifest.PlatformCookWorkItems ?? Array.Empty<PlatformCookWorkItem>();
-        for (int workItemIndex = 0; workItemIndex < workItems.Length; workItemIndex++) {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (workItems.Length == 0) return Array.Empty<Ps2TextureCookWorkPlan>();
+        string root = Path.GetFullPath(Path.Combine(request.WorkingRoot, "ps2-staging"));
+        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+        foreach (PlatformBuildArtifact artifact in request.Manifest.CookedArtifacts ?? Array.Empty<PlatformBuildArtifact>()) {
+            string relative = Ps2TextureCookPath.Normalize(artifact.RelativePath);
+            Ps2TextureCookPath.Reserve(paths, relative);
+            if (string.Equals(artifact.ArtifactKind, "model", StringComparison.OrdinalIgnoreCase)) {
+                string modelPath = Path.ChangeExtension(relative, ".phm").Replace('\\', '/');
+                if (!paths.Contains(modelPath)) Ps2TextureCookPath.Reserve(paths, modelPath);
+            }
+        }
+        HashSet<string> sources = new(StringComparer.OrdinalIgnoreCase);
+        foreach (PlatformCookWorkItem workItem in workItems) sources.Add(Path.GetFullPath(workItem.SourceAssetPath));
+        List<Ps2TextureCookWorkPlan> plans = new(workItems.Length);
+        foreach (PlatformCookWorkItem workItem in workItems) {
             cancellationToken.ThrowIfCancellationRequested();
-
-            PlatformCookWorkItem workItem = workItems[workItemIndex];
-            if (!string.Equals(workItem.TargetPlatformId, "ps2", StringComparison.OrdinalIgnoreCase)) {
-                continue;
-            }
-
-            try {
-                ExecuteWorkItem(request, workItem);
-                progressReporter.Report(new PlatformBuildProgressUpdate(
-                    "Execute Platform Cook Work Items",
-                    workItem.OutputLogicalArtifactId,
-                    workItemIndex + 1,
-                    workItems.Length,
-                    $"Executed PS2 platform cook work item '{workItem.WorkItemId}'."));
-            } catch (Exception exception) {
-                AddDiagnostic(
-                    diagnostics,
-                    diagnosticReporter,
-                    PlatformBuildDiagnosticSeverity.Error,
-                    "PS2BUILD003",
-                    $"Failed to execute platform cook work item '{workItem.WorkItemId}' from '{workItem.SourceAssetPath}' (kind '{workItem.SourceAssetKind}'): {exception.Message}",
-                    string.Empty,
-                    workItem.OutputLogicalArtifactId,
-                    workItem.SourceAssetPath);
-            }
+            if (!string.Equals(workItem.TargetPlatformId, "ps2", StringComparison.OrdinalIgnoreCase) || workItem.TargetArtifactKind != "runtime-texture" ||
+                (workItem.SourceAssetKind != "texture" && workItem.SourceAssetKind != "font-atlas-texture")) throw new InvalidOperationException($"Unsupported PS2 cook contract '{workItem.WorkItemId}'.");
+            TextureAssetProcessorSettings settings = Ps2TextureCookSettingsSerializer.Deserialize(workItem.SerializedPlatformSettings);
+            string relative = Ps2TextureCookPath.Normalize(workItem.OutputRelativePath);
+            Ps2TextureCookPath.Reserve(paths, relative);
+            string destination = Ps2TextureCookPath.ResolveDestination(root, relative);
+            if (sources.Contains(destination)) throw new InvalidOperationException("PS2 cooked output would replace a cook source.");
+            if (!File.Exists(workItem.SourceAssetPath)) throw new FileNotFoundException("PS2 cook source was not found.", workItem.SourceAssetPath);
+            plans.Add(new Ps2TextureCookWorkPlan { WorkItem = workItem, Settings = settings, DestinationPath = destination, StagingRootPath = root });
         }
+        foreach (Ps2TextureCookWorkPlan plan in plans) {
+            cancellationToken.ThrowIfCancellationRequested();
+            using TextureAsset source = ResolveSourceTexture(plan.WorkItem);
+            using Ps2TextureAsset cooked = RuntimeTextureCooker.Cook(source, plan.Settings);
+            cooked.Id = plan.WorkItem.OutputLogicalArtifactId;
+            cooked.RuntimeAssetId = RuntimeAssetIdGenerator.Generate(cooked.Id);
+            plan.Payload = Ps2AssetSerializer.SerializeToBytes(cooked);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        return plans;
     }
 
-    /// <summary>
-    /// Executes one supported PS2 work item and writes the final runtime artifact into staging.
-    /// </summary>
-    /// <param name="request">Active build request.</param>
-    /// <param name="workItem">Work item to execute.</param>
-    void ExecuteWorkItem(PlatformBuildRequest request, PlatformCookWorkItem workItem) {
-        if (request == null) {
-            throw new ArgumentNullException(nameof(request));
+    /// <summary>Rechecks destinations and publishes only a batch whose source decoding and native cooking completed successfully.</summary>
+    internal void Publish(IReadOnlyList<Ps2TextureCookWorkPlan> plans, IPlatformBuildProgressReporter progressReporter, CancellationToken cancellationToken) {
+        cancellationToken.ThrowIfCancellationRequested();
+        foreach (Ps2TextureCookWorkPlan plan in plans) {
+            Ps2TextureCookPath.ResolveDestination(plan.StagingRootPath, plan.WorkItem.OutputRelativePath);
         }
-        if (workItem == null) {
-            throw new ArgumentNullException(nameof(workItem));
+        for (int index = 0; index < plans.Count; index++) {
+            Ps2TextureCookWorkPlan plan = plans[index];
+            Directory.CreateDirectory(Path.GetDirectoryName(plan.DestinationPath));
+            File.WriteAllBytes(plan.DestinationPath, plan.Payload);
+            progressReporter.Report(new PlatformBuildProgressUpdate("Execute Platform Cook Work Items", plan.WorkItem.OutputLogicalArtifactId,
+                index + 1, plans.Count, $"Executed PS2 platform cook work item '{plan.WorkItem.WorkItemId}'."));
         }
-
-        if (string.Equals(workItem.SourceAssetKind, "texture", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(workItem.SourceAssetKind, "font-atlas-texture", StringComparison.OrdinalIgnoreCase)) {
-            ExecuteTextureWorkItem(request, workItem);
-            return;
-        }
-
-        throw new InvalidOperationException($"PS2 does not support source asset kind '{workItem.SourceAssetKind}' yet.");
-    }
-
-    /// <summary>
-    /// Executes one texture-like PS2 work item and writes the cooked runtime texture payload into staging.
-    /// </summary>
-    /// <param name="request">Active build request.</param>
-    /// <param name="workItem">Texture-like work item to execute.</param>
-    void ExecuteTextureWorkItem(PlatformBuildRequest request, PlatformCookWorkItem workItem) {
-        TextureAsset sourceTexture = ResolveSourceTexture(workItem);
-        TextureAssetProcessorSettings settings = Ps2TextureCookSettingsSerializer.Deserialize(workItem.SerializedPlatformSettings);
-        Ps2TextureAsset cookedTexture = RuntimeTextureCooker.Cook(sourceTexture, settings);
-
-        string destinationPath = Path.Combine(request.WorkingRoot, "ps2-staging", NormalizeRelativePath(workItem.OutputRelativePath));
-        string destinationDirectory = Path.GetDirectoryName(destinationPath);
-        if (!string.IsNullOrWhiteSpace(destinationDirectory)) {
-            Directory.CreateDirectory(destinationDirectory);
-        }
-
-        cookedTexture.Id = workItem.OutputLogicalArtifactId;
-        File.WriteAllBytes(destinationPath, Ps2AssetSerializer.SerializeToBytes(cookedTexture));
     }
 
     /// <summary>
@@ -315,16 +322,4 @@ public sealed class Ps2PlatformCookWorkItemExecutor {
         diagnosticReporter.Report(diagnostic);
     }
 
-    /// <summary>
-    /// Normalizes one runtime-relative path into a filesystem-safe relative path.
-    /// </summary>
-    /// <param name="path">Runtime-relative path to normalize.</param>
-    /// <returns>Filesystem-safe relative path.</returns>
-    static string NormalizeRelativePath(string path) {
-        if (string.IsNullOrWhiteSpace(path)) {
-            throw new ArgumentException("Relative path is required.", nameof(path));
-        }
-
-        return path.Replace('/', Path.DirectorySeparatorChar).TrimStart(Path.DirectorySeparatorChar);
-    }
 }

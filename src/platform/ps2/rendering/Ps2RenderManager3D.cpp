@@ -33,6 +33,7 @@
 #include "PlatformMaterialAsset.hpp"
 #include "Ps2ModelAsset.hpp"
 #include "Ps2TextureAsset.hpp"
+#include "platform/ps2/rendering/Ps2NativeTextureUpload.hpp"
 #include "Ps2MaterialAsset.hpp"
 #include <Ps2MaterialLightingMode.hpp>
 #include "MaterialBlendMode.hpp"
@@ -299,19 +300,7 @@ namespace helengine::ps2 {
         }
 
         void ReleaseUploadedTextureStagingMemory(GSTEXTURE* texture) {
-            if (texture == nullptr) {
-                return;
-            }
-
-            if (texture->Clut != nullptr) {
-                free(texture->Clut);
-                texture->Clut = nullptr;
-            }
-
-            if (texture->Mem != nullptr) {
-                free(texture->Mem);
-                texture->Mem = nullptr;
-            }
+            if (texture != nullptr) ReleaseNativeTextureStaging(*texture);
         }
 
         void AppendTextureHeapDiagnosticToHostBootLog(const char* stage, const std::string& path) {
@@ -386,7 +375,7 @@ namespace helengine::ps2 {
                 return;
             }
 
-            ReleaseUploadedTextureStagingMemory(texture);
+            ReleaseNativeTexture(*texture);
 
             texture->Vram = 0;
             texture->VramClut = 0;
@@ -751,101 +740,25 @@ namespace helengine::ps2 {
             clippedVertices.swap(inputVertices);
         }
 
-        int ResolveGsPixelStorageMode(::Ps2TexturePixelStorageMode mode) {
-            if (mode == ::Ps2TexturePixelStorageMode::PsmCt32) {
-                return GS_PSM_CT32;
-            } else if (mode == ::Ps2TexturePixelStorageMode::PsmT8) {
-                return GS_PSM_T8;
-            } else if (mode == ::Ps2TexturePixelStorageMode::PsmT4) {
-                return GS_PSM_T4;
-            }
-
-            throw std::runtime_error("Unsupported PS2 texture pixel storage mode.");
-        }
-
-        int ResolveClutWidth(::Ps2TextureAsset* data) {
-            if (data == nullptr || data->PaletteData == nullptr || data->PaletteData->Length <= 0) {
-                return 0;
-            }
-
-            int paletteEntryCount = data->PaletteData->Length / 4;
-            if (paletteEntryCount <= 16) {
-                return 8;
-            }
-
-            return 16;
-        }
-
-        int ResolveClutHeight(::Ps2TextureAsset* data) {
-            if (data == nullptr || data->PaletteData == nullptr || data->PaletteData->Length <= 0) {
-                return 0;
-            }
-
-            int paletteEntryCount = data->PaletteData->Length / 4;
-            if (paletteEntryCount <= 16) {
-                return 2;
-            }
-
-            return 16;
-        }
-
-        GSTEXTURE* BuildTextureFromAsset(GSGLOBAL* gsGlobal, ::Ps2TextureAsset* data) {
-            if (gsGlobal == nullptr || data == nullptr || data->PixelData == nullptr || data->PixelData->Length <= 0 || data->Width <= 0 || data->Height <= 0) {
-                return nullptr;
-            }
-
+        GSTEXTURE* BuildTextureFromAsset(GSGLOBAL* gsGlobal, ::Ps2TextureAsset* data, Ps2NativeTextureLayout& layout) {
+            if (gsGlobal == nullptr || data == nullptr) return nullptr;
             GSTEXTURE* texture = new GSTEXTURE{};
-            texture->Width = data->Width;
-            texture->Height = data->Height;
-            texture->PSM = ResolveGsPixelStorageMode(data->PixelStorageMode);
-            texture->ClutPSM = ResolveGsPixelStorageMode(data->ClutPixelStorageMode);
-            texture->Clut = nullptr;
-            texture->VramClut = 0;
-            texture->Filter = GS_FILTER_NEAREST;
-            texture->ClutStorageMode = GS_CLUT_STORAGE_CSM1;
-            texture->Mem = static_cast<u32*>(memalign(128, static_cast<std::size_t>(data->PixelData->Length)));
-            if (texture->Mem == nullptr) {
-                delete texture;
-                return nullptr;
-            }
-
-            std::memcpy(texture->Mem, data->PixelData->Data, static_cast<std::size_t>(data->PixelData->Length));
-            if (data->PaletteData != nullptr && data->PaletteData->Length > 0) {
-                texture->Clut = static_cast<u32*>(memalign(128, static_cast<std::size_t>(data->PaletteData->Length)));
-                if (texture->Clut == nullptr) {
-                    free(texture->Mem);
+            try {
+                if (!PrepareNativeTexture(*texture, static_cast<std::uint32_t>(data->Format),
+                    static_cast<std::uint32_t>(data->PixelStorageMode), static_cast<std::uint32_t>(data->ClutPixelStorageMode),
+                    static_cast<std::uint32_t>(data->AlphaMode), data->Width, data->Height,
+                    data->PixelData == nullptr ? nullptr : data->PixelData->Data, data->PixelData == nullptr ? 0 : data->PixelData->Length,
+                    data->PaletteData == nullptr ? nullptr : data->PaletteData->Data, data->PaletteData == nullptr ? 0 : data->PaletteData->Length,
+                    layout)) {
                     delete texture;
                     return nullptr;
                 }
-
-                std::memcpy(texture->Clut, data->PaletteData->Data, static_cast<std::size_t>(data->PaletteData->Length));
-            }
-            texture->Vram = gsKit_vram_alloc(
-                gsGlobal,
-                gsKit_texture_size(texture->Width, texture->Height, texture->PSM),
-                GSKIT_ALLOC_USERBUFFER);
-            if (texture->Vram == GSKIT_ALLOC_ERROR) {
-                free(texture->Clut);
-                free(texture->Mem);
+            } catch (...) {
                 delete texture;
-                return nullptr;
+                throw;
             }
-            if (texture->Clut != nullptr) {
-                texture->VramClut = gsKit_vram_alloc(
-                    gsGlobal,
-                    gsKit_texture_size(ResolveClutWidth(data), ResolveClutHeight(data), GS_PSM_CT32),
-                    GSKIT_ALLOC_USERBUFFER);
-                if (texture->VramClut == GSKIT_ALLOC_ERROR) {
-                    free(texture->Clut);
-                    free(texture->Mem);
-                    delete texture;
-                    return nullptr;
-                }
-            }
-
             return texture;
         }
-
         GSTEXTURE* ResolveTexture(GSGLOBAL* gsGlobal, const std::string& textureRelativePath) {
             if (textureRelativePath.empty()) {
                 return nullptr;
@@ -889,14 +802,18 @@ namespace helengine::ps2 {
             });
             ::Ps2TextureAsset* textureAsset = he_cpp_try_cast<::Ps2TextureAsset>(asset);
             AppendTextureAssetDiagnosticToHostBootLog("before-build", textureRelativePath, textureAsset, nullptr, gsGlobal);
-            GSTEXTURE* texture = BuildTextureFromAsset(gsGlobal, textureAsset);
+            Ps2NativeTextureLayout layout;
+            GSTEXTURE* texture = BuildTextureFromAsset(gsGlobal, textureAsset, layout);
             AppendTextureAssetDiagnosticToHostBootLog("after-build", textureRelativePath, textureAsset, texture, gsGlobal);
             AppendTextureHeapDiagnosticToHostBootLog("after-build", textureRelativePath);
             if (texture == nullptr) {
                 return nullptr;
             }
 
-            gsKit_texture_upload(gsGlobal, texture);
+            if (!UploadNativeTexture(gsGlobal, *texture, layout)) {
+                ReleaseTextureRecord(texture);
+                return nullptr;
+            }
             ReleaseUploadedTextureStagingMemory(texture);
             AppendTextureHeapDiagnosticToHostBootLog("after-upload-release", textureRelativePath);
             TextureRecords.emplace(textureRelativePath, texture);
@@ -913,30 +830,18 @@ namespace helengine::ps2 {
                 return nullptr;
             }
 
-            GSTEXTURE* texture = new GSTEXTURE();
-            texture->Width = 1;
-            texture->Height = 1;
-            texture->PSM = GS_PSM_CT32;
-            texture->ClutPSM = GS_PSM_CT32;
-            texture->Clut = nullptr;
-            texture->VramClut = 0;
-            texture->Filter = GS_FILTER_NEAREST;
-            texture->ClutStorageMode = GS_CLUT_STORAGE_CSM1;
-            texture->Mem = static_cast<u32*>(memalign(128, 16u));
-            if (texture->Mem == nullptr) {
+            GSTEXTURE* texture = new GSTEXTURE{};
+            const std::uint8_t whitePixel[] = {255, 255, 255, 128};
+            Ps2NativeTextureLayout layout;
+            if (!PrepareNativeTexture(*texture, 0, 0, 0, 0, 1, 1, whitePixel, sizeof(whitePixel), nullptr, 0, layout)) {
                 delete texture;
                 return nullptr;
             }
-
-            std::memset(texture->Mem, 0xFF, 16u);
-            texture->Vram = gsKit_vram_alloc(gsGlobal, gsKit_texture_size(1, 1, texture->PSM), GSKIT_ALLOC_USERBUFFER);
-            if (texture->Vram == GSKIT_ALLOC_ERROR) {
-                free(texture->Mem);
-                delete texture;
+            if (!UploadNativeTexture(gsGlobal, *texture, layout)) {
+                ReleaseTextureRecord(texture);
                 return nullptr;
             }
-
-            gsKit_texture_upload(gsGlobal, texture);
+            ReleaseUploadedTextureStagingMemory(texture);
             TextureRecords.emplace(textureId, texture);
             return texture;
         }
@@ -973,6 +878,7 @@ namespace helengine::ps2 {
                     const ::float2 glowTexCoordA = ResolveGsTextureCoordinate(triangle.TexCoordA, triangle.Texture);
                     const ::float2 glowTexCoordB = ResolveGsTextureCoordinate(triangle.TexCoordB, triangle.Texture);
                     const ::float2 glowTexCoordC = ResolveGsTextureCoordinate(triangle.TexCoordC, triangle.Texture);
+                    QueueNativeTextureAlpha(gsGlobal, triangle.Texture);
                     gsKit_prim_triangle_goraud_texture_3d(
                         gsGlobal,
                         triangle.Texture,
@@ -2606,6 +2512,7 @@ namespace helengine::ps2 {
         if (!useDiagnosticFlatColor && !useLightingOnlyDiagnostics && material->HasTextureRelativePath()) {
             texture = ResolveTexture(GsGlobal, material->GetTextureRelativePath());
         }
+        if (texture != nullptr) QueueNativeTextureAlpha(GsGlobal, texture);
 
         for (std::size_t index = 0; index + 2 < indices.size(); index += 3) {
             std::uint16_t indexA = indices[index + 0];
@@ -3090,7 +2997,9 @@ namespace helengine::ps2 {
         const std::size_t pixelY = static_cast<std::size_t>(clampedV * static_cast<float>(texture->Height - 1));
         const std::size_t pixelIndex = (pixelY * static_cast<std::size_t>(texture->Width)) + pixelX;
         const std::uint8_t* colorBytes = reinterpret_cast<const std::uint8_t*>(texture->Mem);
-        return colorBytes[(pixelIndex * 4) + 3];
+        const Ps2NativeTextureLayout* layout = FindNativeTextureLayout(texture);
+        if (layout == nullptr) throw std::runtime_error("PS2 alpha sampling requires native texture metadata.");
+        return SampleNativeTextureAlpha(*layout, colorBytes, reinterpret_cast<const std::uint8_t*>(texture->Clut), pixelIndex);
     }
 
     ::float3 Ps2RenderManager3D::TransformPosition(const ::float3& position, const ::float4x4& matrix) const {

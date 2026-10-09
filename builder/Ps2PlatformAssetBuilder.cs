@@ -99,8 +99,18 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         List<PlatformBuildDiagnostic> diagnostics = [];
         List<PlatformBuildItemOutcome> sceneOutcomes = BuildSceneOutcomes(request.Manifest.Scenes);
         List<PlatformBuildItemOutcome> looseAssetOutcomes = BuildLooseAssetOutcomes(request.Manifest.LooseAssets);
-        StageCookedArtifacts(request, diagnostics, diagnosticReporter, progressReporter, cancellationToken);
-        PlatformCookWorkItemExecutor.Execute(request, diagnostics, diagnosticReporter, progressReporter, cancellationToken);
+        try {
+            IReadOnlyList<Ps2TextureCookWorkPlan> texturePlans = PlatformCookWorkItemExecutor.Prepare(request, cancellationToken);
+            StageCookedArtifacts(request, diagnostics, diagnosticReporter, progressReporter, cancellationToken);
+            if (diagnostics.Count == 0) {
+                PlatformCookWorkItemExecutor.Publish(texturePlans, progressReporter, cancellationToken);
+            }
+        } catch (OperationCanceledException) {
+            throw;
+        } catch (Exception exception) {
+            AddDiagnostic(diagnostics, diagnosticReporter, PlatformBuildDiagnosticSeverity.Error, "PS2BUILD003",
+                "Failed PS2 cook preparation or staging: " + exception.Message, string.Empty, string.Empty, request.WorkingRoot);
+        }
 
         if (diagnostics.Count == 0) {
             try {
@@ -135,6 +145,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             [.. looseAssetOutcomes]));
     }
 
+    /// <summary>Validates manifest sources and destinations before staging the existing non-texture artifact flows.</summary>
     void StageCookedArtifacts(
         PlatformBuildRequest request,
         List<PlatformBuildDiagnostic> diagnostics,
@@ -142,58 +153,36 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         IPlatformBuildProgressReporter progressReporter,
         CancellationToken cancellationToken) {
         PlatformBuildArtifact[] cookedArtifacts = request.Manifest.CookedArtifacts ?? [];
-        for (int artifactIndex = 0; artifactIndex < cookedArtifacts.Length; artifactIndex++) {
+        string root = Path.GetFullPath(Path.Combine(request.WorkingRoot, "ps2-staging"));
+        string[] sources = new string[cookedArtifacts.Length];
+        string[] destinations = new string[cookedArtifacts.Length];
+        HashSet<string> reserved = new(StringComparer.OrdinalIgnoreCase);
+        for (int index = 0; index < cookedArtifacts.Length; index++) {
             cancellationToken.ThrowIfCancellationRequested();
-
-            PlatformBuildArtifact artifact = cookedArtifacts[artifactIndex];
-            if (string.IsNullOrWhiteSpace(artifact.RelativePath)) {
-                AddDiagnostic(
-                    diagnostics,
-                    diagnosticReporter,
-                    PlatformBuildDiagnosticSeverity.Error,
-                    "PS2BUILD001",
-                    "Cooked artifact relative path is required.",
-                    string.Empty,
-                    string.Empty,
-                    string.Empty);
-                continue;
-            }
-
-            string sourcePath = ResolveStagedArtifactSourcePath(artifact.RelativePath);
-            if (!File.Exists(sourcePath)) {
-                AddDiagnostic(
-                    diagnostics,
-                    diagnosticReporter,
-                    PlatformBuildDiagnosticSeverity.Error,
-                    "PS2BUILD002",
+            PlatformBuildArtifact artifact = cookedArtifacts[index];
+            string relative = Ps2TextureCookPath.Normalize(artifact.RelativePath);
+            string outputRelative = IsModelArtifact(artifact) ? Path.ChangeExtension(relative, ".phm").Replace('\\', '/') : relative;
+            Ps2TextureCookPath.Reserve(reserved, outputRelative);
+            sources[index] = Ps2TextureCookPath.ResolveDestination(Directory.GetCurrentDirectory(), relative);
+            destinations[index] = Ps2TextureCookPath.ResolveDestination(root, outputRelative);
+            if (!File.Exists(sources[index])) {
+                AddDiagnostic(diagnostics, diagnosticReporter, PlatformBuildDiagnosticSeverity.Error, "PS2BUILD002",
                     $"Cooked artifact '{artifact.RelativePath}' was not found in the staged package root.",
-                    string.Empty,
-                    artifact.LogicalArtifactId,
-                    artifact.RelativePath);
-                continue;
+                    string.Empty, artifact.LogicalArtifactId, artifact.RelativePath);
             }
-
-            string destinationPath = Path.Combine(request.WorkingRoot, "ps2-staging", NormalizeRelativePath(artifact.RelativePath));
+        }
+        if (diagnostics.Count != 0) return;
+        for (int index = 0; index < cookedArtifacts.Length; index++) {
+            cancellationToken.ThrowIfCancellationRequested();
+            PlatformBuildArtifact artifact = cookedArtifacts[index];
+            Directory.CreateDirectory(Path.GetDirectoryName(destinations[index]));
             if (IsModelArtifact(artifact)) {
-                destinationPath = BuildPs2ModelArtifactPath(destinationPath);
-            }
-
-            string destinationDirectory = Path.GetDirectoryName(destinationPath);
-            if (!string.IsNullOrWhiteSpace(destinationDirectory)) {
-                Directory.CreateDirectory(destinationDirectory);
-            }
-
-            if (IsModelArtifact(artifact)) {
-                WritePs2ModelAsset(artifact, sourcePath, destinationPath);
+                WritePs2ModelAsset(artifact, sources[index], destinations[index]);
             } else {
-                File.Copy(sourcePath, destinationPath, true);
+                File.Copy(sources[index], destinations[index], true);
             }
-            progressReporter.Report(new PlatformBuildProgressUpdate(
-                "Stage Cooked Artifacts",
-                artifact.LogicalArtifactId,
-                artifactIndex + 1,
-                cookedArtifacts.Length,
-                $"Staged cooked artifact '{artifact.RelativePath}'."));
+            progressReporter.Report(new PlatformBuildProgressUpdate("Stage Cooked Artifacts", artifact.LogicalArtifactId,
+                index + 1, cookedArtifacts.Length, $"Staged cooked artifact '{artifact.RelativePath}'."));
         }
     }
 

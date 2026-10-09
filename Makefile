@@ -32,6 +32,8 @@ PS2_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/audio/Ps2AudioBackend.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2FramePlan.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2FramePlanner.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/Ps2NativeTextureLayout.cpp \
+	$(SOURCE_DIR)/platform/ps2/rendering/Ps2NativeTextureUpload.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RenderManager3D.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RenderProxy.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2RuntimeMaterial.cpp \

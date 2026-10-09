@@ -143,14 +143,14 @@ public sealed class Ps2RuntimeTextureCookerTests {
 
         Ps2TextureAsset cookedTexture = cooker.Cook(sourceTexture, settings);
 
-        Assert.Equal(BuildPaletteEntryBytes(0), cookedTexture.PaletteData.AsSpan(0, 4).ToArray());
-        Assert.Equal(BuildPaletteEntryBytes(7), cookedTexture.PaletteData.AsSpan(7 * 4, 4).ToArray());
-        Assert.Equal(BuildPaletteEntryBytes(16), cookedTexture.PaletteData.AsSpan(8 * 4, 4).ToArray());
-        Assert.Equal(BuildPaletteEntryBytes(23), cookedTexture.PaletteData.AsSpan(15 * 4, 4).ToArray());
-        Assert.Equal(BuildPaletteEntryBytes(8), cookedTexture.PaletteData.AsSpan(16 * 4, 4).ToArray());
-        Assert.Equal(BuildPaletteEntryBytes(15), cookedTexture.PaletteData.AsSpan(23 * 4, 4).ToArray());
-        Assert.Equal(BuildPaletteEntryBytes(24), cookedTexture.PaletteData.AsSpan(24 * 4, 4).ToArray());
-        Assert.Equal(BuildPaletteEntryBytes(31), cookedTexture.PaletteData.AsSpan(31 * 4, 4).ToArray());
+        Assert.Equal(BuildGsPaletteEntryBytes(0), cookedTexture.PaletteData.AsSpan(0, 4).ToArray());
+        Assert.Equal(BuildGsPaletteEntryBytes(7), cookedTexture.PaletteData.AsSpan(7 * 4, 4).ToArray());
+        Assert.Equal(BuildGsPaletteEntryBytes(16), cookedTexture.PaletteData.AsSpan(8 * 4, 4).ToArray());
+        Assert.Equal(BuildGsPaletteEntryBytes(23), cookedTexture.PaletteData.AsSpan(15 * 4, 4).ToArray());
+        Assert.Equal(BuildGsPaletteEntryBytes(8), cookedTexture.PaletteData.AsSpan(16 * 4, 4).ToArray());
+        Assert.Equal(BuildGsPaletteEntryBytes(15), cookedTexture.PaletteData.AsSpan(23 * 4, 4).ToArray());
+        Assert.Equal(BuildGsPaletteEntryBytes(24), cookedTexture.PaletteData.AsSpan(24 * 4, 4).ToArray());
+        Assert.Equal(BuildGsPaletteEntryBytes(31), cookedTexture.PaletteData.AsSpan(31 * 4, 4).ToArray());
     }
 
     /// <summary>
@@ -266,6 +266,13 @@ public sealed class Ps2RuntimeTextureCookerTests {
             (byte)(paletteIndex + 2),
             (byte)(0x80 + paletteIndex)
         ];
+    }
+
+    /// <summary>Converts the authored alpha in a known palette entry to the GS zero-through-128 range before comparing CLUT order.</summary>
+    static byte[] BuildGsPaletteEntryBytes(int paletteIndex) {
+        byte[] entry = BuildPaletteEntryBytes(paletteIndex);
+        entry[3] = (byte)Math.Round(entry[3] * 128d / 255d);
+        return entry;
     }
 
 }

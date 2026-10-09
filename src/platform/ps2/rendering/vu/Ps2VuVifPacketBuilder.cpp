@@ -17,6 +17,7 @@
 #include <draw_primitives.h>
 #include <draw_sampling.h>
 #include <gsKit.h>
+#include "platform/ps2/rendering/Ps2NativeTextureUpload.hpp"
 #include <gsInline.h>
 #include <packet2.h>
 #include <packet2_utils.h>
@@ -1383,14 +1384,10 @@ namespace helengine::ps2 {
             const std::uint64_t rgbaqRegisterC = BuildPerspectiveTextureColorRegister(triangleColor, reciprocalClipWC);
             std::array<std::uint64_t, TexturedTrianglePacketWordCount> packetWords {};
             std::size_t packetWordIndex = 0u;
-            packetWords[packetWordIndex++] = GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1);
-            packetWords[packetWordIndex++] = GIF_REG_AD;
-            packetWords[packetWordIndex++] = ResolveOpaqueUntexturedTestRegister(gsGlobal);
-            packetWords[packetWordIndex++] = GS_REG_TEST;
-            packetWords[packetWordIndex++] = GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1);
-            packetWords[packetWordIndex++] = GIF_REG_AD;
-            packetWords[packetWordIndex++] = GS_SET_TEX1(0, 0, texture->Filter, texture->Filter, 0, 0, 0);
-            packetWords[packetWordIndex++] = GS_REG_TEX1;
+            BuildNativeTextureStatePrefix(ResolveOpaqueUntexturedTestRegister(gsGlobal), GS_REG_TEST,
+                GS_SET_TEX1(0, 0, texture->Filter, texture->Filter, 0, 0, 0), GS_REG_TEX1,
+                GetNativeTextureAlpha(texture), packetWords.data());
+            packetWordIndex = 8;
             packetWords[packetWordIndex++] = texturedTriangleGifTag;
             packetWords[packetWordIndex++] = texturedTriangleGifRegisters;
             if (texture->VramClut == 0) {
@@ -2445,14 +2442,14 @@ namespace helengine::ps2 {
                 cachedSharedState.WorldLightDirection[1] = normalizedLightDirection.Y;
                 cachedSharedState.WorldLightDirection[2] = normalizedLightDirection.Z;
                 cachedSharedState.WorldLightDirection[3] = 0.0f;
-                cachedSharedState.StateTemplate[0].Low = GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1);
-                cachedSharedState.StateTemplate[0].High = GIF_REG_AD;
-                cachedSharedState.StateTemplate[1].Low = ResolveOpaqueUntexturedTestRegister(gsGlobal);
-                cachedSharedState.StateTemplate[1].High = GS_REG_TEST;
-                cachedSharedState.StateTemplate[2].Low = GIF_SET_TAG(1, 0, 0, 0, GIF_FLG_PACKED, 1);
-                cachedSharedState.StateTemplate[2].High = GIF_REG_AD;
-                cachedSharedState.StateTemplate[3].Low = GS_SET_TEX1(0, 0, texture->Filter, texture->Filter, 0, 0, 0);
-                cachedSharedState.StateTemplate[3].High = GS_REG_TEX1;
+                std::uint64_t nativeStatePrefix[8];
+                BuildNativeTextureStatePrefix(ResolveOpaqueUntexturedTestRegister(gsGlobal), GS_REG_TEST,
+                    GS_SET_TEX1(0, 0, texture->Filter, texture->Filter, 0, 0, 0), GS_REG_TEX1,
+                    GetNativeTextureAlpha(texture), nativeStatePrefix);
+                for (std::size_t stateIndex = 0; stateIndex < 4; stateIndex++) {
+                    cachedSharedState.StateTemplate[stateIndex].Low = nativeStatePrefix[stateIndex * 2];
+                    cachedSharedState.StateTemplate[stateIndex].High = nativeStatePrefix[stateIndex * 2 + 1];
+                }
                 const int textureWidthPower = ResolveGsTextureDimensionExponent(textureWidth);
                 const int textureHeightPower = ResolveGsTextureDimensionExponent(textureHeight);
                 cachedSharedState.StateTemplate[4].Low = GIF_SET_TAG(2, 0, 0, 0, GIF_FLG_PACKED, 1);

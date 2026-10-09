@@ -11,6 +11,9 @@ namespace helengine {
         /// <summary>
         /// Indicates that the texture stores a full alpha channel.
         /// </summary>
-        Full = 1
+        Full = 1,
+
+        /// <summary>Stores one alpha bit expanded through canonical TEXA transparent and opaque values.</summary>
+        Binary = 2
     }
 }

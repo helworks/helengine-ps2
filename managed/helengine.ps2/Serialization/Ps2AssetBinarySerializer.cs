@@ -329,18 +329,33 @@ namespace helengine {
             ReadAssetIdentity(reader, asset, version);
             asset.Width = reader.ReadUInt16();
             asset.Height = reader.ReadUInt16();
-            asset.Format = (Ps2TextureFormat)reader.ReadByte();
+            asset.Format = ReadPs2TextureFormat(reader);
             if (version >= TextureStorageMetadataVersion) {
-                asset.PixelStorageMode = (Ps2TexturePixelStorageMode)reader.ReadByte();
-                asset.ClutPixelStorageMode = (Ps2TexturePixelStorageMode)reader.ReadByte();
+                asset.PixelStorageMode = ReadPs2TexturePixelStorageMode(reader, false);
+                asset.ClutPixelStorageMode = ReadPs2TexturePixelStorageMode(reader, true);
             } else {
                 asset.PixelStorageMode = ResolveLegacyTexturePixelStorageMode(asset.Format);
                 asset.ClutPixelStorageMode = Ps2TexturePixelStorageMode.PsmCt32;
             }
-            asset.AlphaMode = (Ps2TextureAlphaMode)reader.ReadByte();
+            byte alphaMode = reader.ReadByte();
+            if (alphaMode > (byte)Ps2TextureAlphaMode.Binary) throw new InvalidOperationException("Unsupported PS2 texture alpha mode.");
+            asset.AlphaMode = (Ps2TextureAlphaMode)alphaMode;
             asset.PixelData = reader.ReadByteArray();
             asset.PaletteData = reader.ReadByteArray();
             return asset;
+        }
+
+        /// <summary>Reads preserved texture enum values and rejects undefined appended codes.</summary>
+        static Ps2TextureFormat ReadPs2TextureFormat(EngineBinaryReader reader) {
+            byte value = reader.ReadByte();
+            if (value > (byte)Ps2TextureFormat.Depth16S) throw new InvalidOperationException("Unsupported PS2 texture format.");
+            return (Ps2TextureFormat)value;
+        }
+        /// <summary>Reads native storage metadata, restricting CLUTs to the three verified GS palette modes.</summary>
+        static Ps2TexturePixelStorageMode ReadPs2TexturePixelStorageMode(EngineBinaryReader reader, bool isClut) {
+            byte value = reader.ReadByte();
+            if (value > (byte)Ps2TexturePixelStorageMode.PsmZ16S || isClut && value != 0 && value != 4 && value != 5) throw new InvalidOperationException("Unsupported PS2 texture pixel storage mode.");
+            return (Ps2TexturePixelStorageMode)value;
         }
 
         /// <summary>

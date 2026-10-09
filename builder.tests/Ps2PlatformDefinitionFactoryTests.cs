@@ -15,7 +15,7 @@ public sealed class Ps2PlatformDefinitionFactoryTests {
     [Fact]
     public void Create_WhenBuildingDefaultPs2CodegenProfile_DeclaresSystemNumericsTypeRemaps() {
         PlatformDefinition definition = Ps2PlatformDefinitionFactory.Create();
-        PlatformCodegenProfileDefinition codegenProfile = Assert.Single(definition.CodegenProfiles);
+        PlatformCodegenProfileDefinition codegenProfile = Assert.Single(definition.CodegenProfiles, profile => profile.ProfileId == "default");
         PlatformSettingDefinition typeRemapSetting = Assert.Single(
             codegenProfile.Settings,
             setting => string.Equals(setting.SettingId, "type-remaps", StringComparison.Ordinal));
@@ -31,7 +31,7 @@ public sealed class Ps2PlatformDefinitionFactoryTests {
     [Fact]
     public void Create_WhenBuildingDefaultPs2CodegenProfile_DeclaresCustomFileSystemDefaults() {
         PlatformDefinition definition = Ps2PlatformDefinitionFactory.Create();
-        PlatformCodegenProfileDefinition codegenProfile = Assert.Single(definition.CodegenProfiles);
+        PlatformCodegenProfileDefinition codegenProfile = Assert.Single(definition.CodegenProfiles, profile => profile.ProfileId == "default");
         PlatformSettingDefinition headerSetting = Assert.Single(
             codegenProfile.Settings,
             setting => string.Equals(setting.SettingId, "native-file-system-header", StringComparison.Ordinal));

@@ -108,6 +108,7 @@
 #define HE_PS2_HAS_PHYSICS3D_RUNTIME_REGISTRATION 0
 #endif
 #include "Ps2TextureAsset.hpp"
+#include "platform/ps2/rendering/Ps2NativeTextureUpload.hpp"
 #include "system/io/file.hpp"
 #include "system/io/memory-stream.hpp"
 #include "system/io/path.hpp"
@@ -1517,10 +1518,15 @@ namespace {
 
     struct Ps2TextureRecord {
         GSTEXTURE Texture {};
+        helengine::ps2::Ps2NativeTextureLayout Layout {};
         void* Pixels = nullptr;
         int ClutWidth = 0;
         int ClutHeight = 0;
         bool Uploaded = false;
+        /// Cooked alpha policy used when replacing RGBA32 pixels through the shared region-update contract.
+        std::uint32_t AlphaMode = 0;
+        /// Anonymous font atlases retain their historical unconverted coverage bytes.
+        bool PreserveRawAlpha = false;
         std::size_t CpuPixelBytes = 0;
         std::size_t CpuClutBytes = 0;
         std::size_t VramPixelBytes = 0;
@@ -1547,44 +1553,6 @@ namespace {
     std::unordered_map<const ::RuntimeTexture*, Ps2TextureRecord> TextureRecords;
     std::unordered_map<const ::FontAsset*, Ps2TextureRecord> FontTextureRecords;
     Ps2MemoryDiagnosticsSnapshot LastMemoryDiagnosticsSnapshot;
-
-    int ResolveGsPixelStorageMode(::Ps2TexturePixelStorageMode mode) {
-        if (mode == ::Ps2TexturePixelStorageMode::PsmCt32) {
-            return GS_PSM_CT32;
-        } else if (mode == ::Ps2TexturePixelStorageMode::PsmT8) {
-            return GS_PSM_T8;
-        } else if (mode == ::Ps2TexturePixelStorageMode::PsmT4) {
-            return GS_PSM_T4;
-        }
-
-        throw std::runtime_error("Unsupported PS2 texture pixel storage mode.");
-    }
-
-    int ResolveClutWidth(::Ps2TextureAsset* data) {
-        if (data == nullptr || data->PaletteData == nullptr || data->PaletteData->Length <= 0) {
-            return 0;
-        }
-
-        int paletteEntryCount = data->PaletteData->Length / 4;
-        if (paletteEntryCount <= 16) {
-            return 8;
-        }
-
-        return 16;
-    }
-
-    int ResolveClutHeight(::Ps2TextureAsset* data) {
-        if (data == nullptr || data->PaletteData == nullptr || data->PaletteData->Length <= 0) {
-            return 0;
-        }
-
-        int paletteEntryCount = data->PaletteData->Length / 4;
-        if (paletteEntryCount <= 16) {
-            return 2;
-        }
-
-        return 16;
-    }
 
     std::size_t ResolveTextureRecordCpuBytes(const Ps2TextureRecord& record) {
         return record.CpuPixelBytes + record.CpuClutBytes;
@@ -1789,6 +1757,8 @@ namespace {
         }
     }
 
+    void ReleasePs2TextureAsset(::Ps2TextureAsset* asset);
+
     ::Ps2TextureAsset* DeserializePs2TextureAsset(::Stream* stream) {
         if (stream == nullptr) {
             throw std::invalid_argument("PS2 texture asset stream was null.");
@@ -1817,6 +1787,9 @@ namespace {
         ValidatePs2TextureAssetHeader(endianness, version, formatId, recordKind, valueKind);
 
         ::Ps2TextureAsset* asset = new ::Ps2TextureAsset();
+        [[maybe_unused]] auto textureAssetGuard = he_cpp_make_scope_exit([&asset]() {
+            ReleasePs2TextureAsset(asset);
+        });
         asset->set_Id(reader->ReadString());
         asset->set_RuntimeAssetId(version >= Ps2BinaryRuntimeAssetIdentityVersion ? ReadPs2RuntimeAssetId(reader) : 0ul);
         asset->Width = reader->ReadUInt16();
@@ -1833,7 +1806,17 @@ namespace {
         asset->AlphaMode = static_cast<::Ps2TextureAlphaMode>(reader->ReadByte());
         asset->PixelData = reader->ReadByteArray();
         asset->PaletteData = reader->ReadByteArray();
-        return asset;
+        helengine::ps2::Ps2NativeTextureLayout layout;
+        if (!helengine::ps2::TryBuildNativeTextureLayout(static_cast<std::uint32_t>(asset->Format),
+            static_cast<std::uint32_t>(asset->PixelStorageMode), static_cast<std::uint32_t>(asset->ClutPixelStorageMode),
+            static_cast<std::uint32_t>(asset->AlphaMode), asset->Width, asset->Height,
+            asset->PixelData == nullptr ? nullptr : asset->PixelData->Data, asset->PixelData == nullptr ? 0 : asset->PixelData->Length,
+            asset->PaletteData == nullptr ? nullptr : asset->PaletteData->Data, asset->PaletteData == nullptr ? 0 : asset->PaletteData->Length, layout)) {
+            throw std::invalid_argument("Invalid PS2 cooked native texture metadata or compact payload.");
+        }
+        ::Ps2TextureAsset* result = asset;
+        asset = nullptr;
+        return result;
     }
 
     void ReleaseOwnedByteArray(::Array<uint8_t>* bytes) {
@@ -1855,41 +1838,21 @@ namespace {
     }
 
     bool PopulateTextureRecordFromPs2TextureAsset(::Ps2TextureAsset* data, Ps2TextureRecord& record) {
-        if (data == nullptr || data->PixelData == nullptr || data->PixelData->Length <= 0 || data->Width <= 0 || data->Height <= 0) {
-            return false;
-        }
-
-        record.Texture.Width = data->Width;
-        record.Texture.Height = data->Height;
-        record.Texture.PSM = ResolveGsPixelStorageMode(data->PixelStorageMode);
-        record.Texture.ClutPSM = ResolveGsPixelStorageMode(data->ClutPixelStorageMode);
-        record.Texture.Clut = nullptr;
-        record.Texture.VramClut = 0;
-        record.Texture.Filter = GS_FILTER_NEAREST;
-        record.Texture.ClutStorageMode = GS_CLUT_STORAGE_CSM1;
-        record.Texture.Mem = static_cast<u32*>(memalign(128, static_cast<size_t>(data->PixelData->Length)));
-        if (record.Texture.Mem == nullptr) {
-            return false;
-        }
-
-        std::memcpy(record.Texture.Mem, data->PixelData->Data, static_cast<size_t>(data->PixelData->Length));
+        if (data == nullptr) return false;
+        if (!helengine::ps2::PrepareNativeTexture(record.Texture, static_cast<std::uint32_t>(data->Format),
+            static_cast<std::uint32_t>(data->PixelStorageMode), static_cast<std::uint32_t>(data->ClutPixelStorageMode),
+            static_cast<std::uint32_t>(data->AlphaMode), data->Width, data->Height,
+            data->PixelData == nullptr ? nullptr : data->PixelData->Data, data->PixelData == nullptr ? 0 : data->PixelData->Length,
+            data->PaletteData == nullptr ? nullptr : data->PaletteData->Data, data->PaletteData == nullptr ? 0 : data->PaletteData->Length,
+            record.Layout)) return false;
         record.Pixels = record.Texture.Mem;
-        record.CpuPixelBytes = static_cast<std::size_t>(data->PixelData->Length);
-        if (data->PaletteData != nullptr && data->PaletteData->Length > 0) {
-            record.Texture.Clut = static_cast<u32*>(memalign(128, static_cast<size_t>(data->PaletteData->Length)));
-            if (record.Texture.Clut == nullptr) {
-                return false;
-            }
-
-            std::memcpy(record.Texture.Clut, data->PaletteData->Data, static_cast<size_t>(data->PaletteData->Length));
-            record.ClutWidth = ResolveClutWidth(data);
-            record.ClutHeight = ResolveClutHeight(data);
-            record.CpuClutBytes = static_cast<std::size_t>(data->PaletteData->Length);
-        }
-
+        record.AlphaMode = static_cast<std::uint32_t>(data->AlphaMode);
+        record.ClutWidth = record.Layout.ClutWidth;
+        record.ClutHeight = record.Layout.ClutHeight;
+        record.CpuPixelBytes = record.Layout.DmaPixelBytes;
+        record.CpuClutBytes = record.Layout.DmaPaletteBytes;
         return true;
     }
-
     Ps2TextureRecord* ResolveFontTextureRecord(::FontAsset* font) {
         if (font == nullptr) {
             return nullptr;
@@ -1939,16 +1902,7 @@ namespace {
     }
 
     void ReleaseTextureRecord(Ps2TextureRecord& record) {
-        if (record.Texture.Clut != nullptr) {
-            free(record.Texture.Clut);
-            record.Texture.Clut = nullptr;
-        }
-
-        if (record.Texture.Mem != nullptr) {
-            free(record.Texture.Mem);
-            record.Texture.Mem = nullptr;
-        }
-
+        helengine::ps2::ReleaseNativeTexture(record.Texture);
         record.Texture.Vram = 0;
         record.Texture.VramClut = 0;
         record.Pixels = nullptr;
@@ -2103,54 +2057,16 @@ namespace {
     }
 
     bool EnsureTextureUploaded(Ps2TextureRecord& record) {
-        if (record.Uploaded) {
-            return true;
-        }
-
-        record.VramPixelBytes = static_cast<std::size_t>(gsKit_texture_size(record.Texture.Width, record.Texture.Height, record.Texture.PSM));
-        record.Texture.Vram = gsKit_vram_alloc(
-            ActiveGsGlobal,
-            static_cast<int>(record.VramPixelBytes),
-            GSKIT_ALLOC_USERBUFFER);
-        if (record.Texture.Vram == GSKIT_ALLOC_ERROR) {
-            record.VramPixelBytes = 0;
-            BootLog(
-                std::string("render2d upload failed texture vram width=")
-                + std::to_string(record.Texture.Width)
-                + " height="
-                + std::to_string(record.Texture.Height)
-                + " psm="
-                + std::to_string(record.Texture.PSM));
+        if (record.Uploaded) return true;
+        if (!helengine::ps2::UploadNativeTexture(ActiveGsGlobal, record.Texture, record.Layout)) {
+            BootLog("render2d native texture upload failed: insufficient page-aligned GS VRAM.");
             return false;
         }
-        if (record.Texture.Clut != nullptr) {
-            record.VramClutBytes = static_cast<std::size_t>(gsKit_texture_size(record.ClutWidth, record.ClutHeight, GS_PSM_CT32));
-            record.Texture.VramClut = gsKit_vram_alloc(
-                ActiveGsGlobal,
-                static_cast<int>(record.VramClutBytes),
-                GSKIT_ALLOC_USERBUFFER);
-            if (record.Texture.VramClut == GSKIT_ALLOC_ERROR) {
-                record.VramClutBytes = 0;
-                BootLog(
-                    std::string("render2d upload failed clut vram width=")
-                    + std::to_string(record.ClutWidth)
-                    + " height="
-                    + std::to_string(record.ClutHeight)
-                    + " textureWidth="
-                    + std::to_string(record.Texture.Width)
-                    + " textureHeight="
-                    + std::to_string(record.Texture.Height));
-                return false;
-            }
-        } else {
-            record.VramClutBytes = 0;
-        }
-
-        gsKit_texture_upload(ActiveGsGlobal, &record.Texture);
+        record.VramPixelBytes = record.Layout.VramPixelBytes;
+        record.VramClutBytes = record.Layout.VramPaletteBytes;
         record.Uploaded = true;
         return true;
     }
-
     u64 ResolveSpriteRgba(const ::byte4& color) {
         const u8 alpha = static_cast<u8>(std::min(static_cast<int>(color.W), 0x80));
         return GS_SETREG_RGBAQ(color.X, color.Y, color.Z, alpha, 0x00);
@@ -2234,17 +2150,27 @@ namespace {
                 texture->set_Height(static_cast<int32_t>(data->Height));
                 if (data->Colors != nullptr && data->Colors->Length > 0) {
                     Ps2TextureRecord record;
+                    if (!helengine::ps2::TryBuildNativeTextureStorage(0, data->Width, data->Height, record.Layout)
+                        || data->Colors->Length != static_cast<int32_t>(record.Layout.PixelBytes)) {
+                        delete texture;
+                        throw std::invalid_argument("PS2 anonymous RGBA texture must have an exact native pixel payload.");
+                    }
+                    // Anonymous font atlas alpha remains the supplied coverage; this path is not a cooked GS asset.
+                    record.PreserveRawAlpha = true;
+                    record.Layout.TexA = 128u | (std::uint64_t(128) << 32);
                     record.Texture.Width = data->Width;
                     record.Texture.Height = data->Height;
                     record.Texture.PSM = GS_PSM_CT32;
-                    record.Texture.Clut = nullptr;
-                    record.Texture.VramClut = 0;
+                    record.Texture.ClutPSM = GS_PSM_CT32;
+                    record.Texture.TBW = record.Layout.BufferWidth64;
                     record.Texture.Filter = GS_FILTER_NEAREST;
-                    record.Texture.Mem = static_cast<u32*>(memalign(128, static_cast<size_t>(data->Colors->Length)));
+                    record.Texture.ClutStorageMode = GS_CLUT_STORAGE_CSM1;
+                    record.Texture.Mem = static_cast<u32*>(memalign(128, record.Layout.DmaPixelBytes));
                     if (record.Texture.Mem != nullptr) {
-                        std::memcpy(record.Texture.Mem, data->Colors->Data, static_cast<size_t>(data->Colors->Length));
+                        std::memset(record.Texture.Mem, 0, record.Layout.DmaPixelBytes);
+                        std::memcpy(record.Texture.Mem, data->Colors->Data, record.Layout.PixelBytes);
                         record.Pixels = record.Texture.Mem;
-                        record.CpuPixelBytes = static_cast<std::size_t>(data->Colors->Length);
+                        record.CpuPixelBytes = record.Layout.DmaPixelBytes;
                         TextureRecords.emplace(texture, record);
                     }
                 }
@@ -2395,6 +2321,24 @@ namespace {
                 + resolvedCookedAssetPath);
             BootLog(std::string("render2d build cooked texture end path=") + resolvedCookedAssetPath);
             return runtimeTexture;
+        }
+
+        /// Updates retained CT32 pixels and, if already resident, replaces their bytes in the same GS allocation.
+        void UpdateTextureRegionCore(RuntimeTexture* texture, int32_t x, int32_t y, int32_t width, int32_t height,
+            ::Array<uint8_t>* rgba8, int32_t sourceRowPitch) override {
+            const auto found = TextureRecords.find(texture);
+            if (found == TextureRecords.end() || rgba8 == nullptr || rgba8->Length < 0) {
+                throw std::invalid_argument("PS2 texture region update requires a known texture and retained RGBA source.");
+            }
+            Ps2TextureRecord& record = found->second;
+            if (!helengine::ps2::PatchNativeRgba32Region(record.Layout, static_cast<std::uint8_t*>(record.Pixels),
+                record.CpuPixelBytes, record.AlphaMode, record.PreserveRawAlpha, x, y, width, height,
+                rgba8->Data, static_cast<std::size_t>(rgba8->Length), sourceRowPitch)) {
+                throw std::invalid_argument("PS2 RGBA region update requires retained CT32 pixels, valid bounds and source stride.");
+            }
+            if (record.Uploaded && !helengine::ps2::ReuploadNativeTexture(ActiveGsGlobal, record.Texture, record.Layout)) {
+                throw std::runtime_error("PS2 updated CT32 pixels could not be reuploaded to their existing GS allocation.");
+            }
         }
 
         void ReleaseTexture(RuntimeTexture* texture) override {
@@ -2840,6 +2784,7 @@ namespace {
                 TexturedQuadAlphaStateActive = true;
             }
 
+            helengine::ps2::QueueNativeTextureAlpha(ActiveGsGlobal, &textureIt->second.Texture);
             gskit_prim_list_sprite_texture_uv_3d(
                 ActiveGsGlobal,
                 &textureIt->second.Texture,
@@ -2955,6 +2900,7 @@ namespace {
                     + " texture="
                     + runtimeTexture->get_Id());
             }
+            helengine::ps2::QueueNativeTextureAlpha(ActiveGsGlobal, &record.Texture);
             gsKit_prim_sprite_texture(
                 ActiveGsGlobal,
                 &record.Texture,
