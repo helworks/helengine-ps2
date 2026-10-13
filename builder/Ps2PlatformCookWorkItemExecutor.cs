@@ -144,8 +144,16 @@ public sealed class Ps2PlatformCookWorkItemExecutor {
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        bool anyOutputForgotten = false;
         foreach (Ps2TextureCookWorkPlan plan in plans) {
             Ps2TextureCookPath.ResolveDestination(plan.StagingRootPath, plan.WorkItem.OutputRelativePath);
+            if (!plan.Skipped) {
+                fingerprintStore.Forget(plan.OutputRelativePath);
+                anyOutputForgotten = true;
+            }
+        }
+        if (anyOutputForgotten) {
+            fingerprintStore.Save();
         }
         for (int index = 0; index < plans.Count; index++) {
             Ps2TextureCookWorkPlan plan = plans[index];

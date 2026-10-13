@@ -15,6 +15,12 @@ internal sealed class Ps2CookFingerprintStore {
     /// Version of the PS2 cook output format folded into every fingerprint; bump it whenever a cooker change
     /// must invalidate every previously staged output.
     /// </summary>
+    /// <remarks>
+    /// Fingerprints only cover cook inputs, not cook code. Bump this whenever the output of the PS2 cookers
+    /// (<see cref="Ps2PackedMeshCooker"/>, <see cref="Ps2RuntimeTextureCooker"/>, the PS2 model/texture serializers) or of
+    /// the editor importers they call changes, e.g. the helengine.editor GdiFontImporter used to build atlases from raw
+    /// .ttf/.otf sources. Otherwise editor Play keeps serving outputs cooked by the old code from its persistent working root.
+    /// </remarks>
     public const string CookerVersion = "1";
 
     /// <summary>
@@ -52,7 +58,14 @@ internal sealed class Ps2CookFingerprintStore {
             return;
         }
 
-        Dictionary<string, string> savedFingerprints = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(StoreFilePath));
+        Dictionary<string, string> savedFingerprints;
+        try {
+            savedFingerprints = JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(StoreFilePath));
+        } catch (JsonException exception) {
+            throw new InvalidOperationException(
+                $"PS2 cook fingerprint store '{StoreFilePath}' is corrupt. Delete the file so the next build re-cooks every staged output.",
+                exception);
+        }
         if (savedFingerprints == null) {
             throw new InvalidOperationException($"PS2 cook fingerprint store '{StoreFilePath}' did not contain a fingerprint map.");
         }
@@ -100,7 +113,22 @@ internal sealed class Ps2CookFingerprintStore {
     }
 
     /// <summary>
-    /// Writes every known fingerprint to the store file; call only after the whole staging pass succeeded.
+    /// Drops the recorded fingerprint of one output that is about to be overwritten. Callers forget every output they
+    /// will write and <see cref="Save"/> before the first write, so a run interrupted mid-write (exception, cancellation,
+    /// truncated file) can never leave a fingerprint describing content the staged file no longer holds.
+    /// </summary>
+    /// <param name="outputRelativePath">Normalized output path relative to the staging root.</param>
+    public void Forget(string outputRelativePath) {
+        if (string.IsNullOrWhiteSpace(outputRelativePath)) {
+            throw new ArgumentException("Output relative path must be provided.", nameof(outputRelativePath));
+        }
+
+        Fingerprints.Remove(outputRelativePath);
+    }
+
+    /// <summary>
+    /// Writes every known fingerprint to the store file. Called once to persist invalidations before outputs are
+    /// overwritten, and once more after the whole staging pass succeeded to persist the new fingerprints.
     /// </summary>
     public void Save() {
         Directory.CreateDirectory(Path.GetDirectoryName(StoreFilePath));

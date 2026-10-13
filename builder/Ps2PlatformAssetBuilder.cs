@@ -197,11 +197,27 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             }
         }
         if (diagnostics.Count != 0) return;
+        string[] fingerprints = new string[cookedArtifacts.Length];
+        bool[] upToDate = new bool[cookedArtifacts.Length];
+        bool anyOutputForgotten = false;
         for (int index = 0; index < cookedArtifacts.Length; index++) {
             cancellationToken.ThrowIfCancellationRequested();
             PlatformBuildArtifact artifact = cookedArtifacts[index];
-            string fingerprint = Ps2CookFingerprintStore.ComputeSourceFileFingerprint(sources[index], artifact.ArtifactKind, artifact.LogicalArtifactId);
-            if (fingerprintStore.IsUpToDate(outputRelatives[index], fingerprint, destinations[index])) {
+            fingerprints[index] = Ps2CookFingerprintStore.ComputeSourceFileFingerprint(sources[index], artifact.ArtifactKind, artifact.LogicalArtifactId);
+            upToDate[index] = fingerprintStore.IsUpToDate(outputRelatives[index], fingerprints[index], destinations[index]);
+            if (!upToDate[index]) {
+                fingerprintStore.Forget(outputRelatives[index]);
+                anyOutputForgotten = true;
+            }
+        }
+        if (anyOutputForgotten) {
+            fingerprintStore.Save();
+        }
+        for (int index = 0; index < cookedArtifacts.Length; index++) {
+            cancellationToken.ThrowIfCancellationRequested();
+            PlatformBuildArtifact artifact = cookedArtifacts[index];
+            string fingerprint = fingerprints[index];
+            if (upToDate[index]) {
                 progressReporter.Report(new PlatformBuildProgressUpdate("Stage Cooked Artifacts", artifact.LogicalArtifactId,
                     index + 1, cookedArtifacts.Length, $"Reused up-to-date cooked artifact '{artifact.RelativePath}'."));
                 continue;

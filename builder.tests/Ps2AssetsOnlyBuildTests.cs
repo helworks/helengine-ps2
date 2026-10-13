@@ -95,7 +95,7 @@ public sealed class Ps2AssetsOnlyBuildTests : IDisposable {
         CountingPs2NativeBuildExecutor nativeBuildExecutor = new();
         RecordingDiagnosticReporter diagnosticReporter = new();
 
-        PlatformBuildReport report = await RunBuildAsync(CreateRequest(PlatformBuildExecutionScope.AssetsOnly, string.Empty, []), nativeBuildExecutor, diagnosticReporter);
+        PlatformBuildReport report = await RunBuildAsync(CreateRequest(PlatformBuildExecutionScope.AssetsOnly, string.Empty, [], []), nativeBuildExecutor, diagnosticReporter);
 
         Assert.True(report.Succeeded);
         Assert.Empty(diagnosticReporter.Diagnostics);
@@ -117,6 +117,53 @@ public sealed class Ps2AssetsOnlyBuildTests : IDisposable {
         await RunAssetsOnlyBuildExpectingSuccessAsync([]);
 
         Assert.Equal(SentinelWriteTimeUtc, File.GetLastWriteTimeUtc(StagedModelPath));
+    }
+
+    /// <summary>
+    /// Proves a run that rewrote an output and then failed cannot leave a stale fingerprint behind: after the source is
+    /// reverted to the content of the last successful run, the output is restaged with that content instead of being
+    /// reused as up to date while it still holds the failed run's cook.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_WhenRunFailsAfterRewritingOutputAndSourceIsReverted_RestagesOutput() {
+        await RunAssetsOnlyBuildExpectingSuccessAsync([]);
+        byte[] firstRunModelBytes = File.ReadAllBytes(StagedModelPath);
+        WriteCubeModel(2f);
+        string brokenModelSourcePath = Path.Combine(PackageRoot, "cooked", "imported", "broken.hasset");
+        File.WriteAllBytes(brokenModelSourcePath, helengine.files.AssetSerializer.SerializeToBytes(new SceneAsset()));
+        PlatformBuildArtifact brokenModelArtifact = new("cooked/imported/broken.hasset", "model:broken", "sha256:broken", "model", "shared");
+
+        PlatformBuildReport failedReport = await RunBuildAsync(
+            CreateRequest(PlatformBuildExecutionScope.AssetsOnly, string.Empty, [], [brokenModelArtifact]),
+            new CountingPs2NativeBuildExecutor(),
+            new RecordingDiagnosticReporter());
+        Assert.False(failedReport.Succeeded);
+        Assert.NotEqual(firstRunModelBytes, File.ReadAllBytes(StagedModelPath));
+        WriteCubeModel(1f);
+
+        await RunAssetsOnlyBuildExpectingSuccessAsync([]);
+
+        Assert.Equal(firstRunModelBytes, File.ReadAllBytes(StagedModelPath));
+    }
+
+    /// <summary>
+    /// Proves a corrupt fingerprint store fails the build with a diagnostic naming the store file instead of being silently discarded.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_WhenFingerprintStoreIsCorrupt_FailsNamingTheStoreFile() {
+        Directory.CreateDirectory(StagingRoot);
+        File.WriteAllText(Path.Combine(StagingRoot, ".helengine-cook-fingerprints.json"), "{ not json");
+        RecordingDiagnosticReporter diagnosticReporter = new();
+
+        PlatformBuildReport report = await RunBuildAsync(
+            CreateRequest(PlatformBuildExecutionScope.AssetsOnly, string.Empty, [], []),
+            new CountingPs2NativeBuildExecutor(),
+            diagnosticReporter);
+
+        Assert.False(report.Succeeded);
+        Assert.Contains(diagnosticReporter.Diagnostics, diagnostic => diagnostic.Code == "PS2BUILD003"
+            && diagnostic.Message.Contains(".helengine-cook-fingerprints.json", StringComparison.Ordinal));
+        Assert.False(File.Exists(StagedModelPath));
     }
 
     /// <summary>
@@ -186,7 +233,7 @@ public sealed class Ps2AssetsOnlyBuildTests : IDisposable {
         CountingPs2NativeBuildExecutor nativeBuildExecutor = new();
         RecordingDiagnosticReporter diagnosticReporter = new();
 
-        PlatformBuildReport report = await RunBuildAsync(CreateRequest(PlatformBuildExecutionScope.Full, generatedCoreRoot, []), nativeBuildExecutor, diagnosticReporter);
+        PlatformBuildReport report = await RunBuildAsync(CreateRequest(PlatformBuildExecutionScope.Full, generatedCoreRoot, [], []), nativeBuildExecutor, diagnosticReporter);
 
         Assert.True(report.Succeeded);
         Assert.Equal(1, nativeBuildExecutor.PackageIsoCallCount);
@@ -224,7 +271,7 @@ public sealed class Ps2AssetsOnlyBuildTests : IDisposable {
     async Task RunAssetsOnlyBuildExpectingSuccessAsync(PlatformCookWorkItem[] workItems) {
         CountingPs2NativeBuildExecutor nativeBuildExecutor = new();
         RecordingDiagnosticReporter diagnosticReporter = new();
-        PlatformBuildReport report = await RunBuildAsync(CreateRequest(PlatformBuildExecutionScope.AssetsOnly, string.Empty, workItems), nativeBuildExecutor, diagnosticReporter);
+        PlatformBuildReport report = await RunBuildAsync(CreateRequest(PlatformBuildExecutionScope.AssetsOnly, string.Empty, workItems, []), nativeBuildExecutor, diagnosticReporter);
         Assert.Empty(diagnosticReporter.Diagnostics);
         Assert.True(report.Succeeded);
         Assert.Equal(0, nativeBuildExecutor.BuildCallCount);
@@ -254,8 +301,9 @@ public sealed class Ps2AssetsOnlyBuildTests : IDisposable {
     /// <param name="executionScope">Pipeline scope to request.</param>
     /// <param name="generatedCoreRoot">Generated core root; empty for assets-only builds, as the editor passes it.</param>
     /// <param name="workItems">Platform cook work items to include.</param>
+    /// <param name="extraArtifacts">Cooked artifacts staged after the scene and the cube model.</param>
     /// <returns>Configured PS2 build request.</returns>
-    PlatformBuildRequest CreateRequest(PlatformBuildExecutionScope executionScope, string generatedCoreRoot, PlatformCookWorkItem[] workItems) {
+    PlatformBuildRequest CreateRequest(PlatformBuildExecutionScope executionScope, string generatedCoreRoot, PlatformCookWorkItem[] workItems, PlatformBuildArtifact[] extraArtifacts) {
         PlatformBuildManifest manifest = new(
             3,
             "project",
@@ -277,7 +325,8 @@ public sealed class Ps2AssetsOnlyBuildTests : IDisposable {
             Array.Empty<PlatformBuildAsset>(),
             [
                 new PlatformBuildArtifact("cooked/scenes/main.hasset", "scene:main", "sha256:scene", "scene", "shared"),
-                new PlatformBuildArtifact("cooked/imported/box_a.hasset", "model:box_a", "sha256:model", "model", "shared")
+                new PlatformBuildArtifact("cooked/imported/box_a.hasset", "model:box_a", "sha256:model", "model", "shared"),
+                .. extraArtifacts
             ],
             Array.Empty<PlatformBuildCodeModule>(),
             Array.Empty<PlatformArtifactPlacement>(),
