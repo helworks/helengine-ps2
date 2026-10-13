@@ -366,7 +366,9 @@ public static class Ps2PlatformDefinitionFactory {
                 false,
                 "ps2-host-debugger"),
             CreateAssetCookCapabilities(),
-            playerCapability: new PlatformPlayerCapability(true, "helengine.ps2.builder.Ps2PlayerAdapter", "ps2-staging"));
+            // The native PS2 host runs NTSC and steps the simulation by a fixed 1/60 s per frame
+            // (Ps2BootHost.cpp), so the desktop Play player paces to 60 FPS rather than the 59.94 Hz NTSC field rate.
+            playerCapability: new PlatformPlayerCapability(true, "helengine.ps2.builder.Ps2PlayerAdapter", "ps2-staging", 60d));
     }
 
     /// <summary>
