@@ -227,7 +227,8 @@ public sealed class Ps2PlayerAdapterTests : IDisposable {
     }
 
     /// <summary>
-    /// Ensures the PS2 platform definition opts in to editor Play and names a constructible adapter type.
+    /// Ensures the PS2 platform definition opts in to editor Play, names a constructible adapter type and declares the
+    /// pad as its only input device, because a PS2 has no keyboard or mouse.
     /// </summary>
     [Fact]
     public void Definition_DeclaresPlayerCapability() {
@@ -237,6 +238,7 @@ public sealed class Ps2PlayerAdapterTests : IDisposable {
         Assert.Equal(typeof(Ps2PlayerAdapter).FullName, definition.PlayerCapability.AdapterTypeName);
         Assert.Equal("ps2-staging", definition.PlayerCapability.ContentRootRelativePath);
         Assert.Equal(60d, definition.PlayerCapability.TargetFrameRate);
+        Assert.Equal(PlayerInputDevices.Gamepad, definition.PlayerCapability.InputDevices);
         Assert.IsAssignableFrom<IPlatformPlayerAdapter>(Activator.CreateInstance(typeof(Ps2PlayerAdapter)));
     }
 

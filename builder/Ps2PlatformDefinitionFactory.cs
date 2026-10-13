@@ -369,7 +369,9 @@ public static class Ps2PlatformDefinitionFactory {
             // The native PS2 host presents on the NTSC vsync (gsKit_sync_flip under GS_MODE_NTSC, ~59.94 Hz) and updates
             // with the measured frame delta. The desktop Play player uses exactly 60 FPS so it divides common desktop
             // refresh rates (60/120/240 Hz) evenly; the 0.1% gap to 59.94 is immaterial for gameplay testing.
-            playerCapability: new PlatformPlayerCapability(true, "helengine.ps2.builder.Ps2PlayerAdapter", "ps2-staging", 60d));
+            // A PS2 has only its pad: the desktop player hides the desktop keyboard and mouse from PS2 games and feeds the
+            // pad from a desktop controller or the keyboard-emulated pad instead.
+            playerCapability: new PlatformPlayerCapability(true, "helengine.ps2.builder.Ps2PlayerAdapter", "ps2-staging", 60d, PlayerInputDevices.Gamepad));
     }
 
     /// <summary>
