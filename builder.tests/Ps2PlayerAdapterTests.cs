@@ -101,7 +101,8 @@ public sealed class Ps2PlayerAdapterTests : IDisposable {
     }
 
     /// <summary>
-    /// Ensures depth-addressed GS textures are rejected because the desktop player cannot sample them.
+    /// Ensures depth-addressed GS textures are rejected because the desktop player cannot sample them, naming the asset
+    /// the content manager is loading.
     /// </summary>
     [Fact]
     public void Texture_WhenDepthFormat_Throws() {
@@ -118,7 +119,34 @@ public sealed class Ps2PlayerAdapterTests : IDisposable {
         };
         byte[] bytes = Ps2AssetSerializer.SerializeToBytes(depthTexture);
 
-        Assert.Throws<NotSupportedException>(() => new Ps2PlayerTextureContentProcessor().Read(new MemoryStream(bytes)));
+        NotSupportedException exception = ReadWithCurrentAssetPath(
+            "cooked/imported/depth.hasset",
+            () => Assert.Throws<NotSupportedException>(() => new Ps2PlayerTextureContentProcessor().Read(new MemoryStream(bytes))));
+
+        Assert.Contains("cooked/imported/depth.hasset", exception.Message);
+    }
+
+    /// <summary>
+    /// Ensures a PS2 model whose vertex arrays differ in length is rejected with the loading asset's path in the message.
+    /// </summary>
+    [Fact]
+    public void Model_WhenVertexArraysMismatch_ThrowsNamingAsset() {
+        ModelAsset cube = ModelUtils.GenerateCubeMesh(new float3(0, 0, 0), new float3(1, 1, 1));
+        Ps2ModelAsset ps2Model = new() {
+            Id = "cube",
+            Positions = cube.Positions,
+            Normals = cube.Normals.Take(cube.Normals.Length - 1).ToArray(),
+            TexCoords = cube.TexCoords,
+            Indices16 = cube.Indices16,
+            PackedMeshBytes = new byte[] { 1, 2, 3, 4 }
+        };
+        byte[] bytes = Ps2AssetSerializer.SerializeToBytes(ps2Model);
+
+        InvalidOperationException exception = ReadWithCurrentAssetPath(
+            "cooked/models/cube.hasset",
+            () => Assert.Throws<InvalidOperationException>(() => new Ps2PlayerModelContentProcessor().Read(new MemoryStream(bytes))));
+
+        Assert.Contains("cooked/models/cube.hasset", exception.Message);
     }
 
     /// <summary>
@@ -265,5 +293,23 @@ public sealed class Ps2PlayerAdapterTests : IDisposable {
         string filePath = Path.Combine(StagingRoot, logicalPath.Replace('/', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(Path.GetDirectoryName(filePath));
         File.WriteAllBytes(filePath, new byte[] { 1, 2, 3 });
+    }
+
+    /// <summary>
+    /// Runs one processor read the way the content manager does, with <see cref="EngineBinaryReadContext.CurrentAssetPath"/>
+    /// naming the asset being loaded, and restores the previous value afterwards.
+    /// </summary>
+    /// <typeparam name="T">Value the read produces.</typeparam>
+    /// <param name="assetPath">Asset path published while the read runs.</param>
+    /// <param name="read">Read to run.</param>
+    /// <returns>The read's result.</returns>
+    static T ReadWithCurrentAssetPath<T>(string assetPath, Func<T> read) {
+        string previousAssetPath = EngineBinaryReadContext.CurrentAssetPath;
+        EngineBinaryReadContext.CurrentAssetPath = assetPath;
+        try {
+            return read();
+        } finally {
+            EngineBinaryReadContext.CurrentAssetPath = previousAssetPath;
+        }
     }
 }

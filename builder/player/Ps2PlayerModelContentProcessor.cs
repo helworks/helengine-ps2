@@ -44,7 +44,8 @@ public sealed class Ps2PlayerModelContentProcessor : IContentProcessor<ModelAsse
     }
 
     /// <summary>
-    /// Dispatches one seekable model payload to the PS2 or generic decoder based on its HELE format id.
+    /// Dispatches one seekable model payload to the PS2 or generic decoder based on its HELE format id. Failures name
+    /// the asset the content manager is loading, read from <see cref="EngineBinaryReadContext.CurrentAssetPath"/>.
     /// </summary>
     /// <param name="stream">Seekable stream positioned at the start of the payload.</param>
     /// <returns>Decoded model owned by the caller.</returns>
@@ -53,12 +54,14 @@ public sealed class Ps2PlayerModelContentProcessor : IContentProcessor<ModelAsse
             return GenericProcessor.Read(stream);
         }
 
+        string assetPath = EngineBinaryReadContext.CurrentAssetPath;
         Asset asset = Ps2AssetSerializer.Deserialize(stream);
         if (asset is not Ps2ModelAsset ps2Model) {
-            throw new InvalidOperationException($"PS2 model payload deserialized as '{asset.GetType().Name}' instead of a PS2 model.");
+            throw new InvalidOperationException(
+                $"PS2 model payload '{assetPath}' deserialized as '{asset.GetType().Name}' instead of a PS2 model.");
         }
 
-        return DecodePs2Model(ps2Model);
+        return DecodePs2Model(ps2Model, assetPath);
     }
 
     /// <summary>
@@ -66,20 +69,21 @@ public sealed class Ps2PlayerModelContentProcessor : IContentProcessor<ModelAsse
     /// null so the player synthesizes one default submesh covering every index.
     /// </summary>
     /// <param name="ps2Model">Deserialized PS2 model.</param>
+    /// <param name="assetPath">Content path of the model being loaded, named in failures.</param>
     /// <returns>New generic model sharing the PS2 model's vertex and index arrays.</returns>
     /// <exception cref="InvalidOperationException">Thrown when vertex arrays or indices are missing, or the vertex arrays differ in length.</exception>
-    static ModelAsset DecodePs2Model(Ps2ModelAsset ps2Model) {
+    static ModelAsset DecodePs2Model(Ps2ModelAsset ps2Model, string assetPath) {
         if (ps2Model.Positions == null) {
-            throw new InvalidOperationException($"PS2 model '{ps2Model.Id}' has no positions.");
+            throw new InvalidOperationException($"PS2 model '{ps2Model.Id}' ('{assetPath}') has no positions.");
         } else if (ps2Model.Normals == null) {
-            throw new InvalidOperationException($"PS2 model '{ps2Model.Id}' has no normals.");
+            throw new InvalidOperationException($"PS2 model '{ps2Model.Id}' ('{assetPath}') has no normals.");
         } else if (ps2Model.TexCoords == null) {
-            throw new InvalidOperationException($"PS2 model '{ps2Model.Id}' has no texture coordinates.");
+            throw new InvalidOperationException($"PS2 model '{ps2Model.Id}' ('{assetPath}') has no texture coordinates.");
         } else if (ps2Model.Indices16 == null) {
-            throw new InvalidOperationException($"PS2 model '{ps2Model.Id}' has no 16-bit indices.");
+            throw new InvalidOperationException($"PS2 model '{ps2Model.Id}' ('{assetPath}') has no 16-bit indices.");
         } else if (ps2Model.Normals.Length != ps2Model.Positions.Length || ps2Model.TexCoords.Length != ps2Model.Positions.Length) {
             throw new InvalidOperationException(
-                $"PS2 model '{ps2Model.Id}' has mismatched vertex arrays: positions={ps2Model.Positions.Length} normals={ps2Model.Normals.Length} texcoords={ps2Model.TexCoords.Length}.");
+                $"PS2 model '{ps2Model.Id}' ('{assetPath}') has mismatched vertex arrays: positions={ps2Model.Positions.Length} normals={ps2Model.Normals.Length} texcoords={ps2Model.TexCoords.Length}.");
         }
 
         Ps2PlayerModelBounds.Compute(ps2Model.Positions, out float3 boundsMin, out float3 boundsMax);

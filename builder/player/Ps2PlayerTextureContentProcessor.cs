@@ -44,7 +44,8 @@ public sealed class Ps2PlayerTextureContentProcessor : IContentProcessor<Texture
     }
 
     /// <summary>
-    /// Dispatches one seekable texture payload to the PS2 or generic decoder based on its HELE format id.
+    /// Dispatches one seekable texture payload to the PS2 or generic decoder based on its HELE format id. Failures name
+    /// the asset the content manager is loading, read from <see cref="EngineBinaryReadContext.CurrentAssetPath"/>.
     /// </summary>
     /// <param name="stream">Seekable stream positioned at the start of the payload.</param>
     /// <returns>Decoded texture owned by the caller.</returns>
@@ -53,13 +54,15 @@ public sealed class Ps2PlayerTextureContentProcessor : IContentProcessor<Texture
             return GenericProcessor.Read(stream);
         }
 
+        string assetPath = EngineBinaryReadContext.CurrentAssetPath;
         Asset asset = Ps2AssetSerializer.Deserialize(stream);
         if (asset is not Ps2TextureAsset ps2Texture) {
-            throw new InvalidOperationException($"PS2 texture payload deserialized as '{asset.GetType().Name}' instead of a PS2 texture.");
+            throw new InvalidOperationException(
+                $"PS2 texture payload '{assetPath}' deserialized as '{asset.GetType().Name}' instead of a PS2 texture.");
         }
 
         try {
-            return DecodePs2Texture(ps2Texture);
+            return DecodePs2Texture(ps2Texture, assetPath);
         } finally {
             ps2Texture.Dispose();
         }
@@ -69,14 +72,15 @@ public sealed class Ps2PlayerTextureContentProcessor : IContentProcessor<Texture
     /// Converts one PS2-owned GS texture into a generic RGBA32 texture the desktop renderer can upload.
     /// </summary>
     /// <param name="ps2Texture">Deserialized PS2 texture; the caller keeps ownership.</param>
+    /// <param name="assetPath">Content path of the texture being loaded, named in failures.</param>
     /// <returns>New RGBA32 texture with 8-bit alpha.</returns>
     /// <exception cref="NotSupportedException">Thrown when the PS2 texture uses a depth-addressed GS format.</exception>
-    static TextureAsset DecodePs2Texture(Ps2TextureAsset ps2Texture) {
+    static TextureAsset DecodePs2Texture(Ps2TextureAsset ps2Texture, string assetPath) {
         if (ps2Texture.Format == Ps2TextureFormat.Depth32
             || ps2Texture.Format == Ps2TextureFormat.Depth24
             || ps2Texture.Format == Ps2TextureFormat.Depth16
             || ps2Texture.Format == Ps2TextureFormat.Depth16S) {
-            throw new NotSupportedException($"PS2 texture format {ps2Texture.Format} cannot be played on PC.");
+            throw new NotSupportedException($"PS2 texture '{assetPath}' uses format {ps2Texture.Format}, which cannot be played on PC.");
         }
 
         byte[] rgba = Ps2NativeTextureCodec.Decode(ps2Texture);
