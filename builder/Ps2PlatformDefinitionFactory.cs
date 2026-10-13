@@ -365,7 +365,8 @@ public static class Ps2PlatformDefinitionFactory {
                 true,
                 false,
                 "ps2-host-debugger"),
-            CreateAssetCookCapabilities());
+            CreateAssetCookCapabilities(),
+            playerCapability: new PlatformPlayerCapability(true, "helengine.ps2.builder.Ps2PlayerAdapter", "ps2-staging"));
     }
 
     /// <summary>

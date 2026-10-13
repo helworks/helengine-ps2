@@ -21,13 +21,27 @@ public sealed class Ps2DiscLayoutWriter {
             throw new ArgumentNullException(nameof(workspace));
         }
 
-        string stagedCookedRootPath = Path.Combine(workspace.StagingRootPath, "cooked");
+        return BuildLogicalToPhysicalPathMap(workspace.StagingRootPath);
+    }
+
+    /// <summary>
+    /// Builds the logical cooked-path to physical PS2 disc-path mapping for one staging root without requiring a build
+    /// workspace, so the desktop player can resolve staged content the same way the disc layout does.
+    /// </summary>
+    /// <param name="stagingRootPath">Absolute PS2 staging root that contains the staged <c>cooked</c> tree.</param>
+    /// <returns>Logical cooked paths mapped to their staged physical disc paths, compared case-insensitively.</returns>
+    internal static Dictionary<string, string> BuildLogicalToPhysicalPathMap(string stagingRootPath) {
+        if (string.IsNullOrWhiteSpace(stagingRootPath)) {
+            throw new ArgumentException("Staging root path must be provided.", nameof(stagingRootPath));
+        }
+
+        string stagedCookedRootPath = Path.Combine(stagingRootPath, "cooked");
         if (!Directory.Exists(stagedCookedRootPath)) {
             throw new DirectoryNotFoundException($"Staged cooked root '{stagedCookedRootPath}' was not found.");
         }
 
         Dictionary<string, string> logicalToPhysicalPaths = new(StringComparer.OrdinalIgnoreCase);
-        CollectPackageFileMappings(workspace.StagingRootPath, logicalToPhysicalPaths);
+        CollectPackageFileMappings(stagingRootPath, logicalToPhysicalPaths);
         return logicalToPhysicalPaths;
     }
 
