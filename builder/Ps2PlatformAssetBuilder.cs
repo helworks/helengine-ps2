@@ -100,16 +100,22 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         List<PlatformBuildItemOutcome> sceneOutcomes = BuildSceneOutcomes(request.Manifest.Scenes);
         List<PlatformBuildItemOutcome> looseAssetOutcomes = BuildLooseAssetOutcomes(request.Manifest.LooseAssets);
         try {
-            IReadOnlyList<Ps2TextureCookWorkPlan> texturePlans = PlatformCookWorkItemExecutor.Prepare(request, cancellationToken);
-            StageCookedArtifacts(request, diagnostics, diagnosticReporter, progressReporter, cancellationToken);
+            Ps2CookFingerprintStore fingerprintStore = new(Path.Combine(request.WorkingRoot, "ps2-staging"));
+            IReadOnlyList<Ps2TextureCookWorkPlan> texturePlans = PlatformCookWorkItemExecutor.Prepare(request, fingerprintStore, cancellationToken);
+            StageCookedArtifacts(request, fingerprintStore, diagnostics, diagnosticReporter, progressReporter, cancellationToken);
             if (diagnostics.Count == 0) {
-                PlatformCookWorkItemExecutor.Publish(texturePlans, progressReporter, cancellationToken);
+                PlatformCookWorkItemExecutor.Publish(texturePlans, fingerprintStore, progressReporter, cancellationToken);
+                fingerprintStore.Save();
             }
         } catch (OperationCanceledException) {
             throw;
         } catch (Exception exception) {
             AddDiagnostic(diagnostics, diagnosticReporter, PlatformBuildDiagnosticSeverity.Error, "PS2BUILD003",
                 "Failed PS2 cook preparation or staging: " + exception.Message, string.Empty, string.Empty, request.WorkingRoot);
+        }
+
+        if (request.ExecutionScope == PlatformBuildExecutionScope.AssetsOnly) {
+            return Task.FromResult(CreateReport(diagnostics, sceneOutcomes, looseAssetOutcomes));
         }
 
         if (diagnostics.Count == 0) {
@@ -136,18 +142,35 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             }
         }
 
-        bool succeeded = diagnostics.Count == 0;
-
-        return Task.FromResult(new PlatformBuildReport(
-            succeeded,
-            [.. diagnostics],
-            [.. sceneOutcomes],
-            [.. looseAssetOutcomes]));
+        return Task.FromResult(CreateReport(diagnostics, sceneOutcomes, looseAssetOutcomes));
     }
 
-    /// <summary>Validates manifest sources and destinations before staging the existing non-texture artifact flows.</summary>
+    /// <summary>
+    /// Builds the final build report; the build succeeded when no diagnostic was raised.
+    /// </summary>
+    /// <param name="diagnostics">Diagnostics raised during the build.</param>
+    /// <param name="sceneOutcomes">Per-scene outcomes.</param>
+    /// <param name="looseAssetOutcomes">Per-loose-asset outcomes.</param>
+    /// <returns>Build report handed back to the editor.</returns>
+    static PlatformBuildReport CreateReport(
+        List<PlatformBuildDiagnostic> diagnostics,
+        List<PlatformBuildItemOutcome> sceneOutcomes,
+        List<PlatformBuildItemOutcome> looseAssetOutcomes) {
+        return new PlatformBuildReport(
+            diagnostics.Count == 0,
+            [.. diagnostics],
+            [.. sceneOutcomes],
+            [.. looseAssetOutcomes]);
+    }
+
+    /// <summary>
+    /// Validates manifest sources and destinations before staging the existing non-texture artifact flows.
+    /// Every output path is still reserved for collision detection, but outputs whose fingerprint (source bytes,
+    /// artifact kind, logical id) matches the store and whose staged file exists are not rewritten.
+    /// </summary>
     void StageCookedArtifacts(
         PlatformBuildRequest request,
+        Ps2CookFingerprintStore fingerprintStore,
         List<PlatformBuildDiagnostic> diagnostics,
         IPlatformBuildDiagnosticReporter diagnosticReporter,
         IPlatformBuildProgressReporter progressReporter,
@@ -156,6 +179,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         string root = Path.GetFullPath(Path.Combine(request.WorkingRoot, "ps2-staging"));
         string[] sources = new string[cookedArtifacts.Length];
         string[] destinations = new string[cookedArtifacts.Length];
+        string[] outputRelatives = new string[cookedArtifacts.Length];
         HashSet<string> reserved = new(StringComparer.OrdinalIgnoreCase);
         for (int index = 0; index < cookedArtifacts.Length; index++) {
             cancellationToken.ThrowIfCancellationRequested();
@@ -163,6 +187,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             string relative = Ps2TextureCookPath.Normalize(artifact.RelativePath);
             string outputRelative = IsModelArtifact(artifact) ? Path.ChangeExtension(relative, ".phm").Replace('\\', '/') : relative;
             Ps2TextureCookPath.Reserve(reserved, outputRelative);
+            outputRelatives[index] = outputRelative;
             sources[index] = Ps2TextureCookPath.ResolveDestination(Directory.GetCurrentDirectory(), relative);
             destinations[index] = Ps2TextureCookPath.ResolveDestination(root, outputRelative);
             if (!File.Exists(sources[index])) {
@@ -175,12 +200,19 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
         for (int index = 0; index < cookedArtifacts.Length; index++) {
             cancellationToken.ThrowIfCancellationRequested();
             PlatformBuildArtifact artifact = cookedArtifacts[index];
+            string fingerprint = Ps2CookFingerprintStore.ComputeSourceFileFingerprint(sources[index], artifact.ArtifactKind, artifact.LogicalArtifactId);
+            if (fingerprintStore.IsUpToDate(outputRelatives[index], fingerprint, destinations[index])) {
+                progressReporter.Report(new PlatformBuildProgressUpdate("Stage Cooked Artifacts", artifact.LogicalArtifactId,
+                    index + 1, cookedArtifacts.Length, $"Reused up-to-date cooked artifact '{artifact.RelativePath}'."));
+                continue;
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(destinations[index]));
             if (IsModelArtifact(artifact)) {
                 WritePs2ModelAsset(artifact, sources[index], destinations[index]);
             } else {
                 File.Copy(sources[index], destinations[index], true);
             }
+            fingerprintStore.Record(outputRelatives[index], fingerprint);
             progressReporter.Report(new PlatformBuildProgressUpdate("Stage Cooked Artifacts", artifact.LogicalArtifactId,
                 index + 1, cookedArtifacts.Length, $"Staged cooked artifact '{artifact.RelativePath}'."));
         }
@@ -493,9 +525,16 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             nativeExecutablePath);
     }
 
+    /// <summary>
+    /// Validates the build request; assets-only builds (editor Play) need no generated core, so its checks only apply to full builds.
+    /// </summary>
+    /// <param name="request">Build request to validate.</param>
     static void ValidateRequest(PlatformBuildRequest request) {
         if (request == null) {
             throw new ArgumentNullException(nameof(request));
+        }
+        if (request.ExecutionScope == PlatformBuildExecutionScope.AssetsOnly) {
+            return;
         }
         if (string.IsNullOrWhiteSpace(request.GeneratedCoreCppRootPath)) {
             throw new ArgumentException("Generated core root path must be provided for PS2 builds.", nameof(request));

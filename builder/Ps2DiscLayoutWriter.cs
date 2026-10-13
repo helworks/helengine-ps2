@@ -67,6 +67,9 @@ public sealed class Ps2DiscLayoutWriter {
         string[] filePaths = Directory.GetFiles(sourceRootPath, "*", SearchOption.AllDirectories);
         for (int fileIndex = 0; fileIndex < filePaths.Length; fileIndex++) {
             string filePath = filePaths[fileIndex];
+            if (Ps2CookFingerprintStore.IsStoreFile(sourceRootPath, filePath)) {
+                continue;
+            }
             string logicalRelativePath = Path.GetRelativePath(sourceRootPath, filePath).Replace('\\', '/');
             string physicalRelativePath = Ps2DiscPathResolver.ResolveDiscRelativePath(logicalRelativePath).Replace('/', '\\');
             logicalToPhysicalPaths[logicalRelativePath] = "\\" + physicalRelativePath.Replace('/', '\\') + ";1";
@@ -104,6 +107,9 @@ public sealed class Ps2DiscLayoutWriter {
         string[] filePaths = Directory.GetFiles(sourceRootPath, "*", SearchOption.AllDirectories);
         for (int fileIndex = 0; fileIndex < filePaths.Length; fileIndex++) {
             string filePath = filePaths[fileIndex];
+            if (Ps2CookFingerprintStore.IsStoreFile(sourceRootPath, filePath)) {
+                continue;
+            }
             string logicalRelativePath = Path.GetRelativePath(sourceRootPath, filePath).Replace('\\', '/');
             string physicalRelativePath = Ps2DiscPathResolver.ResolveDiscRelativePath(logicalRelativePath).Replace('/', '\\');
             string destinationFilePath = Path.Combine(discRootPath, physicalRelativePath);

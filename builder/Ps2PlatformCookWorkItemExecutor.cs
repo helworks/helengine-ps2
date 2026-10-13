@@ -69,12 +69,21 @@ public sealed class Ps2PlatformCookWorkItemExecutor {
     /// <param name="progressReporter">Receives successful publication updates.</param>
     /// <param name="cancellationToken">Cancels preparation without altering the preceding texture outputs.</param>
     void ExecuteBatch(PlatformBuildRequest request, IPlatformBuildProgressReporter progressReporter, CancellationToken cancellationToken) {
-        IReadOnlyList<Ps2TextureCookWorkPlan> plans = Prepare(request, cancellationToken);
-        Publish(plans, progressReporter, cancellationToken);
+        Ps2CookFingerprintStore fingerprintStore = new(Path.Combine(request.WorkingRoot, "ps2-staging"));
+        IReadOnlyList<Ps2TextureCookWorkPlan> plans = Prepare(request, fingerprintStore, cancellationToken);
+        Publish(plans, fingerprintStore, progressReporter, cancellationToken);
+        fingerprintStore.Save();
     }
 
-    /// <summary>Prepares native texture bytes without altering staged artifacts, allowing the builder to validate before other staging work.</summary>
-    internal IReadOnlyList<Ps2TextureCookWorkPlan> Prepare(PlatformBuildRequest request, CancellationToken cancellationToken) {
+    /// <summary>
+    /// Prepares native texture bytes without altering staged artifacts, allowing the builder to validate before other staging work.
+    /// Work items whose staged output already matches their fingerprint (source content hash, settings hash, logical id) are
+    /// planned as skipped and are not decoded or cooked.
+    /// </summary>
+    internal IReadOnlyList<Ps2TextureCookWorkPlan> Prepare(PlatformBuildRequest request, Ps2CookFingerprintStore fingerprintStore, CancellationToken cancellationToken) {
+        if (fingerprintStore == null) {
+            throw new ArgumentNullException(nameof(fingerprintStore));
+        }
         PlatformCookWorkItem[] workItems = request.Manifest.PlatformCookWorkItems ?? Array.Empty<PlatformCookWorkItem>();
         cancellationToken.ThrowIfCancellationRequested();
         if (workItems.Length == 0) return Array.Empty<Ps2TextureCookWorkPlan>();
@@ -101,10 +110,20 @@ public sealed class Ps2PlatformCookWorkItemExecutor {
             string destination = Ps2TextureCookPath.ResolveDestination(root, relative);
             if (sources.Contains(destination)) throw new InvalidOperationException("PS2 cooked output would replace a cook source.");
             if (!File.Exists(workItem.SourceAssetPath)) throw new FileNotFoundException("PS2 cook source was not found.", workItem.SourceAssetPath);
-            plans.Add(new Ps2TextureCookWorkPlan { WorkItem = workItem, Settings = settings, DestinationPath = destination, StagingRootPath = root });
+            string fingerprint = Ps2CookFingerprintStore.ComputeWorkItemFingerprint(workItem.SourceContentHash, workItem.SettingsHash, workItem.OutputLogicalArtifactId);
+            plans.Add(new Ps2TextureCookWorkPlan {
+                WorkItem = workItem,
+                Settings = settings,
+                DestinationPath = destination,
+                StagingRootPath = root,
+                OutputRelativePath = relative,
+                Fingerprint = fingerprint,
+                Skipped = fingerprintStore.IsUpToDate(relative, fingerprint, destination)
+            });
         }
         foreach (Ps2TextureCookWorkPlan plan in plans) {
             cancellationToken.ThrowIfCancellationRequested();
+            if (plan.Skipped) continue;
             using TextureAsset source = ResolveSourceTexture(plan.WorkItem);
             using Ps2TextureAsset cooked = RuntimeTextureCooker.Cook(source, plan.Settings);
             cooked.Id = plan.WorkItem.OutputLogicalArtifactId;
@@ -115,16 +134,29 @@ public sealed class Ps2PlatformCookWorkItemExecutor {
         return plans;
     }
 
-    /// <summary>Rechecks destinations and publishes only a batch whose source decoding and native cooking completed successfully.</summary>
-    internal void Publish(IReadOnlyList<Ps2TextureCookWorkPlan> plans, IPlatformBuildProgressReporter progressReporter, CancellationToken cancellationToken) {
+    /// <summary>
+    /// Rechecks destinations and publishes only a batch whose source decoding and native cooking completed successfully.
+    /// Skipped plans keep their existing staged output; every written output has its fingerprint recorded in the store.
+    /// </summary>
+    internal void Publish(IReadOnlyList<Ps2TextureCookWorkPlan> plans, Ps2CookFingerprintStore fingerprintStore, IPlatformBuildProgressReporter progressReporter, CancellationToken cancellationToken) {
+        if (fingerprintStore == null) {
+            throw new ArgumentNullException(nameof(fingerprintStore));
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
         foreach (Ps2TextureCookWorkPlan plan in plans) {
             Ps2TextureCookPath.ResolveDestination(plan.StagingRootPath, plan.WorkItem.OutputRelativePath);
         }
         for (int index = 0; index < plans.Count; index++) {
             Ps2TextureCookWorkPlan plan = plans[index];
+            if (plan.Skipped) {
+                progressReporter.Report(new PlatformBuildProgressUpdate("Execute Platform Cook Work Items", plan.WorkItem.OutputLogicalArtifactId,
+                    index + 1, plans.Count, $"Reused up-to-date PS2 platform cook work item '{plan.WorkItem.WorkItemId}'."));
+                continue;
+            }
             Directory.CreateDirectory(Path.GetDirectoryName(plan.DestinationPath));
             File.WriteAllBytes(plan.DestinationPath, plan.Payload);
+            fingerprintStore.Record(plan.OutputRelativePath, plan.Fingerprint);
             progressReporter.Report(new PlatformBuildProgressUpdate("Execute Platform Cook Work Items", plan.WorkItem.OutputLogicalArtifactId,
                 index + 1, plans.Count, $"Executed PS2 platform cook work item '{plan.WorkItem.WorkItemId}'."));
         }

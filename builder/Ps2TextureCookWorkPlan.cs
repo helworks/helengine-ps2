@@ -15,4 +15,10 @@ internal sealed class Ps2TextureCookWorkPlan {
     public string StagingRootPath { get; init; }
     /// <summary>Holds serialized bytes only after the source decode and native cook succeeded.</summary>
     public byte[] Payload { get; set; }
+    /// <summary>Stores the normalized output path relative to the staging root, used as the fingerprint store key.</summary>
+    public string OutputRelativePath { get; init; }
+    /// <summary>Fingerprint of the cook inputs, recorded in the fingerprint store once the output is published.</summary>
+    public string Fingerprint { get; init; }
+    /// <summary>True when the staged output already matches the current inputs, so the plan is neither cooked nor published.</summary>
+    public bool Skipped { get; init; }
 }
