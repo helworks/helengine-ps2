@@ -2386,7 +2386,6 @@ public class Ps2PlatformAssetBuilderTests {
             SourceRect = new float4(0f, 0f, 1f, 1f),
             Size = new int2(320, 180),
             Color = new byte4(255, 255, 255, 255),
-            RenderOrder2D = 1
         };
         EntityComponentSaveState saveState = new();
         saveState.SetAssetReference("Texture", CreateSceneReference(SceneAssetReferenceSourceKind.FileSystem, textureRelativePath, string.Empty, string.Empty));
@@ -2554,7 +2553,6 @@ public class Ps2PlatformAssetBuilderTests {
             Font = CreateTestFontAsset(),
             RefreshIntervalSeconds = 0.5d,
             Padding = new int2(8, 6),
-            RenderOrder2D = 250,
             FontScale = 1f,
             AdditionalText = "Return: Start"
         };
@@ -2570,7 +2568,6 @@ public class Ps2PlatformAssetBuilderTests {
             Font = CreateTestFontAsset(),
             RefreshIntervalSeconds = 0.5d,
             Padding = new int2(8, 6),
-            RenderOrder2D = 250,
             FontScale = 1f,
             AdditionalText = string.Empty
         };
