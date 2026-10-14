@@ -2734,7 +2734,7 @@ public class Ps2PlatformAssetBuilderTests {
             Importer = new AssetImporterSettings {
                 ImporterId = "helengine.material",
                 SourceChecksum = string.Empty,
-                AssetId = materialRelativePath
+                ProcessedAssetId = materialRelativePath
             },
             Processor = new MaterialAssetProcessorPlatformSettings()
         };
@@ -2829,8 +2829,8 @@ public class Ps2PlatformAssetBuilderTests {
         Assert.True(assetImportManager.TryLoadOrCreateTextureImportSettings(textureSourcePath, out settings));
         Assert.NotNull(settings);
         Assert.NotNull(settings.Importer);
-        Assert.False(string.IsNullOrWhiteSpace(settings.Importer.AssetId));
-        return settings.Importer.AssetId;
+        Assert.False(string.IsNullOrWhiteSpace(settings.Importer.ProcessedAssetId));
+        return settings.Importer.ProcessedAssetId;
     }
 
     /// <summary>
