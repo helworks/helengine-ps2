@@ -380,7 +380,8 @@ public static class Ps2PlatformDefinitionFactory {
                 60d,
                 PlayerInputDevices.Gamepad,
                 Ps2RuntimePlatformIdentity.Name,
-                Ps2RuntimePlatformIdentity.Version));
+                Ps2RuntimePlatformIdentity.Version,
+                []));
     }
 
     /// <summary>
