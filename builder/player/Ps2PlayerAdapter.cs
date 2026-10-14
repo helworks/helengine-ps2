@@ -9,6 +9,16 @@ namespace helengine.ps2.builder;
 /// </summary>
 public sealed class Ps2PlayerAdapter : IPlatformPlayerAdapter {
     /// <summary>
+    /// Width of the PS2 framebuffer the native runtime initializes gsKit with (Ps2BootHost).
+    /// </summary>
+    public const int FramebufferWidth = 640;
+
+    /// <summary>
+    /// Height of the PS2 framebuffer the native runtime initializes gsKit with (Ps2BootHost).
+    /// </summary>
+    public const int FramebufferHeight = 448;
+
+    /// <summary>
     /// Disc-path suffix ISO9660 version marker appended to every staged physical path.
     /// </summary>
     const string DiscVersionSuffix = ";1";
@@ -66,6 +76,19 @@ public sealed class Ps2PlayerAdapter : IPlatformPlayerAdapter {
         ContentRootPath = contentRootPath;
         LogicalToPhysical = logicalToPhysical;
         PhysicalToLogical = physicalToLogical;
+    }
+
+    /// <summary>
+    /// Declares the PS2 framebuffer size as the Play render size. The PS2 declares no platform Play settings yet.
+    /// </summary>
+    /// <param name="playSettings">Resolved Play settings of this session.</param>
+    /// <returns>The 640x448 PS2 framebuffer size.</returns>
+    public PlayerRenderSize ApplyPlaySettings(PlayerPlaySettings playSettings) {
+        if (playSettings == null) {
+            throw new ArgumentNullException(nameof(playSettings));
+        }
+
+        return new PlayerRenderSize(FramebufferWidth, FramebufferHeight);
     }
 
     /// <summary>

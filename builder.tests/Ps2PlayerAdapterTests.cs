@@ -243,6 +243,20 @@ public sealed class Ps2PlayerAdapterTests : IDisposable {
     }
 
     /// <summary>
+    /// The PS2 adapter declares the PS2 framebuffer (640x448) as the Play render size until the video mode is configurable.
+    /// </summary>
+    [Fact]
+    public void ApplyPlaySettings_DeclaresThePs2FramebufferSize() {
+        Ps2PlayerAdapter adapter = new Ps2PlayerAdapter();
+        PlayerPlaySettings settings = new PlayerPlaySettings(PlayerWindowScale.Fit, PlayerWindowMonitor.Editor, 1, false, true, false, 60d, new Dictionary<string, string>());
+
+        PlayerRenderSize size = adapter.ApplyPlaySettings(settings);
+
+        Assert.Equal(640, size.Width);
+        Assert.Equal(448, size.Height);
+    }
+
+    /// <summary>
     /// Creates one 4x4 opaque RGBA texture whose sixteen texels are all distinct, so indexed formats stay lossless.
     /// </summary>
     /// <returns>Authored RGBA source texture.</returns>
