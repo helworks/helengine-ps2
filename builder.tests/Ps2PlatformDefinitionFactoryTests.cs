@@ -42,4 +42,17 @@ public sealed class Ps2PlatformDefinitionFactoryTests {
         Assert.Equal("\"platform/ps2/Ps2DiscFileSystem.hpp\"", headerSetting.DefaultValue);
         Assert.Equal("helengine::ps2::Ps2DiscFileSystem", typeSetting.DefaultValue);
     }
+
+    /// <summary>
+    /// Ensures the PS2 Play capability declares the platform identity the PS2 native runtime reports, so the desktop
+    /// player reports <c>ps2</c> / <c>1.0.0</c> to the core like the console does.
+    /// </summary>
+    [Fact]
+    public void Create_DeclaresPs2RuntimePlatformIdentityForPlay() {
+        PlatformPlayerCapability capability = Ps2PlatformDefinitionFactory.Create().PlayerCapability;
+
+        Assert.True(capability.SupportsPlay);
+        Assert.Equal("ps2", capability.RuntimePlatformName);
+        Assert.Equal("1.0.0", capability.RuntimePlatformVersion);
+    }
 }

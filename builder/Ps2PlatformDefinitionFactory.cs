@@ -371,7 +371,16 @@ public static class Ps2PlatformDefinitionFactory {
             // refresh rates (60/120/240 Hz) evenly; the 0.1% gap to 59.94 is immaterial for gameplay testing.
             // A PS2 has only its pad: the desktop player hides the desktop keyboard and mouse from PS2 games and feeds the
             // pad from a desktop controller or the keyboard-emulated pad instead.
-            playerCapability: new PlatformPlayerCapability(true, "helengine.ps2.builder.Ps2PlayerAdapter", "ps2-staging", 60d, PlayerInputDevices.Gamepad));
+            // The player reports the same PlatformInfo as the native runtime; both read Ps2RuntimePlatformIdentity (the
+            // native boot host through the generated runtime_ps2_platform_info.hpp).
+            playerCapability: new PlatformPlayerCapability(
+                true,
+                "helengine.ps2.builder.Ps2PlayerAdapter",
+                "ps2-staging",
+                60d,
+                PlayerInputDevices.Gamepad,
+                Ps2RuntimePlatformIdentity.Name,
+                Ps2RuntimePlatformIdentity.Version));
     }
 
     /// <summary>

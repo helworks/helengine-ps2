@@ -992,6 +992,7 @@ public class Ps2PlatformAssetBuilderTests {
             Assert.True(File.Exists(Path.Combine(generatedCoreRoot, "runtime", "runtime_ps2_asset_path_manifest.cpp")));
             Assert.True(File.Exists(Path.Combine(generatedCoreRoot, "runtime", "runtime_scene_catalog_manifest.hpp")));
             Assert.True(File.Exists(Path.Combine(generatedCoreRoot, "runtime", "runtime_scene_catalog_manifest.cpp")));
+            Assert.True(File.Exists(Path.Combine(generatedCoreRoot, "runtime", Ps2RuntimePlatformInfoHeaderWriter.HeaderFileName)));
             Assert.False(File.Exists(Path.Combine(workingRoot, "tmp", "ps2-build-manifest.json")));
             string runtimeManifestSource = File.ReadAllText(Path.Combine(generatedCoreRoot, "runtime", "runtime_ps2_asset_path_manifest.cpp"));
             string runtimeSceneCatalogSource = File.ReadAllText(Path.Combine(generatedCoreRoot, "runtime", "runtime_scene_catalog_manifest.cpp"));

@@ -92,6 +92,7 @@
 #include "runtime/native_list.hpp"
 #include "runtime/native_cast.hpp"
 #include "runtime/runtime_ps2_asset_path_manifest.hpp"
+#include "runtime/runtime_ps2_platform_info.hpp"
 #include "runtime/runtime_scene_catalog_manifest.hpp"
 #include "runtime/runtime_standard_platform_input_manifest.hpp"
 #include "runtime/native_exceptions.hpp"
@@ -3038,7 +3039,7 @@ namespace helengine::ps2 {
 
         EngineRenderManager2D = &RenderManager2DBackend;
         EngineRenderManager3D = &RenderManager3DBackend;
-        EnginePlatformInfo = new PlatformInfo("ps2", "1.0.0");
+        EnginePlatformInfo = new PlatformInfo(HE_RUNTIME_PS2_PLATFORM_NAME, HE_RUNTIME_PS2_PLATFORM_VERSION);
         BootLog("core initialize begin");
         EngineCore->Initialize(
             EngineRenderManager3D,

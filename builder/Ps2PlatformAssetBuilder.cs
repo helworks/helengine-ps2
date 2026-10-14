@@ -23,6 +23,10 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
     readonly Ps2PlatformCookWorkItemExecutor PlatformCookWorkItemExecutor;
     readonly Ps2DiscLayoutWriter DiscLayoutWriter;
     readonly Ps2RuntimeAssetPathManifestWriter RuntimeAssetPathManifestWriter;
+    /// <summary>
+    /// Writes the generated header carrying the platform name and version the native boot host reports to the core.
+    /// </summary>
+    readonly Ps2RuntimePlatformInfoHeaderWriter RuntimePlatformInfoHeaderWriter = new Ps2RuntimePlatformInfoHeaderWriter();
 
     public Ps2PlatformAssetBuilder() {
         NativeBuildExecutor = new Ps2NativeBuildExecutor();
@@ -126,6 +130,8 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
                 WritePhaseMarker(phaseMarkerPath, "logical path map built");
                 RuntimeAssetPathManifestWriter.Write(workspace.GeneratedCoreRootPath, request.Manifest, logicalToPhysicalPaths);
                 WritePhaseMarker(phaseMarkerPath, "runtime asset path manifest written");
+                RuntimePlatformInfoHeaderWriter.Write(workspace.GeneratedCoreRootPath);
+                WritePhaseMarker(phaseMarkerPath, "runtime platform info header written");
                 NativeBuildExecutor.Build(workspace, cancellationToken);
                 WritePhaseMarker(phaseMarkerPath, "native build completed");
                 DiscLayoutWriter.Write(workspace);
