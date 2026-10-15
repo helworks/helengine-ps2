@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include "platform/ps2/Ps2VideoModeBootRecordReader.hpp"
+
 typedef struct gsGlobal GSGLOBAL;
 
 class Core;
@@ -25,6 +27,8 @@ namespace helengine::ps2 {
     private:
         bool InitializeRuntime();
         bool InitializeGraphics();
+        /// <summary>Reads VIDMODE.BIN from the disc into ActiveVideoSettings, halting when it is missing or invalid.</summary>
+        bool LoadVideoModeBootRecord();
         bool LoadPackagedStartupScene();
         void PresentBootFrame();
         std::string ResolveApplicationDirectoryPath() const;
@@ -38,6 +42,8 @@ namespace helengine::ps2 {
         ::RenderManager2D* EngineRenderManager2D;
         ::RenderManager3D* EngineRenderManager3D;
         GSGLOBAL* GsGlobal;
+        /// <summary>The gsKit screen fields of the video mode the disc was built for; set before InitializeGraphics runs.</summary>
+        Ps2GsVideoSettings ActiveVideoSettings;
         bool StartupSceneLoaded;
     };
 }

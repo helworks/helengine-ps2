@@ -779,24 +779,6 @@ public sealed class Ps2NativeBuildInputsTests {
     }
 
     /// <summary>
-    /// Ensures the PS2 boot host applies the engine's PS2 framebuffer defaults before gsKit initializes the screen.
-    /// </summary>
-    [Fact]
-    public void Boot_host_when_graphics_initialize_applies_ps2_framebuffer_defaults_before_screen_init() {
-        string source = File.ReadAllText(@"C:\dev\helworks\helengine-ps2\.worktrees\normalize-camera-viewport-core\src\platform\ps2\Ps2BootHost.cpp");
-
-        Assert.Contains("constexpr int Ps2DefaultFramebufferWidth = 640;", source, StringComparison.Ordinal);
-        Assert.Contains("constexpr int Ps2DefaultFramebufferHeight = 448;", source, StringComparison.Ordinal);
-        Assert.Contains("GsGlobal->Interlace = GS_INTERLACED;", source, StringComparison.Ordinal);
-        Assert.Contains("GsGlobal->Field = GS_FIELD;", source, StringComparison.Ordinal);
-        Assert.Contains("GsGlobal->DoubleBuffering = GS_SETTING_ON;", source, StringComparison.Ordinal);
-        Assert.Contains("GsGlobal->Aspect = GS_ASPECT_4_3;", source, StringComparison.Ordinal);
-        Assert.Contains("GsGlobal->Width = Ps2DefaultFramebufferWidth;", source, StringComparison.Ordinal);
-        Assert.Contains("GsGlobal->Height = Ps2DefaultFramebufferHeight;", source, StringComparison.Ordinal);
-        Assert.Contains("gsKit_init_screen(GsGlobal);", source, StringComparison.Ordinal);
-    }
-
-    /// <summary>
     /// Ensures the PS2 boot host publishes the configured GS framebuffer size to the shared render manager.
     /// </summary>
     [Fact]

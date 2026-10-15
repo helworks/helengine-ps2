@@ -143,8 +143,6 @@ namespace {
     };
 
     constexpr const char* Ps2BootVersionStamp = "PS2CITYBOOT-5";
-    constexpr int Ps2DefaultFramebufferWidth = 640;
-    constexpr int Ps2DefaultFramebufferHeight = 448;
     constexpr const char* CubeModelDiagnosticPath = "cdrom0:\\COOKED\\ENGINE\\MODELS\\CUBE.HAS;1";
     constexpr const char* CubeMaterialEarlyDiagnosticPath = "cdrom0:\\COOKED\\ENGINE\\MAT\\CUBE00\\CUBE00.HAS;1";
     constexpr const char* CubeMaterialLateDiagnosticPath = "cdrom0:\\COOKED\\ENGINE\\MAT\\CUBE14\\CUBE14.HAS;1";
@@ -2946,6 +2944,7 @@ namespace helengine::ps2 {
           EngineRenderManager2D(0),
           EngineRenderManager3D(0),
           GsGlobal(0),
+          ActiveVideoSettings{},
           StartupSceneLoaded(false) {
     }
 
@@ -2953,6 +2952,10 @@ namespace helengine::ps2 {
         try {
             if (!InitializeRuntime()) {
                 FatalHalt("runtime init returned false");
+            }
+
+            if (!LoadVideoModeBootRecord()) {
+                FatalHalt("video mode boot record load returned false");
             }
 
             if (!InitializeGraphics()) {
@@ -3065,6 +3068,29 @@ namespace helengine::ps2 {
         return true;
     }
 
+    bool Ps2BootHost::LoadVideoModeBootRecord() {
+        const char* path = Ps2VideoModeBootRecordReader::RuntimePath;
+        std::FILE* file = std::fopen(path, "rb");
+        if (file == nullptr) {
+            FatalHalt(std::string("video mode boot record missing: ") + path + " (rebuild the disc with the current PS2 builder)");
+        }
+
+        std::uint8_t bytes[Ps2VideoModeBootRecordReader::RecordSize + 1];
+        std::size_t length = std::fread(bytes, 1, sizeof(bytes), file);
+        std::fclose(file);
+        Ps2VideoModeBootRecord record{};
+        const char* error = nullptr;
+        if (!Ps2VideoModeBootRecordReader::TryParse(bytes, length, record, error)) {
+            FatalHalt(std::string("video mode boot record invalid: ") + error);
+        }
+
+        ActiveVideoSettings = Ps2VideoModeBootRecordReader::ResolveGsSettings(record);
+        BootLog(std::string("video mode: ") + (ActiveVideoSettings.IsPal ? "PAL " : "NTSC ")
+            + std::to_string(ActiveVideoSettings.Width) + "x" + std::to_string(ActiveVideoSettings.Height)
+            + (ActiveVideoSettings.IsInterlaced ? "i" : "p"));
+        return true;
+    }
+
     bool Ps2BootHost::InitializeGraphics() {
         BootLog("graphics init");
         BootLog("gsKit init global begin");
@@ -3078,12 +3104,12 @@ namespace helengine::ps2 {
 
         RenderManager3DBackend.SetGsGlobal(GsGlobal);
 
-        GsGlobal->Mode = GS_MODE_NTSC;
-        GsGlobal->Interlace = GS_INTERLACED;
-        GsGlobal->Field = GS_FIELD;
+        GsGlobal->Mode = ActiveVideoSettings.IsPal ? GS_MODE_PAL : GS_MODE_NTSC;
+        GsGlobal->Interlace = ActiveVideoSettings.IsInterlaced ? GS_INTERLACED : GS_NONINTERLACED;
+        GsGlobal->Field = ActiveVideoSettings.IsFrameMode ? GS_FRAME : GS_FIELD;
         GsGlobal->Aspect = GS_ASPECT_4_3;
-        GsGlobal->Width = Ps2DefaultFramebufferWidth;
-        GsGlobal->Height = Ps2DefaultFramebufferHeight;
+        GsGlobal->Width = ActiveVideoSettings.Width;
+        GsGlobal->Height = ActiveVideoSettings.Height;
         GsGlobal->PSM = GS_PSM_CT16;
         GsGlobal->PSMZ = GS_PSMZ_16;
         GsGlobal->DoubleBuffering = GS_SETTING_ON;
@@ -3104,12 +3130,22 @@ namespace helengine::ps2 {
         InitializeVuOpaqueDoubleBuffer();
 
         gsKit_init_screen(GsGlobal);
+        if (GsGlobal->MagH != ActiveVideoSettings.MagH || GsGlobal->DW != (ActiveVideoSettings.MagH + 1) * ActiveVideoSettings.Width) {
+            FatalHalt(std::string("gsKit magnification differs from the video mode reader: MagH=") + std::to_string(GsGlobal->MagH)
+                + " DW=" + std::to_string(GsGlobal->DW) + ", expected MagH=" + std::to_string(ActiveVideoSettings.MagH));
+        }
         // Repeat-mode texture addressing so tiled UVs wrap instead of smearing the edge texels.
         gsKit_set_clamp(GsGlobal, GS_CMODE_REPEAT);
         EngineRenderManager3D->AddWindow(
             0,
             static_cast<int32_t>(GsGlobal->Width),
             static_cast<int32_t>(GsGlobal->Height));
+        EngineRenderManager3D->SetWindowPixelAspect(0, ActiveVideoSettings.PixelAspect);
+        BootLog(std::string("vram frame0=") + std::to_string(GsGlobal->ScreenBuffer[0])
+            + " frame1=" + std::to_string(GsGlobal->ScreenBuffer[1])
+            + " z=" + std::to_string(GsGlobal->ZBuffer)
+            + " textures=" + std::to_string(GsGlobal->TexturePointer)
+            + " page-grid-bytes=" + std::to_string(Ps2VideoModeBootRecordReader::ResolvePageGridBufferBytes(GsGlobal->Width, GsGlobal->Height)));
         gsKit_mode_switch(GsGlobal, GS_ONESHOT);
         BootLog("graphics ready");
         return true;

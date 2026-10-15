@@ -705,18 +705,6 @@ public sealed class Ps2RenderManager3DSourceTests {
     }
 
     /// <summary>
-    /// Ensures the production build restores the native PS2 framebuffer size after the B21 fill-rate experiment found no performance improvement.
-    /// </summary>
-    [Fact]
-    public void Ps2BootHost_AfterTheB21FillRateExperiment_RestoresTheNativeFramebufferResolution() {
-        string sourcePath = Path.Combine(GetRepositoryRootPath(), "src", "platform", "ps2", "Ps2BootHost.cpp");
-        string source = File.ReadAllText(sourcePath);
-
-        Assert.Contains("constexpr int Ps2DefaultFramebufferWidth = 640;", source, StringComparison.Ordinal);
-        Assert.Contains("constexpr int Ps2DefaultFramebufferHeight = 448;", source, StringComparison.Ordinal);
-    }
-
-    /// <summary>
     /// Ensures disabled fine-grained VU diagnostics do not spend PS2 EE time reading the clock for every untextured triangle.
     /// </summary>
     [Fact]
