@@ -3104,12 +3104,17 @@ namespace helengine::ps2 {
 
         RenderManager3DBackend.SetGsGlobal(GsGlobal);
 
-        GsGlobal->Mode = ActiveVideoSettings.IsPal ? GS_MODE_PAL : GS_MODE_NTSC;
-        GsGlobal->Interlace = ActiveVideoSettings.IsInterlaced ? GS_INTERLACED : GS_NONINTERLACED;
-        GsGlobal->Field = ActiveVideoSettings.IsFrameMode ? GS_FRAME : GS_FIELD;
+        static_assert(Ps2VideoModeBootRecordReader::GsModeNtsc == GS_MODE_NTSC && Ps2VideoModeBootRecordReader::GsModePal == GS_MODE_PAL
+                && Ps2VideoModeBootRecordReader::GsNonInterlaced == GS_NONINTERLACED && Ps2VideoModeBootRecordReader::GsInterlaced == GS_INTERLACED
+                && Ps2VideoModeBootRecordReader::GsField == GS_FIELD && Ps2VideoModeBootRecordReader::GsFrame == GS_FRAME,
+            "Ps2VideoModeBootRecordReader's GS constants must equal gsKit's");
+        const Ps2GsScreenFields screen = Ps2VideoModeBootRecordReader::ResolveGsScreenFields(ActiveVideoSettings);
+        GsGlobal->Mode = screen.Mode;
+        GsGlobal->Interlace = screen.Interlace;
+        GsGlobal->Field = screen.Field;
         GsGlobal->Aspect = GS_ASPECT_4_3;
-        GsGlobal->Width = ActiveVideoSettings.Width;
-        GsGlobal->Height = ActiveVideoSettings.Height;
+        GsGlobal->Width = screen.Width;
+        GsGlobal->Height = screen.Height;
         GsGlobal->PSM = GS_PSM_CT16;
         GsGlobal->PSMZ = GS_PSMZ_16;
         GsGlobal->DoubleBuffering = GS_SETTING_ON;
@@ -3130,9 +3135,10 @@ namespace helengine::ps2 {
         InitializeVuOpaqueDoubleBuffer();
 
         gsKit_init_screen(GsGlobal);
-        if (GsGlobal->MagH != ActiveVideoSettings.MagH || GsGlobal->DW != (ActiveVideoSettings.MagH + 1) * ActiveVideoSettings.Width) {
-            FatalHalt(std::string("gsKit magnification differs from the video mode reader: MagH=") + std::to_string(GsGlobal->MagH)
-                + " DW=" + std::to_string(GsGlobal->DW) + ", expected MagH=" + std::to_string(ActiveVideoSettings.MagH));
+        std::string screenError;
+        if (!Ps2VideoModeBootRecordReader::VerifyGsInit(ActiveVideoSettings, GsGlobal->MagH, GsGlobal->MagV, GsGlobal->DW, GsGlobal->DH,
+                GsGlobal->Field, GsGlobal->Interlace, screenError)) {
+            FatalHalt(screenError);
         }
         // Repeat-mode texture addressing so tiled UVs wrap instead of smearing the edge texels.
         gsKit_set_clamp(GsGlobal, GS_CMODE_REPEAT);
@@ -3140,7 +3146,7 @@ namespace helengine::ps2 {
             0,
             static_cast<int32_t>(GsGlobal->Width),
             static_cast<int32_t>(GsGlobal->Height));
-        EngineRenderManager3D->SetWindowPixelAspect(0, ActiveVideoSettings.PixelAspect);
+        EngineRenderManager3D->SetWindowPixelAspect(0, screen.WindowPixelAspect);
         BootLog(std::string("vram frame0=") + std::to_string(GsGlobal->ScreenBuffer[0])
             + " frame1=" + std::to_string(GsGlobal->ScreenBuffer[1])
             + " z=" + std::to_string(GsGlobal->ZBuffer)
