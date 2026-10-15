@@ -68,16 +68,35 @@ public sealed class Ps2VideoModeBootRecordTests : IDisposable {
     }
 
     /// <summary>
-    /// A mode the PS2 would not show 4:3 is refused: the runtime outputs every mode with GS_ASPECT_4_3 and derives the
-    /// window pixel aspect from that, so the record cannot describe another display aspect.
+    /// A mode whose declared display aspect differs from the one gsKit's integer magnification gives its width is refused
+    /// naming the mode and both aspects: the record carries no aspect, and the native runtime derives it from the width the
+    /// same way, so the record cannot describe another display aspect. Both a 640-wide mode declared other than 4:3 and a
+    /// 320-wide mode declared 4:3 (instead of 3:2) are refused.
+    /// </summary>
+    [Theory]
+    [InlineData("ntsc-640x448i", 640, 448, false, 16, 9, "16:9", "4:3")]
+    [InlineData("ntsc-320x224p", 320, 224, true, 4, 3, "4:3", "3:2")]
+    [InlineData("pal-256x256p", 256, 256, true, 4, 3, "4:3", "22:15")]
+    public void Encode_RejectsAModeNotShownAtTheGsKitDerivedAspect(string id, int width, int height, bool progressive, int aspectWidth, int aspectHeight, string declared, string derived) {
+        PlatformVideoMode mode = new PlatformVideoMode(id, width, height, progressive, 59.94d, 60d, aspectWidth, aspectHeight);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() => Ps2VideoModeBootRecord.Encode(mode));
+
+        Assert.Equal("mode", exception.ParamName);
+        Assert.Contains($"'{id}'", exception.Message);
+        Assert.Contains(declared, exception.Message);
+        Assert.Contains(derived, exception.Message);
+    }
+
+    /// <summary>
+    /// A declared aspect that is not reduced but equals the gsKit-derived one (6:4 for a 320-wide mode) is the same
+    /// display aspect and is accepted, so the guard compares ratios rather than terms.
     /// </summary>
     [Fact]
-    public void Encode_RejectsAModeThatIsNotShownFourByThree() {
-        PlatformVideoMode wide = new PlatformVideoMode("ntsc-640x448i", 640, 448, false, 59.94d, 60d, 16, 9);
+    public void Encode_AcceptsAnEquivalentUnreducedAspect() {
+        PlatformVideoMode mode = new PlatformVideoMode("ntsc-320x224p", 320, 224, true, 59.94d, 60d, 6, 4);
 
-        ArgumentException exception = Assert.Throws<ArgumentException>(() => Ps2VideoModeBootRecord.Encode(wide));
-
-        Assert.Contains("4:3", exception.Message);
+        Assert.Equal(Ps2VideoModeBootRecord.Size, Ps2VideoModeBootRecord.Encode(mode).Length);
     }
 
     /// <summary>The record's staging path is the runtime path the native boot host opens.</summary>

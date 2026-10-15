@@ -243,12 +243,15 @@ public sealed class Ps2PlayerAdapterTests : IDisposable {
         Assert.IsAssignableFrom<IPlatformPlayerAdapter>(Activator.CreateInstance(typeof(Ps2PlayerAdapter)));
     }
 
-    /// <summary>The PS2 adapter renders at the selected video mode's framebuffer size.</summary>
+    /// <summary>
+    /// The PS2 adapter renders at the selected video mode's framebuffer size and reports the pixel aspect gsKit shows it at:
+    /// 14/15 for 640x448 (4:3), 21/20 for 320x224 (3:2) and 2/3 for 512x256 (4:3).
+    /// </summary>
     [Theory]
-    [InlineData("ntsc-640x448i", 640, 448)]
-    [InlineData("ntsc-320x224p", 320, 224)]
-    [InlineData("pal-512x256p", 512, 256)]
-    public void ApplyPlaySettings_RendersAtTheVideoModeSize(string modeId, int width, int height) {
+    [InlineData("ntsc-640x448i", 640, 448, 14d / 15d)]
+    [InlineData("ntsc-320x224p", 320, 224, 21d / 20d)]
+    [InlineData("pal-512x256p", 512, 256, 2d / 3d)]
+    public void ApplyPlaySettings_RendersAtTheVideoModeSize(string modeId, int width, int height, double expectedPixelAspect) {
         PlatformVideoMode mode = Ps2VideoModes.CreateCapability().Resolve(modeId, "ps2");
         PlayerPlaySettings settings = new PlayerPlaySettings(PlayerWindowScale.Fit, PlayerWindowMonitor.Editor, 1, false, true, false, mode.PlayerFrameRate, new Dictionary<string, string> { ["video-mode"] = modeId }, mode);
 
@@ -256,7 +259,7 @@ public sealed class Ps2PlayerAdapterTests : IDisposable {
 
         Assert.Equal(width, size.Width);
         Assert.Equal(height, size.Height);
-        Assert.Equal(4d * height / (3d * width), size.PixelAspect, 12);
+        Assert.Equal(expectedPixelAspect, size.PixelAspect, 12);
     }
 
     /// <summary>Without a resolved video mode the PS2 adapter refuses to guess a size.</summary>

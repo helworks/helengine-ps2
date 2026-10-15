@@ -70,10 +70,11 @@ public sealed class Ps2PlayerAdapter : IPlatformPlayerAdapter {
 
     /// <summary>
     /// Renders Play at the selected PS2 video mode's framebuffer size, as the GS does before the PCRTC magnifies it, and
-    /// reports the mode's pixel aspect so the player window shows that framebuffer 4:3, as a TV does.
+    /// reports the mode's pixel aspect so the player window shows that framebuffer at the display aspect gsKit's
+    /// magnification gives it on a TV (4:3, or 3:2 and 22:15 for the 320- and 256-wide modes).
     /// </summary>
     /// <param name="playSettings">Resolved Play settings; must carry the PS2 video mode.</param>
-    /// <returns>The mode's framebuffer size and the pixel aspect that shows it 4:3.</returns>
+    /// <returns>The mode's framebuffer size and the pixel aspect that shows it at its display aspect.</returns>
     /// <exception cref="InvalidOperationException">Thrown when no video mode was resolved.</exception>
     public PlayerRenderSize ApplyPlaySettings(PlayerPlaySettings playSettings) {
         if (playSettings == null) {

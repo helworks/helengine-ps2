@@ -30,12 +30,19 @@ public static class Ps2VideoModeBootRecord {
     /// </summary>
     /// <param name="mode">PS2 video mode.</param>
     /// <returns>The 16-byte record.</returns>
-    /// <exception cref="ArgumentException">Thrown when the mode is not shown 4:3.</exception>
+    /// <exception cref="ArgumentException">
+    /// Thrown when the mode's declared display aspect is not the one gsKit's integer magnification gives its width
+    /// (<see cref="Ps2GsDisplayAspect"/>). The record carries no aspect: the native runtime derives it from the width.
+    /// </exception>
     public static byte[] Encode(PlatformVideoMode mode) {
         if (mode == null) {
             throw new ArgumentNullException(nameof(mode));
-        } else if (mode.DisplayAspectWidth * 3 != mode.DisplayAspectHeight * 4) {
-            throw new ArgumentException($"Video mode '{mode.Id}' is shown {mode.DisplayAspectWidth}:{mode.DisplayAspectHeight}, but the PS2 runtime shows every mode 4:3 (GS_ASPECT_4_3).", nameof(mode));
+        }
+
+        int derivedAspectWidth = Ps2GsDisplayAspect.ResolveDisplayAspectWidth(mode.Width);
+        int derivedAspectHeight = Ps2GsDisplayAspect.ResolveDisplayAspectHeight(mode.Width);
+        if ((long)mode.DisplayAspectWidth * derivedAspectHeight != (long)mode.DisplayAspectHeight * derivedAspectWidth) {
+            throw new ArgumentException($"Video mode '{mode.Id}' declares display aspect {mode.DisplayAspectWidth}:{mode.DisplayAspectHeight}, but gsKit shows a {mode.Width}-pixel-wide PS2 framebuffer at {derivedAspectWidth}:{derivedAspectHeight} (integer horizontal magnification {Ps2GsDisplayAspect.ResolveHorizontalMagnification(mode.Width)}x).", nameof(mode));
         }
 
         byte[] bytes = new byte[Size];

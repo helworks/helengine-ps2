@@ -23,32 +23,25 @@ public static class Ps2VideoModes {
     const double PalRate = 50d;
 
     /// <summary>
-    /// Width term of the display aspect. The PS2 runtime shows every mode 4:3 (<c>GS_ASPECT_4_3</c>), so the TV stretches
-    /// each framebuffer to that shape and its pixels are not square unless the framebuffer is itself 4:3.
-    /// </summary>
-    const int DisplayAspectWidth = 4;
-
-    /// <summary>Height term of the 4:3 display aspect every PS2 mode is shown at.</summary>
-    const int DisplayAspectHeight = 3;
-
-    /// <summary>
-    /// Creates the capability listing all 12 modes in display order.
+    /// Creates the capability listing all 12 modes in display order. Each mode's display aspect comes from
+    /// <see cref="Ps2GsDisplayAspect"/>: the shape gsKit's integer horizontal magnification really gives the picture
+    /// (4:3 for 640- and 512-wide modes, 3:2 for 320-wide modes, 22:15 for 256-wide modes).
     /// </summary>
     /// <returns>New PS2 video-mode capability.</returns>
     public static PlatformVideoModeCapability CreateCapability() {
         return new PlatformVideoModeCapability(SettingId, [
-            new PlatformVideoMode("ntsc-640x448i", 640, 448, false, NtscRefreshHz, NtscPlayerFrameRate, DisplayAspectWidth, DisplayAspectHeight),
-            new PlatformVideoMode("ntsc-512x448i", 512, 448, false, NtscRefreshHz, NtscPlayerFrameRate, DisplayAspectWidth, DisplayAspectHeight),
-            new PlatformVideoMode("ntsc-640x224p", 640, 224, true, NtscRefreshHz, NtscPlayerFrameRate, DisplayAspectWidth, DisplayAspectHeight),
-            new PlatformVideoMode("ntsc-512x224p", 512, 224, true, NtscRefreshHz, NtscPlayerFrameRate, DisplayAspectWidth, DisplayAspectHeight),
-            new PlatformVideoMode("ntsc-320x224p", 320, 224, true, NtscRefreshHz, NtscPlayerFrameRate, DisplayAspectWidth, DisplayAspectHeight),
-            new PlatformVideoMode("ntsc-256x224p", 256, 224, true, NtscRefreshHz, NtscPlayerFrameRate, DisplayAspectWidth, DisplayAspectHeight),
-            new PlatformVideoMode("pal-640x512i", 640, 512, false, PalRate, PalRate, DisplayAspectWidth, DisplayAspectHeight),
-            new PlatformVideoMode("pal-512x512i", 512, 512, false, PalRate, PalRate, DisplayAspectWidth, DisplayAspectHeight),
-            new PlatformVideoMode("pal-640x256p", 640, 256, true, PalRate, PalRate, DisplayAspectWidth, DisplayAspectHeight),
-            new PlatformVideoMode("pal-512x256p", 512, 256, true, PalRate, PalRate, DisplayAspectWidth, DisplayAspectHeight),
-            new PlatformVideoMode("pal-320x256p", 320, 256, true, PalRate, PalRate, DisplayAspectWidth, DisplayAspectHeight),
-            new PlatformVideoMode("pal-256x256p", 256, 256, true, PalRate, PalRate, DisplayAspectWidth, DisplayAspectHeight)
+            Ps2GsDisplayAspect.CreateMode("ntsc-640x448i", 640, 448, false, NtscRefreshHz, NtscPlayerFrameRate),
+            Ps2GsDisplayAspect.CreateMode("ntsc-512x448i", 512, 448, false, NtscRefreshHz, NtscPlayerFrameRate),
+            Ps2GsDisplayAspect.CreateMode("ntsc-640x224p", 640, 224, true, NtscRefreshHz, NtscPlayerFrameRate),
+            Ps2GsDisplayAspect.CreateMode("ntsc-512x224p", 512, 224, true, NtscRefreshHz, NtscPlayerFrameRate),
+            Ps2GsDisplayAspect.CreateMode("ntsc-320x224p", 320, 224, true, NtscRefreshHz, NtscPlayerFrameRate),
+            Ps2GsDisplayAspect.CreateMode("ntsc-256x224p", 256, 224, true, NtscRefreshHz, NtscPlayerFrameRate),
+            Ps2GsDisplayAspect.CreateMode("pal-640x512i", 640, 512, false, PalRate, PalRate),
+            Ps2GsDisplayAspect.CreateMode("pal-512x512i", 512, 512, false, PalRate, PalRate),
+            Ps2GsDisplayAspect.CreateMode("pal-640x256p", 640, 256, true, PalRate, PalRate),
+            Ps2GsDisplayAspect.CreateMode("pal-512x256p", 512, 256, true, PalRate, PalRate),
+            Ps2GsDisplayAspect.CreateMode("pal-320x256p", 320, 256, true, PalRate, PalRate),
+            Ps2GsDisplayAspect.CreateMode("pal-256x256p", 256, 256, true, PalRate, PalRate)
         ]);
     }
 

@@ -77,21 +77,25 @@ public sealed class Ps2PlatformDefinitionFactoryTests {
         }
     }
 
-    /// <summary>Every mode resolves to its size, scan and rates; an unknown id is rejected naming it.</summary>
+    /// <summary>
+    /// Every mode resolves to its size, scan, rates and the display aspect gsKit really shows it at: 4:3 for the 640- and
+    /// 512-wide modes, 3:2 for the 320-wide modes and 22:15 for the 256-wide modes (integer MagH + 1 = floor(2880 / W)).
+    /// The pixel aspect is pinned as an exact fraction, <c>(MagH + 1) * H / 1920</c>.
+    /// </summary>
     [Theory]
-    [InlineData("ntsc-640x448i", 640, 448, false, 59.94d, 60d)]
-    [InlineData("ntsc-512x448i", 512, 448, false, 59.94d, 60d)]
-    [InlineData("ntsc-640x224p", 640, 224, true, 59.94d, 60d)]
-    [InlineData("ntsc-512x224p", 512, 224, true, 59.94d, 60d)]
-    [InlineData("ntsc-320x224p", 320, 224, true, 59.94d, 60d)]
-    [InlineData("ntsc-256x224p", 256, 224, true, 59.94d, 60d)]
-    [InlineData("pal-640x512i", 640, 512, false, 50d, 50d)]
-    [InlineData("pal-512x512i", 512, 512, false, 50d, 50d)]
-    [InlineData("pal-640x256p", 640, 256, true, 50d, 50d)]
-    [InlineData("pal-512x256p", 512, 256, true, 50d, 50d)]
-    [InlineData("pal-320x256p", 320, 256, true, 50d, 50d)]
-    [InlineData("pal-256x256p", 256, 256, true, 50d, 50d)]
-    public void VideoModes_ResolveEveryId(string id, int width, int height, bool progressive, double refresh, double playerRate) {
+    [InlineData("ntsc-640x448i", 640, 448, false, 59.94d, 60d, 4, 3, 14, 15)]
+    [InlineData("ntsc-512x448i", 512, 448, false, 59.94d, 60d, 4, 3, 7, 6)]
+    [InlineData("ntsc-640x224p", 640, 224, true, 59.94d, 60d, 4, 3, 7, 15)]
+    [InlineData("ntsc-512x224p", 512, 224, true, 59.94d, 60d, 4, 3, 7, 12)]
+    [InlineData("ntsc-320x224p", 320, 224, true, 59.94d, 60d, 3, 2, 21, 20)]
+    [InlineData("ntsc-256x224p", 256, 224, true, 59.94d, 60d, 22, 15, 77, 60)]
+    [InlineData("pal-640x512i", 640, 512, false, 50d, 50d, 4, 3, 16, 15)]
+    [InlineData("pal-512x512i", 512, 512, false, 50d, 50d, 4, 3, 4, 3)]
+    [InlineData("pal-640x256p", 640, 256, true, 50d, 50d, 4, 3, 8, 15)]
+    [InlineData("pal-512x256p", 512, 256, true, 50d, 50d, 4, 3, 2, 3)]
+    [InlineData("pal-320x256p", 320, 256, true, 50d, 50d, 3, 2, 6, 5)]
+    [InlineData("pal-256x256p", 256, 256, true, 50d, 50d, 22, 15, 22, 15)]
+    public void VideoModes_ResolveEveryId(string id, int width, int height, bool progressive, double refresh, double playerRate, int displayAspectWidth, int displayAspectHeight, int pixelAspectNumerator, int pixelAspectDenominator) {
         PlatformVideoMode mode = Ps2PlatformDefinitionFactory.Create().VideoModeCapability.Resolve(id, "ps2");
 
         Assert.Equal(width, mode.Width);
@@ -99,9 +103,9 @@ public sealed class Ps2PlatformDefinitionFactoryTests {
         Assert.Equal(progressive, mode.IsProgressive);
         Assert.Equal(refresh, mode.RefreshRateHz);
         Assert.Equal(playerRate, mode.PlayerFrameRate);
-        Assert.Equal(4, mode.DisplayAspectWidth);
-        Assert.Equal(3, mode.DisplayAspectHeight);
-        Assert.Equal(4d * height / (3d * width), mode.PixelAspect, 12);
+        Assert.Equal(displayAspectWidth, mode.DisplayAspectWidth);
+        Assert.Equal(displayAspectHeight, mode.DisplayAspectHeight);
+        Assert.Equal((double)pixelAspectNumerator / pixelAspectDenominator, mode.PixelAspect, 12);
         Assert.Equal(id.StartsWith("pal-", StringComparison.Ordinal), Ps2VideoModes.IsPal(mode));
     }
 
