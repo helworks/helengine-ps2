@@ -78,6 +78,38 @@ namespace helengine::ps2 {
         };
     }
 
+    Ps2GsScreenFields Ps2VideoModeBootRecordReader::ResolveGsScreenFields(const Ps2GsVideoSettings& settings) {
+        return Ps2GsScreenFields{
+            settings.IsPal ? GsModePal : GsModeNtsc,
+            settings.IsInterlaced ? GsInterlaced : GsNonInterlaced,
+            settings.IsFrameMode ? GsFrame : GsField,
+            settings.Width,
+            settings.Height,
+            settings.PixelAspect
+        };
+    }
+
+    bool Ps2VideoModeBootRecordReader::VerifyGsInit(const Ps2GsVideoSettings& settings, int magH, int magV, int displayWidth,
+        int displayHeight, int field, int interlace, std::string& error) {
+        const Ps2GsScreenFields screen = ResolveGsScreenFields(settings);
+        const int expectedMagV = 0;
+        const int expectedDisplayWidth = (settings.MagH + 1) * settings.Width;
+        const int expectedDisplayHeight = settings.Height;
+        if (magH == settings.MagH && magV == expectedMagV && displayWidth == expectedDisplayWidth && displayHeight == expectedDisplayHeight
+            && field == screen.Field && interlace == screen.Interlace) {
+            error.clear();
+            return true;
+        }
+
+        error = std::string("gsKit screen setup differs from the video mode reader: expected MagH=") + std::to_string(settings.MagH)
+            + " MagV=" + std::to_string(expectedMagV) + " DW=" + std::to_string(expectedDisplayWidth)
+            + " DH=" + std::to_string(expectedDisplayHeight) + " Field=" + std::to_string(screen.Field)
+            + " Interlace=" + std::to_string(screen.Interlace) + ", actual MagH=" + std::to_string(magH)
+            + " MagV=" + std::to_string(magV) + " DW=" + std::to_string(displayWidth) + " DH=" + std::to_string(displayHeight)
+            + " Field=" + std::to_string(field) + " Interlace=" + std::to_string(interlace);
+        return false;
+    }
+
     std::uint32_t Ps2VideoModeBootRecordReader::ResolvePageGridBufferBytes(int width, int height) {
         if (width <= 0 || height <= 0) {
             throw std::invalid_argument("buffer size must be positive");

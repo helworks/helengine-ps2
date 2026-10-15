@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace helengine::ps2 {
     /// <summary>
@@ -48,6 +49,25 @@ namespace helengine::ps2 {
     };
 
     /// <summary>
+    /// The values Ps2BootHost stores in GSGLOBAL before gsKit_init_screen, as plain gsKit GS_* numbers so host tests need no
+    /// gsKit headers, plus the pixel aspect it reports to the core's main window once the window exists.
+    /// </summary>
+    struct Ps2GsScreenFields {
+        /// <summary>GsGlobal Mode: GS_MODE_PAL or GS_MODE_NTSC.</summary>
+        int Mode;
+        /// <summary>GsGlobal Interlace: GS_INTERLACED or GS_NONINTERLACED.</summary>
+        int Interlace;
+        /// <summary>GsGlobal Field: GS_FIELD for interlaced modes (GS_FRAME would underflow gsKit's MagV), GS_FRAME otherwise.</summary>
+        int Field;
+        /// <summary>GsGlobal Width.</summary>
+        int Width;
+        /// <summary>GsGlobal Height.</summary>
+        int Height;
+        /// <summary>The pixel aspect the boot host hands RenderManager3D::SetWindowPixelAspect for the main window.</summary>
+        double WindowPixelAspect;
+    };
+
+    /// <summary>
     /// Reads the 16-byte video-mode boot record written by the C# Ps2VideoModeBootRecord (magic HVMR, version 1) and maps
     /// it to gsKit screen fields. Only the 12 PS2 modes are accepted; anything else is rejected with a diagnostic so the
     /// boot host halts instead of falling back to 640x448.
@@ -78,6 +98,24 @@ namespace helengine::ps2 {
         /// <summary>Height term of the 4:3 aspect the 2560-VCK reference picture is shown at.</summary>
         static constexpr int DisplayAspectHeight = 3;
 
+        /// <summary>gsKit's GS_MODE_NTSC (gsInit.h at 8ef73d05).</summary>
+        static constexpr int GsModeNtsc = 0x02;
+
+        /// <summary>gsKit's GS_MODE_PAL.</summary>
+        static constexpr int GsModePal = 0x03;
+
+        /// <summary>gsKit's GS_NONINTERLACED.</summary>
+        static constexpr int GsNonInterlaced = 0x00;
+
+        /// <summary>gsKit's GS_INTERLACED.</summary>
+        static constexpr int GsInterlaced = 0x01;
+
+        /// <summary>gsKit's GS_FIELD.</summary>
+        static constexpr int GsField = 0x00;
+
+        /// <summary>gsKit's GS_FRAME.</summary>
+        static constexpr int GsFrame = 0x01;
+
         /// <summary>Width and height, in pixels, of one CT16 or Z16 VRAM page.</summary>
         static constexpr int PageDimension = 64;
 
@@ -101,6 +139,31 @@ namespace helengine::ps2 {
         /// <param name="record">Validated record.</param>
         /// <returns>gsKit screen fields.</returns>
         static Ps2GsVideoSettings ResolveGsSettings(const Ps2VideoModeBootRecord& record);
+
+        /// <summary>
+        /// Maps resolved settings to the GSGLOBAL values the boot host stores before gsKit_init_screen and the pixel aspect it
+        /// reports to the core.
+        /// </summary>
+        /// <param name="settings">Settings from ResolveGsSettings.</param>
+        /// <returns>The GS mode, interlace, field and size as gsKit numbers, and the window pixel aspect.</returns>
+        static Ps2GsScreenFields ResolveGsScreenFields(const Ps2GsVideoSettings& settings);
+
+        /// <summary>
+        /// Checks the display fields gsKit_init_screen left in GSGLOBAL against what these settings assume: MagH as derived,
+        /// MagV 0, DW = (MagH + 1) * Width, DH = Height, and the field and interlace ResolveGsScreenFields chose. The pixel
+        /// aspect handed to the core is only right when all of them hold.
+        /// </summary>
+        /// <param name="settings">Settings the screen was set up from.</param>
+        /// <param name="magH">GsGlobal->MagH after gsKit_init_screen.</param>
+        /// <param name="magV">GsGlobal->MagV.</param>
+        /// <param name="displayWidth">GsGlobal->DW.</param>
+        /// <param name="displayHeight">GsGlobal->DH.</param>
+        /// <param name="field">GsGlobal->Field.</param>
+        /// <param name="interlace">GsGlobal->Interlace.</param>
+        /// <param name="error">Cleared on success; on failure, a diagnostic giving every expected and actual value.</param>
+        /// <returns>True when gsKit set the screen up as the settings assume.</returns>
+        static bool VerifyGsInit(const Ps2GsVideoSettings& settings, int magH, int magV, int displayWidth, int displayHeight, int field,
+            int interlace, std::string& error);
 
         /// <summary>
         /// Returns the VRAM one CT16 frame buffer or Z16 depth buffer of the given size occupies on the GS page grid: whole

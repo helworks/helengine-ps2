@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <string>
 
 namespace {
     /// Counts failed checks so main can return non-zero.
@@ -42,6 +43,38 @@ namespace {
         int PixelAspectDenominator;
         std::uint32_t PageGridBufferBytes;
     };
+
+    /// The display fields gsKit_init_screen leaves in GSGLOBAL for one screen setup.
+    struct SimulatedGsDisplay {
+        int MagH;
+        int MagV;
+        int DisplayWidth;
+        int DisplayHeight;
+    };
+
+    /// Repeats gsKit 8ef73d05 gsKit_set_buffer_attributes for GS_MODE_NTSC and GS_MODE_PAL (gsInit.c): DW 2880, DH 480 or
+    /// 576 (halved when non-interlaced), MagH = DW / Width - 1, MagV = DH / Height - 1, final DW = (MagH + 1) * Width and
+    /// DH = (MagV + 1) * Height, then MagV-- for interlaced frame mode. Inputs are the plain GS values the boot host stores.
+    SimulatedGsDisplay SimulateGsKitInitScreen(int mode, int interlace, int field, int width, int height) {
+        int displayWidth = 2880;
+        int displayHeight = mode == 0x03 ? 576 : 480;
+        if (interlace == 0x00) {
+            displayHeight /= 2;
+        }
+        int magH = displayWidth / width - 1;
+        int magV = displayHeight / height - 1;
+        displayWidth = (magH + 1) * width;
+        displayHeight = (magV + 1) * height;
+        if (interlace == 0x01 && field == 0x01) {
+            --magV;
+        }
+        return SimulatedGsDisplay{ magH, magV, displayWidth, displayHeight };
+    }
+
+    /// True when the text contains the fragment.
+    bool Contains(const std::string& text, const char* fragment) {
+        return text.find(fragment) != std::string::npos;
+    }
 
     /// One record TryParse must refuse, the byte count handed to it and the check's readable name.
     struct RejectionCase {
@@ -149,6 +182,74 @@ int main() {
         if (error == nullptr || std::strlen(error) == 0) {
             ++FailureCount;
             std::cerr << "FAIL: rejection carries a diagnostic: " << rejection.Name << "\n";
+        }
+    }
+
+    // gsKit 8ef73d05 gsInit.h values; Ps2BootHost static_asserts the same equalities against the macros.
+    Check(helengine::ps2::Ps2VideoModeBootRecordReader::GsModeNtsc == 0x02 && helengine::ps2::Ps2VideoModeBootRecordReader::GsModePal == 0x03,
+        "GS_MODE_NTSC is 0x02 and GS_MODE_PAL 0x03");
+    Check(helengine::ps2::Ps2VideoModeBootRecordReader::GsNonInterlaced == 0x00 && helengine::ps2::Ps2VideoModeBootRecordReader::GsInterlaced == 0x01,
+        "GS_NONINTERLACED is 0x00 and GS_INTERLACED 0x01");
+    Check(helengine::ps2::Ps2VideoModeBootRecordReader::GsField == 0x00 && helengine::ps2::Ps2VideoModeBootRecordReader::GsFrame == 0x01,
+        "GS_FIELD is 0x00 and GS_FRAME 0x01");
+
+    for (const ExpectedMode& mode : modes) {
+        helengine::ps2::Ps2VideoModeBootRecord record{ mode.IsPal, mode.IsProgressive, mode.Width, mode.Height };
+        const helengine::ps2::Ps2GsVideoSettings settings = helengine::ps2::Ps2VideoModeBootRecordReader::ResolveGsSettings(record);
+        const helengine::ps2::Ps2GsScreenFields screen = helengine::ps2::Ps2VideoModeBootRecordReader::ResolveGsScreenFields(settings);
+        Check(screen.Mode == (mode.IsPal ? 0x03 : 0x02), "screen Mode is GS_MODE_PAL for PAL, GS_MODE_NTSC for NTSC");
+        Check(screen.Interlace == (mode.IsProgressive ? 0x00 : 0x01), "screen Interlace is GS_INTERLACED only for interlaced modes");
+        Check(screen.Field == (mode.IsProgressive ? 0x01 : 0x00), "screen Field is GS_FIELD for interlaced modes, GS_FRAME for progressive");
+        Check(screen.Width == mode.Width && screen.Height == mode.Height, "screen Width/Height are the mode's framebuffer size");
+        Check(std::fabs(screen.WindowPixelAspect - static_cast<double>(mode.PixelAspectNumerator) / mode.PixelAspectDenominator) < 1e-12,
+            "the pixel aspect handed to the core is gsKit's (MagH + 1) * H / 1920");
+
+        const SimulatedGsDisplay display = SimulateGsKitInitScreen(screen.Mode, screen.Interlace, screen.Field, screen.Width, screen.Height);
+        std::string error = "stale";
+        Check(helengine::ps2::Ps2VideoModeBootRecordReader::VerifyGsInit(settings, display.MagH, display.MagV, display.DisplayWidth,
+                  display.DisplayHeight, screen.Field, screen.Interlace, error),
+            "gsKit's own screen setup passes the post-init check for every mode");
+        Check(error.empty(), "a passing post-init check clears the diagnostic");
+
+        if (!mode.IsProgressive) {
+            const SimulatedGsDisplay frameDisplay = SimulateGsKitInitScreen(screen.Mode, screen.Interlace, 0x01, screen.Width, screen.Height);
+            Check(!helengine::ps2::Ps2VideoModeBootRecordReader::VerifyGsInit(settings, frameDisplay.MagH, frameDisplay.MagV,
+                      frameDisplay.DisplayWidth, frameDisplay.DisplayHeight, 0x01, screen.Interlace, error),
+                "an interlaced mode set up with GS_FRAME (MagV underflows) fails the post-init check");
+        }
+    }
+
+    {
+        // ntsc-640x448i as gsKit sets it up: MagH 3, MagV 0, DW 2560, DH 448, GS_FIELD, GS_INTERLACED.
+        helengine::ps2::Ps2VideoModeBootRecord record{ false, false, 640, 448 };
+        const helengine::ps2::Ps2GsVideoSettings settings = helengine::ps2::Ps2VideoModeBootRecordReader::ResolveGsSettings(record);
+
+        struct VerifyRejection {
+            int MagH;
+            int MagV;
+            int DisplayWidth;
+            int DisplayHeight;
+            int Field;
+            int Interlace;
+            const char* ActualFragment;
+            const char* Name;
+        };
+        const VerifyRejection verifyRejections[] = {
+            { 4, 0, 2560, 448, 0, 1, "MagH=4", "a different MagH fails the post-init check" },
+            { 3, 1, 2560, 448, 0, 1, "MagV=1", "a non-zero MagV fails the post-init check" },
+            { 3, 0, 2880, 448, 0, 1, "DW=2880", "a different DW fails the post-init check" },
+            { 3, 0, 2560, 480, 0, 1, "DH=480", "a different DH fails the post-init check" },
+            { 3, 0, 2560, 448, 1, 1, "Field=1", "GS_FRAME instead of GS_FIELD fails the post-init check" },
+            { 3, 0, 2560, 448, 0, 0, "Interlace=0", "GS_NONINTERLACED instead of GS_INTERLACED fails the post-init check" }
+        };
+        for (const VerifyRejection& rejection : verifyRejections) {
+            std::string error;
+            const bool verified = helengine::ps2::Ps2VideoModeBootRecordReader::VerifyGsInit(settings, rejection.MagH, rejection.MagV,
+                rejection.DisplayWidth, rejection.DisplayHeight, rejection.Field, rejection.Interlace, error);
+            Check(!verified, rejection.Name);
+            Check(Contains(error, "expected MagH=3 MagV=0 DW=2560 DH=448 Field=0 Interlace=1"),
+                "the post-init diagnostic gives every expected value, including DW and DH");
+            Check(Contains(error, "actual ") && Contains(error, rejection.ActualFragment), "the post-init diagnostic gives the actual value that differs");
         }
     }
 
