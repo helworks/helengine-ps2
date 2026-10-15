@@ -37,6 +37,20 @@ public sealed class Ps2VideoModeBootRecordTests : IDisposable {
         }
     }
 
+    /// <summary>
+    /// Pins the exact on-disc bytes (little-endian HVMR layout) of one NTSC interlaced and one PAL progressive mode. The
+    /// native reader's test (Task B13) uses these same literal bytes, so a layout change on either side cannot pass
+    /// unnoticed through a symmetric Encode/Decode round trip.
+    /// </summary>
+    [Theory]
+    [InlineData("ntsc-640x448i", new byte[] { 0x48, 0x56, 0x4D, 0x52, 0x01, 0x00, 0x00, 0x00, 0x80, 0x02, 0xC0, 0x01, 0x00, 0x00, 0x00, 0x00 })]
+    [InlineData("pal-320x256p", new byte[] { 0x48, 0x56, 0x4D, 0x52, 0x01, 0x00, 0x01, 0x01, 0x40, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00 })]
+    public void Encode_ProducesTheGoldenBytes(string modeId, byte[] expected) {
+        byte[] bytes = Ps2VideoModeBootRecord.Encode(Ps2VideoModes.CreateCapability().Resolve(modeId, "ps2"));
+
+        Assert.Equal(expected, bytes);
+    }
+
     /// <summary>A corrupt record is rejected: wrong length, magic, version, flag or a size no mode has.</summary>
     [Theory]
     [InlineData(0, (byte)'X')]
@@ -105,5 +119,24 @@ public sealed class Ps2VideoModeBootRecordTests : IDisposable {
 
         Assert.Contains("video-mode", Assert.Throws<InvalidOperationException>(() => Ps2VideoModeBootRecordWriter.Write(StagingRoot, Ps2PlatformDefinitionFactory.Create(), Ps2TestGraphicsSelection.ProfileId, missing)).Message);
         Assert.Contains("ntsc-640x480p", Assert.Throws<InvalidOperationException>(() => Ps2VideoModeBootRecordWriter.Write(StagingRoot, Ps2PlatformDefinitionFactory.Create(), Ps2TestGraphicsSelection.ProfileId, unknown)).Message);
+    }
+
+    /// <summary>
+    /// An unknown mode fails naming the settings file, the field, the value and every allowed mode id, so the project
+    /// author can fix the file from the message alone.
+    /// </summary>
+    [Fact]
+    public void Write_WhenModeUnknown_FailsNamingFileFieldValueAndAllowedIds() {
+        Dictionary<string, string> unknown = Ps2TestGraphicsSelection.CreateOptionValues("ntsc-640x480p");
+
+        string message = Assert.Throws<InvalidOperationException>(() => Ps2VideoModeBootRecordWriter.Write(StagingRoot, Ps2PlatformDefinitionFactory.Create(), Ps2TestGraphicsSelection.ProfileId, unknown)).Message;
+
+        Assert.Contains("settings/platform.ps2.json", message);
+        Assert.Contains("video-mode", message);
+        Assert.Contains("ntsc-640x480p", message);
+        foreach (string modeId in Ps2VideoModes.CreateCapability().GetModeIds()) {
+            Assert.Contains(modeId, message);
+        }
+        Assert.False(File.Exists(Path.Combine(StagingRoot, Ps2VideoModeBootRecord.LogicalPath)));
     }
 }

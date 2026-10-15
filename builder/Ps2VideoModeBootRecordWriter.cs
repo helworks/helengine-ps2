@@ -20,6 +20,8 @@ public static class Ps2VideoModeBootRecordWriter {
     /// <param name="selectedGraphicsOptionValues">Selected graphics option values.</param>
     /// <returns>The resolved mode.</returns>
     /// <exception cref="InvalidOperationException">Thrown for an unknown profile, an undeclared option, or a missing or unknown mode.</exception>
+    /// <exception cref="IOException">Thrown when the record file cannot be written (for example, it is locked).</exception>
+    /// <exception cref="UnauthorizedAccessException">Thrown when the record path is not writable (for example, a directory occupies it).</exception>
     public static PlatformVideoMode Write(string stagingRootPath, PlatformDefinition definition, string selectedGraphicsProfileId, IReadOnlyDictionary<string, string> selectedGraphicsOptionValues) {
         if (string.IsNullOrWhiteSpace(stagingRootPath)) {
             throw new ArgumentException("The PS2 staging root is required.", nameof(stagingRootPath));
@@ -44,7 +46,18 @@ public static class Ps2VideoModeBootRecordWriter {
             throw new InvalidOperationException($"No '{Ps2VideoModes.SettingId}' is selected in graphics.selectedOptionValues of {SettingsFile}.");
         }
 
-        PlatformVideoMode mode = definition.VideoModeCapability.Resolve(modeId, definition.PlatformId);
+        PlatformVideoMode mode = null;
+        foreach (PlatformVideoMode candidate in definition.VideoModeCapability.Modes) {
+            if (string.Equals(candidate.Id, modeId, StringComparison.Ordinal)) {
+                mode = candidate;
+                break;
+            }
+        }
+
+        if (mode == null) {
+            throw new InvalidOperationException($"Graphics option '{Ps2VideoModes.SettingId}' in graphics.selectedOptionValues of {SettingsFile} is '{modeId}', which is not a PS2 video mode; use one of: {string.Join(", ", definition.VideoModeCapability.GetModeIds())}.");
+        }
+
         Directory.CreateDirectory(stagingRootPath);
         File.WriteAllBytes(Path.Combine(stagingRootPath, Ps2VideoModeBootRecord.LogicalPath), Ps2VideoModeBootRecord.Encode(mode));
         return mode;

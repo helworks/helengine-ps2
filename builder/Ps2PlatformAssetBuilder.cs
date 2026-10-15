@@ -130,6 +130,14 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
             } catch (InvalidOperationException exception) {
                 AddDiagnostic(diagnostics, diagnosticReporter, PlatformBuildDiagnosticSeverity.Error, "PS2BUILD010",
                     exception.Message, string.Empty, string.Empty, request.WorkingRoot);
+            } catch (IOException exception) {
+                AddDiagnostic(diagnostics, diagnosticReporter, PlatformBuildDiagnosticSeverity.Error, "PS2BUILD010",
+                    "Failed to write the PS2 video-mode boot record '" + Path.Combine(request.WorkingRoot, "ps2-staging", Ps2VideoModeBootRecord.LogicalPath) + "': " + exception.Message,
+                    string.Empty, string.Empty, request.WorkingRoot);
+            } catch (UnauthorizedAccessException exception) {
+                AddDiagnostic(diagnostics, diagnosticReporter, PlatformBuildDiagnosticSeverity.Error, "PS2BUILD010",
+                    "Failed to write the PS2 video-mode boot record '" + Path.Combine(request.WorkingRoot, "ps2-staging", Ps2VideoModeBootRecord.LogicalPath) + "': " + exception.Message,
+                    string.Empty, string.Empty, request.WorkingRoot);
             }
         }
 

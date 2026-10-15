@@ -151,6 +151,68 @@ public sealed class Ps2AssetsOnlyBuildTests : IDisposable {
     }
 
     /// <summary>
+    /// Proves an unknown video-mode value fails the build with PS2BUILD010 naming the settings file, the field and the value.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_WhenVideoModeUnknown_FailsNamingFileFieldAndValue() {
+        RecordingDiagnosticReporter diagnosticReporter = new();
+
+        PlatformBuildReport report = await RunBuildAsync(
+            CreateRequest(PlatformBuildExecutionScope.AssetsOnly, string.Empty, [], [], Ps2TestGraphicsSelection.CreateOptionValues("ntsc-640x480p")),
+            new CountingPs2NativeBuildExecutor(),
+            diagnosticReporter);
+
+        Assert.False(report.Succeeded);
+        Assert.Contains(diagnosticReporter.Diagnostics, diagnostic => diagnostic.Code == "PS2BUILD010"
+            && diagnostic.Message.Contains("settings/platform.ps2.json", StringComparison.Ordinal)
+            && diagnostic.Message.Contains("video-mode", StringComparison.Ordinal)
+            && diagnostic.Message.Contains("ntsc-640x480p", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// Proves an IOException while writing the boot record (the file is held open without sharing) becomes PS2BUILD010
+    /// naming the record path instead of escaping the build.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_WhenBootRecordFileIsLocked_FailsNamingTheRecordPath() {
+        string recordPath = Path.Combine(StagingRoot, Ps2VideoModeBootRecord.LogicalPath);
+        Directory.CreateDirectory(StagingRoot);
+        RecordingDiagnosticReporter diagnosticReporter = new();
+        PlatformBuildReport report;
+
+        using (FileStream lockStream = new(recordPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None)) {
+            report = await RunBuildAsync(
+                CreateRequest(PlatformBuildExecutionScope.AssetsOnly, string.Empty, [], []),
+                new CountingPs2NativeBuildExecutor(),
+                diagnosticReporter);
+        }
+
+        Assert.False(report.Succeeded);
+        Assert.Contains(diagnosticReporter.Diagnostics, diagnostic => diagnostic.Code == "PS2BUILD010"
+            && diagnostic.Message.Contains(recordPath, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Proves an UnauthorizedAccessException while writing the boot record (a directory occupies its path) becomes
+    /// PS2BUILD010 naming the record path instead of escaping the build.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_WhenBootRecordPathIsADirectory_FailsNamingTheRecordPath() {
+        string recordPath = Path.Combine(StagingRoot, Ps2VideoModeBootRecord.LogicalPath);
+        Directory.CreateDirectory(recordPath);
+        RecordingDiagnosticReporter diagnosticReporter = new();
+
+        PlatformBuildReport report = await RunBuildAsync(
+            CreateRequest(PlatformBuildExecutionScope.AssetsOnly, string.Empty, [], []),
+            new CountingPs2NativeBuildExecutor(),
+            diagnosticReporter);
+
+        Assert.False(report.Succeeded);
+        Assert.Contains(diagnosticReporter.Diagnostics, diagnostic => diagnostic.Code == "PS2BUILD010"
+            && diagnostic.Message.Contains(recordPath, StringComparison.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
     /// Proves a second assets-only build with unchanged sources leaves the staged model untouched.
     /// </summary>
     [Fact]
