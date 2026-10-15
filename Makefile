@@ -28,6 +28,7 @@ PS2_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/Ps2InputBackend.cpp \
 	$(SOURCE_DIR)/platform/ps2/Ps2DiscFileSystem.cpp \
 	$(SOURCE_DIR)/platform/ps2/Ps2DiscContentStreamSource.cpp \
+	$(SOURCE_DIR)/platform/ps2/Ps2NativeFileSupport.cpp \
 	$(SOURCE_DIR)/platform/ps2/Ps2VideoModeBootRecordReader.cpp \
 	$(SOURCE_DIR)/platform/ps2/Ps2BootHost.cpp \
 	$(SOURCE_DIR)/platform/ps2/audio/Ps2AudioBackend.cpp \
