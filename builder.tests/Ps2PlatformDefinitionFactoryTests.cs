@@ -113,6 +113,26 @@ public sealed class Ps2PlatformDefinitionFactoryTests {
         Assert.Contains("ntsc-640x480p", exception.Message);
     }
 
+    /// <summary>
+    /// The region test refuses a missing mode, and refuses a mode whose refresh is neither PS2 rate instead of calling it
+    /// NTSC, so nothing downstream (boot record, SYSTEM.CNF) can name the wrong region.
+    /// </summary>
+    [Theory]
+    [InlineData(null, typeof(ArgumentNullException))]
+    [InlineData(60d, typeof(ArgumentException))]
+    public void IsPal_RefusesAMissingOrForeignMode(double? refreshRateHz, Type expectedException) {
+        PlatformVideoMode mode = refreshRateHz == null
+            ? null
+            : new PlatformVideoMode("foreign-640x480p", 640, 480, true, refreshRateHz.Value, 60d, 4, 3);
+
+        ArgumentException exception = (ArgumentException)Assert.Throws(expectedException, () => Ps2VideoModes.IsPal(mode));
+
+        Assert.Equal("mode", exception.ParamName);
+        if (mode != null) {
+            Assert.Contains("foreign-640x480p", exception.Message);
+        }
+    }
+
     /// <summary>Play follows the project's mode by default and takes its frame rate from the mode.</summary>
     [Fact]
     public void Create_PlayVideoModeDefaultsToProject() {
