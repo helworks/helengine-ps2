@@ -118,6 +118,21 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
                 "Failed PS2 cook preparation or staging: " + exception.Message, string.Empty, string.Empty, request.WorkingRoot);
         }
 
+        PlatformVideoMode videoMode = null;
+        if (diagnostics.Count == 0) {
+            try {
+                videoMode = Ps2VideoModeBootRecordWriter.Write(
+                    Path.Combine(request.WorkingRoot, "ps2-staging"),
+                    Definition,
+                    request.SelectedGraphicsProfileId,
+                    request.SelectedGraphicsOptionValues);
+                WritePhaseMarker(phaseMarkerPath, "video mode boot record written: " + videoMode.Id);
+            } catch (InvalidOperationException exception) {
+                AddDiagnostic(diagnostics, diagnosticReporter, PlatformBuildDiagnosticSeverity.Error, "PS2BUILD010",
+                    exception.Message, string.Empty, string.Empty, request.WorkingRoot);
+            }
+        }
+
         if (request.ExecutionScope == PlatformBuildExecutionScope.AssetsOnly) {
             return Task.FromResult(CreateReport(diagnostics, sceneOutcomes, looseAssetOutcomes));
         }

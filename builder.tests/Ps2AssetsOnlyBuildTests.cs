@@ -107,6 +107,50 @@ public sealed class Ps2AssetsOnlyBuildTests : IDisposable {
     }
 
     /// <summary>
+    /// Proves the Play (assets-only) build stages the boot record for the project's selected video mode, so the staged
+    /// tree always carries the mode the console would boot into.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_WhenAssetsOnly_StagesTheSelectedVideoModeBootRecord() {
+        RecordingDiagnosticReporter diagnosticReporter = new();
+
+        PlatformBuildReport report = await RunBuildAsync(
+            CreateRequest(PlatformBuildExecutionScope.AssetsOnly, string.Empty, [], [], Ps2TestGraphicsSelection.CreateOptionValues("pal-512x256p")),
+            new CountingPs2NativeBuildExecutor(),
+            diagnosticReporter);
+
+        Assert.True(report.Succeeded);
+        Assert.Empty(diagnosticReporter.Diagnostics);
+        Ps2VideoModeBootRecordContents contents = Ps2VideoModeBootRecord.Decode(File.ReadAllBytes(Path.Combine(StagingRoot, Ps2VideoModeBootRecord.LogicalPath)));
+        Assert.True(contents.IsPal);
+        Assert.True(contents.IsProgressive);
+        Assert.Equal(512, contents.Width);
+        Assert.Equal(256, contents.Height);
+    }
+
+    /// <summary>
+    /// Proves an old project whose graphics options still hold default-width fails the build with PS2BUILD010 naming the
+    /// field and the settings file, and stages no boot record, instead of silently booting at 640x448.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_WhenGraphicsOptionsHoldOldSizeField_FailsNamingFieldAndFile() {
+        Dictionary<string, string> graphicsOptionValues = Ps2TestGraphicsSelection.CreateOptionValues("ntsc-640x448i");
+        graphicsOptionValues["default-width"] = "640";
+        RecordingDiagnosticReporter diagnosticReporter = new();
+
+        PlatformBuildReport report = await RunBuildAsync(
+            CreateRequest(PlatformBuildExecutionScope.AssetsOnly, string.Empty, [], [], graphicsOptionValues),
+            new CountingPs2NativeBuildExecutor(),
+            diagnosticReporter);
+
+        Assert.False(report.Succeeded);
+        Assert.Contains(diagnosticReporter.Diagnostics, diagnostic => diagnostic.Code == "PS2BUILD010"
+            && diagnostic.Message.Contains("default-width", StringComparison.Ordinal)
+            && diagnostic.Message.Contains("settings/platform.ps2.json", StringComparison.Ordinal));
+        Assert.False(File.Exists(Path.Combine(StagingRoot, Ps2VideoModeBootRecord.LogicalPath)));
+    }
+
+    /// <summary>
     /// Proves a second assets-only build with unchanged sources leaves the staged model untouched.
     /// </summary>
     [Fact]
@@ -242,7 +286,8 @@ public sealed class Ps2AssetsOnlyBuildTests : IDisposable {
             "SYSTEM.CNF",
             Ps2BuildWorkspace.DiscExecutableFileName,
             Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/scenes/main.hasset").Replace('\\', '/'),
-            Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/imported/box_a.phm").Replace('\\', '/')
+            Ps2DiscPathResolver.ResolveDiscRelativePath("cooked/imported/box_a.phm").Replace('\\', '/'),
+            Ps2DiscPathResolver.ResolveDiscRelativePath(Ps2VideoModeBootRecord.LogicalPath)
         };
         HashSet<string> actualDiscFiles = new(StringComparer.OrdinalIgnoreCase);
         foreach (string filePath in Directory.GetFiles(discRoot, "*", SearchOption.AllDirectories)) {
@@ -304,6 +349,19 @@ public sealed class Ps2AssetsOnlyBuildTests : IDisposable {
     /// <param name="extraArtifacts">Cooked artifacts staged after the scene and the cube model.</param>
     /// <returns>Configured PS2 build request.</returns>
     PlatformBuildRequest CreateRequest(PlatformBuildExecutionScope executionScope, string generatedCoreRoot, PlatformCookWorkItem[] workItems, PlatformBuildArtifact[] extraArtifacts) {
+        return CreateRequest(executionScope, generatedCoreRoot, workItems, extraArtifacts, Ps2TestGraphicsSelection.CreateOptionValues("ntsc-640x448i"));
+    }
+
+    /// <summary>
+    /// Creates the PS2 build request with explicit graphics option values, for tests that exercise the video-mode selection.
+    /// </summary>
+    /// <param name="executionScope">Pipeline scope to request.</param>
+    /// <param name="generatedCoreRoot">Generated core root; empty for assets-only builds, as the editor passes it.</param>
+    /// <param name="workItems">Platform cook work items to include.</param>
+    /// <param name="extraArtifacts">Cooked artifacts staged after the scene and the cube model.</param>
+    /// <param name="graphicsOptionValues">Graphics option values of the standard forward profile, as the project file supplies them.</param>
+    /// <returns>Configured PS2 build request.</returns>
+    PlatformBuildRequest CreateRequest(PlatformBuildExecutionScope executionScope, string generatedCoreRoot, PlatformCookWorkItem[] workItems, PlatformBuildArtifact[] extraArtifacts, Dictionary<string, string> graphicsOptionValues) {
         PlatformBuildManifest manifest = new(
             3,
             "project",
@@ -349,10 +407,10 @@ public sealed class Ps2AssetsOnlyBuildTests : IDisposable {
             OutputRoot,
             WorkingRoot,
             selectedBuildProfileId: "ps2-default",
-            selectedGraphicsProfileId: "ps2-standard-forward",
+            selectedGraphicsProfileId: Ps2TestGraphicsSelection.ProfileId,
             selectedCodegenProfileId: "default",
             selectedBuildOptionValues: new Dictionary<string, string>(),
-            selectedGraphicsOptionValues: new Dictionary<string, string>(),
+            selectedGraphicsOptionValues: graphicsOptionValues,
             selectedCodegenOptionValues: new Dictionary<string, string>(),
             generatedCoreCppRootPath: generatedCoreRoot,
             selectedMediaProfileId: "ps2-install-tree",
