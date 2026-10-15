@@ -1,4 +1,5 @@
 using helengine;
+using helengine.baseplatform.Definitions;
 using helengine.baseplatform.Manifest;
 using helengine.baseplatform.Profiles;
 using helengine.baseplatform.Reporting;
@@ -356,6 +357,27 @@ public sealed class Ps2AssetsOnlyBuildTests : IDisposable {
             actualDiscFiles.Add(Path.GetRelativePath(discRoot, filePath).Replace('\\', '/'));
         }
         Assert.Equal(expectedDiscFiles.OrderBy(path => path, StringComparer.OrdinalIgnoreCase), actualDiscFiles.OrderBy(path => path, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Proves a full build names the project's selected video region in the packaged SYSTEM.CNF, not a fixed one.
+    /// </summary>
+    [Fact]
+    public async Task BuildAsync_WhenFullBuild_NamesTheSelectedVideoRegionInSystemCnf() {
+        string generatedCoreRoot = Path.Combine(Root, "generated-core");
+        Directory.CreateDirectory(generatedCoreRoot);
+        File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "// generated");
+        CountingPs2NativeBuildExecutor nativeBuildExecutor = new();
+        RecordingDiagnosticReporter diagnosticReporter = new();
+
+        PlatformBuildReport report = await RunBuildAsync(
+            CreateRequest(PlatformBuildExecutionScope.Full, generatedCoreRoot, [], [], Ps2TestGraphicsSelection.CreateOptionValues("pal-640x512i")),
+            nativeBuildExecutor,
+            diagnosticReporter);
+
+        Assert.True(report.Succeeded);
+        PlatformVideoMode palMode = Ps2VideoModes.CreateCapability().Resolve("pal-640x512i", "ps2");
+        Assert.Equal(Ps2DiscLayoutWriter.BuildBootConfigContents(palMode), File.ReadAllText(Path.Combine(OutputRoot, "disc", "SYSTEM.CNF")));
     }
 
     /// <summary>

@@ -157,7 +157,7 @@ public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
                 WritePhaseMarker(phaseMarkerPath, "runtime platform info header written");
                 NativeBuildExecutor.Build(workspace, cancellationToken);
                 WritePhaseMarker(phaseMarkerPath, "native build completed");
-                DiscLayoutWriter.Write(workspace);
+                DiscLayoutWriter.Write(workspace, videoMode);
                 WritePhaseMarker(phaseMarkerPath, "disc layout written");
                 NativeBuildExecutor.PackageIso(workspace, cancellationToken);
                 WritePhaseMarker(phaseMarkerPath, "iso packaged");

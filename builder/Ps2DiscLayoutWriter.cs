@@ -1,3 +1,5 @@
+using helengine.baseplatform.Definitions;
+
 namespace helengine.ps2.builder;
 
 /// <summary>
@@ -5,11 +7,22 @@ namespace helengine.ps2.builder;
 /// </summary>
 public sealed class Ps2DiscLayoutWriter {
     /// <summary>
-    /// Stable boot configuration written into the staged PS2 disc root.
+    /// Builds the SYSTEM.CNF contents for one video mode: the boot ELF, the disc version and the video region, which
+    /// tells the BIOS and emulators whether the disc is NTSC or PAL. The runtime still programs the GS mode itself from
+    /// the video-mode boot record.
     /// </summary>
-    static readonly string BootConfigContents = "BOOT2 = cdrom0:\\"
-        + Ps2BuildWorkspace.DiscExecutableFileName
-        + ";1\r\nVER = 1.00\r\n";
+    /// <param name="videoMode">The project's PS2 video mode.</param>
+    /// <returns>The SYSTEM.CNF text, with CRLF line ends.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when no video mode is given.</exception>
+    public static string BuildBootConfigContents(PlatformVideoMode videoMode) {
+        if (videoMode == null) {
+            throw new ArgumentNullException(nameof(videoMode));
+        }
+
+        return "BOOT2 = cdrom0:\\" + Ps2BuildWorkspace.DiscExecutableFileName + ";1\r\n"
+            + "VER = 1.00\r\n"
+            + "VMODE = " + (Ps2VideoModes.IsPal(videoMode) ? "PAL" : "NTSC") + "\r\n";
+    }
 
     /// <summary>
     /// Builds the logical cooked-path to physical PS2 disc-path mapping for one staged workspace without requiring the native ELF.
@@ -49,10 +62,14 @@ public sealed class Ps2DiscLayoutWriter {
     /// Writes the staged disc layout for the supplied workspace.
     /// </summary>
     /// <param name="workspace">Prepared PS2 build workspace.</param>
+    /// <param name="videoMode">The project's PS2 video mode, named in SYSTEM.CNF.</param>
     /// <returns>Logical cooked paths mapped to their staged physical disc paths.</returns>
-    public IReadOnlyDictionary<string, string> Write(Ps2BuildWorkspace workspace) {
+    public IReadOnlyDictionary<string, string> Write(Ps2BuildWorkspace workspace, PlatformVideoMode videoMode) {
         if (workspace == null) {
             throw new ArgumentNullException(nameof(workspace));
+        }
+        if (videoMode == null) {
+            throw new ArgumentNullException(nameof(videoMode));
         }
         if (!File.Exists(workspace.NativeExecutablePath)) {
             throw new FileNotFoundException("Native PS2 executable is required before disc staging.", workspace.NativeExecutablePath);
@@ -66,7 +83,7 @@ public sealed class Ps2DiscLayoutWriter {
         IReadOnlyDictionary<string, string> logicalToPhysicalPaths = BuildLogicalToPhysicalPathMap(workspace);
         CopyPackageFiles(workspace.StagingRootPath, workspace.DiscRootPath);
         File.Copy(workspace.NativeExecutablePath, workspace.DiscExecutablePath, true);
-        File.WriteAllText(workspace.DiscBootConfigPath, BootConfigContents);
+        File.WriteAllText(workspace.DiscBootConfigPath, BuildBootConfigContents(videoMode));
         return logicalToPhysicalPaths;
     }
 
