@@ -43,6 +43,17 @@ public static class Ps2GsDisplayAspect {
     }
 
     /// <summary>
+    /// Tells, without throwing, whether gsKit can magnify a framebuffer width into its NTSC/PAL span: the width is between 1
+    /// and 2880 and <c>floor(2880 / W)</c> fits the 4-bit DISPLAY.MAGH field. These are exactly the widths
+    /// <see cref="ResolveHorizontalMagnification"/> accepts.
+    /// </summary>
+    /// <param name="width">Framebuffer width in pixels.</param>
+    /// <returns>True when the width has a gsKit horizontal magnification.</returns>
+    public static bool CanMagnify(int width) {
+        return width >= 1 && width <= GsKitNtscPalDisplayWidthVck && GsKitNtscPalDisplayWidthVck / width <= MaximumHorizontalMagnification;
+    }
+
+    /// <summary>
     /// Resolves gsKit's integer horizontal magnification for a framebuffer width: <c>MagH + 1 = floor(2880 / W)</c>.
     /// </summary>
     /// <param name="width">Framebuffer width in pixels.</param>

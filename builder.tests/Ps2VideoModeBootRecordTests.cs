@@ -89,6 +89,24 @@ public sealed class Ps2VideoModeBootRecordTests : IDisposable {
     }
 
     /// <summary>
+    /// A mode whose width gsKit cannot magnify into its NTSC/PAL span (too narrow for the 4-bit DISPLAY.MAGH field, or wider
+    /// than the span) is refused as an invalid <c>mode</c>, naming the mode id and its width, like every other Encode refusal.
+    /// </summary>
+    [Theory]
+    [InlineData("ntsc-100x224p", 100)]
+    [InlineData("ntsc-169x224p", 169)]
+    [InlineData("ntsc-3000x224p", 3000)]
+    public void Encode_RejectsAWidthGsKitCannotMagnifyNamingTheMode(string id, int width) {
+        PlatformVideoMode mode = new PlatformVideoMode(id, width, 224, true, 59.94d, 60d, 4, 3);
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(() => Ps2VideoModeBootRecord.Encode(mode));
+
+        Assert.Equal("mode", exception.ParamName);
+        Assert.Contains($"'{id}'", exception.Message);
+        Assert.Contains($"{width} pixels wide", exception.Message);
+    }
+
+    /// <summary>
     /// A declared aspect that is not reduced but equals the gsKit-derived one (6:4 for a 320-wide mode) is the same
     /// display aspect and is accepted, so the guard compares ratios rather than terms.
     /// </summary>

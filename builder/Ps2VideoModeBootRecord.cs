@@ -31,12 +31,15 @@ public static class Ps2VideoModeBootRecord {
     /// <param name="mode">PS2 video mode.</param>
     /// <returns>The 16-byte record.</returns>
     /// <exception cref="ArgumentException">
-    /// Thrown when the mode's declared display aspect is not the one gsKit's integer magnification gives its width
+    /// Thrown, naming the mode id, when gsKit cannot magnify the mode's width at all, or when the mode's declared display
+    /// aspect is not the one gsKit's integer magnification gives its width
     /// (<see cref="Ps2GsDisplayAspect"/>). The record carries no aspect: the native runtime derives it from the width.
     /// </exception>
     public static byte[] Encode(PlatformVideoMode mode) {
         if (mode == null) {
             throw new ArgumentNullException(nameof(mode));
+        } else if (!Ps2GsDisplayAspect.CanMagnify(mode.Width)) {
+            throw new ArgumentException($"Video mode '{mode.Id}' is {mode.Width} pixels wide, which gsKit cannot magnify into its {Ps2GsDisplayAspect.GsKitNtscPalDisplayWidthVck}-VCK NTSC/PAL span (the width must be 1 to {Ps2GsDisplayAspect.GsKitNtscPalDisplayWidthVck} pixels and need at most {Ps2GsDisplayAspect.MaximumHorizontalMagnification}x horizontal magnification).", nameof(mode));
         }
 
         int derivedAspectWidth = Ps2GsDisplayAspect.ResolveDisplayAspectWidth(mode.Width);

@@ -47,6 +47,21 @@ public sealed class Ps2GsDisplayAspectTests {
         Assert.Equal("width", Assert.Throws<ArgumentOutOfRangeException>(() => Ps2GsDisplayAspect.ResolveDisplayAspectHeight(width)).ParamName);
     }
 
+    /// <summary>
+    /// CanMagnify answers, without throwing, exactly the widths ResolveHorizontalMagnification accepts: 170 to 2880 (16x down
+    /// to 1x), but not 0, 169 (17x) or 2881.
+    /// </summary>
+    [Theory]
+    [InlineData(0, false)]
+    [InlineData(169, false)]
+    [InlineData(170, true)]
+    [InlineData(640, true)]
+    [InlineData(2880, true)]
+    [InlineData(2881, false)]
+    public void CanMagnify_MatchesTheWidthsResolveAccepts(int width, bool expected) {
+        Assert.Equal(expected, Ps2GsDisplayAspect.CanMagnify(width));
+    }
+
     /// <summary>The widest MAGH the 4-bit field holds (15, so 16x) is accepted at width 170.</summary>
     [Fact]
     public void Resolve_AcceptsTheLargestFourBitMagnification() {
