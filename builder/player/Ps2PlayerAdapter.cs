@@ -69,10 +69,11 @@ public sealed class Ps2PlayerAdapter : IPlatformPlayerAdapter {
     }
 
     /// <summary>
-    /// Renders Play at the selected PS2 video mode's framebuffer size, as the GS does before the PCRTC magnifies it.
+    /// Renders Play at the selected PS2 video mode's framebuffer size, as the GS does before the PCRTC magnifies it, and
+    /// reports the mode's pixel aspect so the player window shows that framebuffer 4:3, as a TV does.
     /// </summary>
     /// <param name="playSettings">Resolved Play settings; must carry the PS2 video mode.</param>
-    /// <returns>The mode's framebuffer size.</returns>
+    /// <returns>The mode's framebuffer size and the pixel aspect that shows it 4:3.</returns>
     /// <exception cref="InvalidOperationException">Thrown when no video mode was resolved.</exception>
     public PlayerRenderSize ApplyPlaySettings(PlayerPlaySettings playSettings) {
         if (playSettings == null) {
@@ -81,7 +82,7 @@ public sealed class Ps2PlayerAdapter : IPlatformPlayerAdapter {
             throw new InvalidOperationException("PS2 Play needs the resolved PS2 video mode; the editor sent none.");
         }
 
-        return new PlayerRenderSize(playSettings.VideoMode.Width, playSettings.VideoMode.Height);
+        return new PlayerRenderSize(playSettings.VideoMode.Width, playSettings.VideoMode.Height, playSettings.VideoMode.PixelAspect);
     }
 
     /// <summary>

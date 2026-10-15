@@ -256,6 +256,7 @@ public sealed class Ps2PlayerAdapterTests : IDisposable {
 
         Assert.Equal(width, size.Width);
         Assert.Equal(height, size.Height);
+        Assert.Equal(4d * height / (3d * width), size.PixelAspect, 12);
     }
 
     /// <summary>Without a resolved video mode the PS2 adapter refuses to guess a size.</summary>
