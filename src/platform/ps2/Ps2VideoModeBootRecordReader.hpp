@@ -34,8 +34,15 @@ namespace helengine::ps2 {
         /// <summary>GsGlobal Height.</summary>
         int Height;
         /// <summary>
-        /// Displayed width of one framebuffer pixel divided by its displayed height. The GS shows every mode 4:3
-        /// (GS_ASPECT_4_3), so it is 4H / 3W.
+        /// The horizontal magnification gsKit_init_screen picks for NTSC and PAL: floor(2880 / Width) - 1 (3 for 640, 4 for
+        /// 512, 8 for 320, 10 for 256). MagV is always 0, so the picture is (MagH + 1) * Width VCK wide and Height rasters tall.
+        /// </summary>
+        int MagH;
+        /// <summary>
+        /// Displayed width of one framebuffer pixel divided by its displayed height: (MagH + 1) * Height / 1920. The
+        /// 2560-VCK 640x448 picture is the 4:3 reference, so 640- and 512-wide modes are shown 4:3, 320-wide modes 3:2 and
+        /// 256-wide modes 22:15. gsKit never reads GsGlobal->Aspect (GS_ASPECT_4_3) for the display; only DW, MagH and DH
+        /// set the picture's shape.
         /// </summary>
         double PixelAspect;
     };
@@ -56,10 +63,19 @@ namespace helengine::ps2 {
         /// <summary>Disc path of the record (matches the builder's Ps2VideoModeBootRecord.RuntimePath).</summary>
         static constexpr const char* RuntimePath = "cdrom0:\\VIDMODE.BIN;1";
 
-        /// <summary>Width term of the 4:3 aspect the GS shows every mode at (matches the builder's Ps2VideoModes).</summary>
+        /// <summary>Width, in VCK, of the span gsKit magnifies NTSC and PAL framebuffers into (its DW).</summary>
+        static constexpr int GsKitNtscPalDisplayWidthVck = 2880;
+
+        /// <summary>Width, in VCK, of the picture that counts as 4:3: the 640x448 framebuffer magnified 4x.</summary>
+        static constexpr int ReferenceDisplayWidthVck = 2560;
+
+        /// <summary>
+        /// Width term of the 4:3 aspect the 2560-VCK reference picture is shown at (matches the builder's
+        /// Ps2GsDisplayAspect).
+        /// </summary>
         static constexpr int DisplayAspectWidth = 4;
 
-        /// <summary>Height term of the 4:3 aspect the GS shows every mode at.</summary>
+        /// <summary>Height term of the 4:3 aspect the 2560-VCK reference picture is shown at.</summary>
         static constexpr int DisplayAspectHeight = 3;
 
         /// <summary>Width and height, in pixels, of one CT16 or Z16 VRAM page.</summary>
@@ -80,7 +96,7 @@ namespace helengine::ps2 {
 
         /// <summary>
         /// Maps a validated record to gsKit screen fields: interlaced modes use field rendering, progressive ones frame
-        /// rendering, as today's 640x448 setup does.
+        /// rendering, as today's 640x448 setup does. MagH and the pixel aspect follow gsKit's integer magnification.
         /// </summary>
         /// <param name="record">Validated record.</param>
         /// <returns>gsKit screen fields.</returns>

@@ -63,13 +63,18 @@ namespace helengine::ps2 {
     }
 
     Ps2GsVideoSettings Ps2VideoModeBootRecordReader::ResolveGsSettings(const Ps2VideoModeBootRecord& record) {
+        const int magH = GsKitNtscPalDisplayWidthVck / static_cast<int>(record.Width) - 1;
+        // The 4:3 reference picture is 2560 VCK wide, so its full height measures 2560 * 3 / 4 = 1920 in VCK widths; one
+        // framebuffer pixel is (MagH + 1) VCK wide and 1920 / Height of those units tall.
+        const double referenceHeightInVck = static_cast<double>(ReferenceDisplayWidthVck) * DisplayAspectHeight / DisplayAspectWidth;
         return Ps2GsVideoSettings{
             record.IsPal,
             !record.IsProgressive,
             record.IsProgressive,
             static_cast<int>(record.Width),
             static_cast<int>(record.Height),
-            (static_cast<double>(DisplayAspectWidth) * record.Height) / (static_cast<double>(DisplayAspectHeight) * record.Width)
+            magH,
+            (static_cast<double>(magH + 1) * record.Height) / referenceHeightInVck
         };
     }
 

@@ -30,12 +30,16 @@ namespace {
         return bytes;
     }
 
-    /// One PS2 mode, the gsKit fields it must produce and the VRAM one of its buffers occupies on the page grid.
+    /// One PS2 mode, the gsKit fields it must produce, the pixel aspect gsKit shows it at (as an exact fraction) and the
+    /// VRAM one of its buffers occupies on the page grid.
     struct ExpectedMode {
         bool IsPal;
         bool IsProgressive;
         std::uint16_t Width;
         std::uint16_t Height;
+        int MagH;
+        int PixelAspectNumerator;
+        int PixelAspectDenominator;
         std::uint32_t PageGridBufferBytes;
     };
 
@@ -48,11 +52,15 @@ namespace {
 }
 
 int main() {
+    // gsKit 8ef73d05 gsInit.c: MagH + 1 = floor(2880 / W), MagV = 0, and the pixel aspect is (MagH + 1) * H / 1920 with
+    // the 2560-VCK 640x448 picture as the 4:3 reference. 320-wide modes show 3:2 and 256-wide modes 22:15.
     const ExpectedMode modes[] = {
-        { false, false, 640, 448, 573440u }, { false, false, 512, 448, 458752u }, { false, true, 640, 224, 327680u },
-        { false, true, 512, 224, 262144u }, { false, true, 320, 224, 163840u }, { false, true, 256, 224, 131072u },
-        { true, false, 640, 512, 655360u }, { true, false, 512, 512, 524288u }, { true, true, 640, 256, 327680u },
-        { true, true, 512, 256, 262144u }, { true, true, 320, 256, 163840u }, { true, true, 256, 256, 131072u }
+        { false, false, 640, 448, 3, 14, 15, 573440u }, { false, false, 512, 448, 4, 7, 6, 458752u },
+        { false, true, 640, 224, 3, 7, 15, 327680u }, { false, true, 512, 224, 4, 7, 12, 262144u },
+        { false, true, 320, 224, 8, 21, 20, 163840u }, { false, true, 256, 224, 10, 77, 60, 131072u },
+        { true, false, 640, 512, 3, 16, 15, 655360u }, { true, false, 512, 512, 4, 4, 3, 524288u },
+        { true, true, 640, 256, 3, 8, 15, 327680u }, { true, true, 512, 256, 4, 2, 3, 262144u },
+        { true, true, 320, 256, 8, 6, 5, 163840u }, { true, true, 256, 256, 10, 22, 15, 131072u }
     };
 
     for (const ExpectedMode& mode : modes) {
@@ -66,7 +74,9 @@ int main() {
         Check(settings.IsInterlaced == !mode.IsProgressive, "scan maps to GS_INTERLACED/NONINTERLACED");
         Check(settings.IsFrameMode == mode.IsProgressive, "progressive uses GS_FRAME, interlaced GS_FIELD");
         Check(settings.Width == mode.Width && settings.Height == mode.Height, "size maps to GsGlobal Width/Height");
-        Check(std::fabs(settings.PixelAspect - (4.0 * mode.Height) / (3.0 * mode.Width)) < 1e-12, "pixel aspect shows the mode 4:3");
+        Check(settings.MagH == mode.MagH, "MagH is gsKit's floor(2880 / W) - 1");
+        Check(std::fabs(settings.PixelAspect - static_cast<double>(mode.PixelAspectNumerator) / mode.PixelAspectDenominator) < 1e-12,
+            "pixel aspect follows gsKit's magnification, (MagH + 1) * H / 1920");
         Check(helengine::ps2::Ps2VideoModeBootRecordReader::ResolvePageGridBufferBytes(mode.Width, mode.Height) == mode.PageGridBufferBytes,
             "buffers occupy whole 64x64 pages (224 rows round up to 256)");
     }
@@ -92,6 +102,10 @@ int main() {
         Check(MakeRecord(false, false, 640, 448) == goldenNtsc640x448i && MakeRecord(true, true, 320, 256) == goldenPal320x256p,
             "the test record builder matches the C# golden bytes");
     }
+
+    helengine::ps2::Ps2VideoModeBootRecord goldenPalMode{ true, true, 320, 256 };
+    Check(std::fabs(helengine::ps2::Ps2VideoModeBootRecordReader::ResolveGsSettings(goldenPalMode).PixelAspect - 6.0 / 5.0) < 1e-12,
+        "the golden pal-320x256p record is shown 3:2, pixel aspect 6/5");
 
     helengine::ps2::Ps2VideoModeBootRecord defaultMode{ false, false, 640, 448 };
     Check(std::fabs(helengine::ps2::Ps2VideoModeBootRecordReader::ResolveGsSettings(defaultMode).PixelAspect - 14.0 / 15.0) < 1e-12,
