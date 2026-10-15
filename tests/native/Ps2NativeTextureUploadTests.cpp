@@ -39,7 +39,8 @@ void* gsKit_heap_alloc(GSGLOBAL*,int qwords,int bytes,int type) {
     std::memset(AlphaQueue,0,sizeof(AlphaQueue));
     return AlphaQueue;
 }
-void dmaKit_send_chain_ucab(int channel,void* packet) {
+/// Checks the production uploader chooses cached DMA, supplies the entire chain, and keeps each source alive until consumption.
+void dmaKit_send_chain(int channel,void* packet,u32 packetQwords) {
     assert(channel==DMA_CHANNEL_GIF);
     const auto* words=static_cast<const std::uint64_t*>(packet);
     assert(words[0]==(5u|(std::uint64_t(DMA_CNT)<<28))&&words[1]==0);
@@ -65,6 +66,7 @@ void dmaKit_send_chain_ucab(int channel,void* packet) {
     assert(words[offset]==(2u|(std::uint64_t(DMA_END)<<28)));
     assert(words[offset+2]==GIF_TAG(1,1,0,0,GSKIT_GIF_FLG_PACKED,1));
     assert(words[offset+4]==0&&words[offset+5]==GS_TEXFLUSH);
+    assert((offset+6)==std::size_t(packetQwords)*2);
     Transfers.push_back(transfer);
 }
 

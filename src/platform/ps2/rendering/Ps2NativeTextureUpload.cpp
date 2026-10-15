@@ -43,7 +43,9 @@ namespace helengine::ps2 {
             *output++ = 0; *output++ = GS_TEXFLUSH;
             FlushCache(0);
             dmaKit_wait_fast();
-            dmaKit_send_chain_ucab(DMA_CHANNEL_GIF, packet);
+            // memalign returns cached EE RAM. The UCAB entry point subtracts
+            // 0x30000000 and would turn this packet into an invalid DMA address.
+            dmaKit_send_chain(DMA_CHANNEL_GIF, packet, static_cast<std::uint32_t>(packetQwords));
             dmaKit_wait_fast();
             free(packet);
         }

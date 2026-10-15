@@ -13,8 +13,8 @@ std::uint64_t TestDmaTag(std::uint32_t count, std::uint32_t id, std::uintptr_t a
 u32 gsKit_vram_alloc(GSGLOBAL* global,u32 bytes,std::uint8_t kind);
 /// Wait spy; the test requires the actual uploader to finish DMA consumption before releasing its packet.
 void dmaKit_wait_fast();
-/// Parses the actual uploaded chain and copies referenced pixel bytes while their staging is still alive.
-void dmaKit_send_chain_ucab(int channel,void* packet);
+/// Receives a cached packet with its complete qword length, matching the SDK entry point for memalign allocations.
+void dmaKit_send_chain(int channel,void* packet,u32 packetQwords);
 
 #define GS_FILTER_NEAREST 0
 #define GS_CLUT_STORAGE_CSM1 0
@@ -24,7 +24,7 @@ void dmaKit_send_chain_ucab(int channel,void* packet);
 #define DMA_CNT 1
 #define DMA_REF 3
 #define DMA_END 7
-#define DMA_TAG(qwc,irq,id,pce,addr,spr) TestDmaTag(qwc,id,static_cast<std::uintptr_t>(addr))
+#define DMA_TAG(qwc,pce,id,irq,addr,spr) TestDmaTag(qwc,id,static_cast<std::uintptr_t>(addr))
 #define GSKIT_GIF_FLG_PACKED 0
 #define GSKIT_GIF_FLG_IMAGE 2
 #define GIF_AD 14
