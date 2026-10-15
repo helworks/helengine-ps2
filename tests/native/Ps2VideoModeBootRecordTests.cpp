@@ -38,6 +38,13 @@ namespace {
         std::uint16_t Height;
         std::uint32_t PageGridBufferBytes;
     };
+
+    /// One record TryParse must refuse, the byte count handed to it and the check's readable name.
+    struct RejectionCase {
+        const std::uint8_t* Bytes;
+        std::size_t Length;
+        const char* Name;
+    };
 }
 
 int main() {
@@ -90,23 +97,46 @@ int main() {
     Check(std::fabs(helengine::ps2::Ps2VideoModeBootRecordReader::ResolveGsSettings(defaultMode).PixelAspect - 14.0 / 15.0) < 1e-12,
         "640x448 shown 4:3 has pixel aspect 14/15");
 
-    helengine::ps2::Ps2VideoModeBootRecord record{};
-    const char* error = nullptr;
-    std::array<std::uint8_t, 16> valid = MakeRecord(false, false, 640, 448);
+    Check(helengine::ps2::Ps2VideoModeBootRecordReader::ResolvePageGridBufferBytes(65, 64) == 16384u,
+        "a width one pixel past a page boundary takes a second page column");
 
-    Check(!helengine::ps2::Ps2VideoModeBootRecordReader::TryParse(valid.data(), 15, record, error), "short record rejected");
-    Check(!helengine::ps2::Ps2VideoModeBootRecordReader::TryParse(valid.data(), 17, record, error), "long record rejected");
-    std::array<std::uint8_t, 16> badMagic = valid; badMagic[0] = 'X';
-    Check(!helengine::ps2::Ps2VideoModeBootRecordReader::TryParse(badMagic.data(), 16, record, error), "bad magic rejected");
-    std::array<std::uint8_t, 16> badVersion = valid; badVersion[4] = 2;
-    Check(!helengine::ps2::Ps2VideoModeBootRecordReader::TryParse(badVersion.data(), 16, record, error), "other version rejected");
+    const std::array<std::uint8_t, 16> valid = MakeRecord(false, false, 640, 448);
+    std::array<std::uint8_t, 16> badMagicFirst = valid; badMagicFirst[0] = 'X';
+    std::array<std::uint8_t, 16> badMagicLast = valid; badMagicLast[3] = 'X';
+    std::array<std::uint8_t, 16> badVersionLow = valid; badVersionLow[4] = 2;
+    std::array<std::uint8_t, 16> badVersionHigh = valid; badVersionHigh[5] = 1;
+    std::array<std::uint8_t, 16> badRegionFlag = valid; badRegionFlag[6] = 2;
+    std::array<std::uint8_t, 16> badScanFlag = valid; badScanFlag[7] = 2;
     std::array<std::uint8_t, 16> badSize = MakeRecord(false, true, 640, 480);
-    Check(!helengine::ps2::Ps2VideoModeBootRecordReader::TryParse(badSize.data(), 16, record, error), "640x480 rejected");
     std::array<std::uint8_t, 16> wrongRegion = MakeRecord(true, false, 640, 448);
-    Check(!helengine::ps2::Ps2VideoModeBootRecordReader::TryParse(wrongRegion.data(), 16, record, error), "PAL 448 rejected");
-    std::array<std::uint8_t, 16> badPadding = valid; badPadding[12] = 1;
-    Check(!helengine::ps2::Ps2VideoModeBootRecordReader::TryParse(badPadding.data(), 16, record, error), "non-zero padding rejected");
-    Check(error != nullptr && std::strlen(error) > 0, "rejection carries a diagnostic");
+    std::array<std::uint8_t, 16> badPaddingFirst = valid; badPaddingFirst[12] = 1;
+    std::array<std::uint8_t, 16> badPaddingLast = valid; badPaddingLast[15] = 1;
+
+    const RejectionCase rejections[] = {
+        { valid.data(), 15, "short record rejected" },
+        { valid.data(), 17, "long record rejected" },
+        { badMagicFirst.data(), 16, "bad magic byte 0 rejected" },
+        { badMagicLast.data(), 16, "bad magic byte 3 rejected" },
+        { badVersionLow.data(), 16, "version low byte 2 rejected" },
+        { badVersionHigh.data(), 16, "version high byte 1 (version 257) rejected" },
+        { badRegionFlag.data(), 16, "region flag 2 rejected" },
+        { badScanFlag.data(), 16, "scan flag 2 rejected" },
+        { badSize.data(), 16, "640x480 rejected" },
+        { wrongRegion.data(), 16, "PAL 448 rejected" },
+        { badPaddingFirst.data(), 16, "non-zero padding byte 12 rejected" },
+        { badPaddingLast.data(), 16, "non-zero padding byte 15 rejected" }
+    };
+
+    for (const RejectionCase& rejection : rejections) {
+        helengine::ps2::Ps2VideoModeBootRecord record{};
+        const char* error = nullptr;
+        const bool parsed = helengine::ps2::Ps2VideoModeBootRecordReader::TryParse(rejection.Bytes, rejection.Length, record, error);
+        Check(!parsed, rejection.Name);
+        if (error == nullptr || std::strlen(error) == 0) {
+            ++FailureCount;
+            std::cerr << "FAIL: rejection carries a diagnostic: " << rejection.Name << "\n";
+        }
+    }
 
     if (FailureCount == 0) {
         std::cout << "ps2-video-mode-tests: all checks passed\n";
