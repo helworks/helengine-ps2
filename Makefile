@@ -7,7 +7,7 @@ GSKIT_CFLAGS := $(shell $(PKG_CONFIG) --cflags gsKit 2>/dev/null)
 GSKIT_LIBS := $(shell $(PKG_CONFIG) --libs gsKit 2>/dev/null)
 
 ifeq ($(strip $(HELENGINE_CORE_CPP_ROOT)),)
-ifneq ($(strip $(filter-out clean ps2-rendering-tests,$(MAKECMDGOALS))),)
+ifneq ($(strip $(filter-out clean ps2-rendering-tests ps2-video-mode-tests,$(MAKECMDGOALS))),)
 $(error HELENGINE_CORE_CPP_ROOT must point at the generated helengine.core C++ output folder)
 endif
 endif
@@ -28,6 +28,7 @@ PS2_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/Ps2InputBackend.cpp \
 	$(SOURCE_DIR)/platform/ps2/Ps2DiscFileSystem.cpp \
 	$(SOURCE_DIR)/platform/ps2/Ps2DiscContentStreamSource.cpp \
+	$(SOURCE_DIR)/platform/ps2/Ps2VideoModeBootRecordReader.cpp \
 	$(SOURCE_DIR)/platform/ps2/Ps2BootHost.cpp \
 	$(SOURCE_DIR)/platform/ps2/audio/Ps2AudioBackend.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/Ps2FramePlan.cpp \
@@ -119,6 +120,11 @@ PS2_RENDERING_TEST_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuClippedTexturedBatch.cpp \
 	tests/native/Ps2VuTexturedTriangleClipperTests.cpp
 
+PS2_VIDEO_MODE_TEST_TARGET := $(BUILD_DIR)/tests/ps2-video-mode-tests
+PS2_VIDEO_MODE_TEST_SOURCES := \
+	$(SOURCE_DIR)/platform/ps2/Ps2VideoModeBootRecordReader.cpp \
+	tests/native/Ps2VideoModeBootRecordTests.cpp
+
 LDFLAGS := \
 	-T$(PS2SDK)/ee/startup/linkfile \
 	-L$(PS2SDK)/ee/lib \
@@ -168,7 +174,7 @@ HOST_DEBUGGER_OBJECTS := \
 	$(HOST_DEBUGGER_BUILD_DIR)/generated/runtime/runtime_scene_catalog_manifest.o \
 	$(HOST_DEBUGGER_BUILD_DIR)/generated/runtime/runtime_ps2_asset_path_manifest.o
 
-.PHONY: all clean ps2-host-debugger ps2-rendering-tests
+.PHONY: all clean ps2-host-debugger ps2-rendering-tests ps2-video-mode-tests
 
 all: $(TARGET)
 
@@ -188,6 +194,13 @@ ps2-rendering-tests: $(PS2_RENDERING_TEST_TARGET)
 	$(PS2_RENDERING_TEST_TARGET)
 
 $(PS2_RENDERING_TEST_TARGET): $(PS2_RENDERING_TEST_SOURCES)
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) $(HOST_CXXFLAGS) -I$(SOURCE_DIR) $^ -o $@
+
+ps2-video-mode-tests: $(PS2_VIDEO_MODE_TEST_TARGET)
+	$(PS2_VIDEO_MODE_TEST_TARGET)
+
+$(PS2_VIDEO_MODE_TEST_TARGET): $(PS2_VIDEO_MODE_TEST_SOURCES)
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) $(HOST_CXXFLAGS) -I$(SOURCE_DIR) $^ -o $@
 
