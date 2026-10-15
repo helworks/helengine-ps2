@@ -243,18 +243,27 @@ public sealed class Ps2PlayerAdapterTests : IDisposable {
         Assert.IsAssignableFrom<IPlatformPlayerAdapter>(Activator.CreateInstance(typeof(Ps2PlayerAdapter)));
     }
 
-    /// <summary>
-    /// The PS2 adapter declares the PS2 framebuffer (640x448) as the Play render size until the video mode is configurable.
-    /// </summary>
+    /// <summary>The PS2 adapter renders at the selected video mode's framebuffer size.</summary>
+    [Theory]
+    [InlineData("ntsc-640x448i", 640, 448)]
+    [InlineData("ntsc-320x224p", 320, 224)]
+    [InlineData("pal-512x256p", 512, 256)]
+    public void ApplyPlaySettings_RendersAtTheVideoModeSize(string modeId, int width, int height) {
+        PlatformVideoMode mode = Ps2VideoModes.CreateCapability().Resolve(modeId, "ps2");
+        PlayerPlaySettings settings = new PlayerPlaySettings(PlayerWindowScale.Fit, PlayerWindowMonitor.Editor, 1, false, true, false, mode.PlayerFrameRate, new Dictionary<string, string> { ["video-mode"] = modeId }, mode);
+
+        PlayerRenderSize size = new Ps2PlayerAdapter().ApplyPlaySettings(settings);
+
+        Assert.Equal(width, size.Width);
+        Assert.Equal(height, size.Height);
+    }
+
+    /// <summary>Without a resolved video mode the PS2 adapter refuses to guess a size.</summary>
     [Fact]
-    public void ApplyPlaySettings_DeclaresThePs2FramebufferSize() {
-        Ps2PlayerAdapter adapter = new Ps2PlayerAdapter();
+    public void ApplyPlaySettings_WithoutVideoMode_Throws() {
         PlayerPlaySettings settings = new PlayerPlaySettings(PlayerWindowScale.Fit, PlayerWindowMonitor.Editor, 1, false, true, false, 60d, new Dictionary<string, string>(), null);
 
-        PlayerRenderSize size = adapter.ApplyPlaySettings(settings);
-
-        Assert.Equal(640, size.Width);
-        Assert.Equal(448, size.Height);
+        Assert.Throws<InvalidOperationException>(() => new Ps2PlayerAdapter().ApplyPlaySettings(settings));
     }
 
     /// <summary>

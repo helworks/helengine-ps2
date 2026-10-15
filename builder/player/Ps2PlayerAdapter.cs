@@ -9,16 +9,6 @@ namespace helengine.ps2.builder;
 /// </summary>
 public sealed class Ps2PlayerAdapter : IPlatformPlayerAdapter {
     /// <summary>
-    /// Width of the PS2 framebuffer the native runtime initializes gsKit with (Ps2BootHost).
-    /// </summary>
-    public const int FramebufferWidth = 640;
-
-    /// <summary>
-    /// Height of the PS2 framebuffer the native runtime initializes gsKit with (Ps2BootHost).
-    /// </summary>
-    public const int FramebufferHeight = 448;
-
-    /// <summary>
     /// Disc-path suffix ISO9660 version marker appended to every staged physical path.
     /// </summary>
     const string DiscVersionSuffix = ";1";
@@ -79,16 +69,19 @@ public sealed class Ps2PlayerAdapter : IPlatformPlayerAdapter {
     }
 
     /// <summary>
-    /// Declares the PS2 framebuffer size as the Play render size. The PS2 declares no platform Play settings yet.
+    /// Renders Play at the selected PS2 video mode's framebuffer size, as the GS does before the PCRTC magnifies it.
     /// </summary>
-    /// <param name="playSettings">Resolved Play settings of this session.</param>
-    /// <returns>The 640x448 PS2 framebuffer size.</returns>
+    /// <param name="playSettings">Resolved Play settings; must carry the PS2 video mode.</param>
+    /// <returns>The mode's framebuffer size.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when no video mode was resolved.</exception>
     public PlayerRenderSize ApplyPlaySettings(PlayerPlaySettings playSettings) {
         if (playSettings == null) {
             throw new ArgumentNullException(nameof(playSettings));
+        } else if (!playSettings.HasVideoMode) {
+            throw new InvalidOperationException("PS2 Play needs the resolved PS2 video mode; the editor sent none.");
         }
 
-        return new PlayerRenderSize(FramebufferWidth, FramebufferHeight);
+        return new PlayerRenderSize(playSettings.VideoMode.Width, playSettings.VideoMode.Height);
     }
 
     /// <summary>
