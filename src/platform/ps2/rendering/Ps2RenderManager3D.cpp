@@ -24,6 +24,7 @@
 #include "AssetSerializer.hpp"
 #include "Ps2AssetSerializer.hpp"
 #include "CameraComponent.hpp"
+#include "CameraProjectionUtils.hpp"
 #include "Core.hpp"
 #include "DirectionalLightComponent.hpp"
 #include "Entity.hpp"
@@ -1260,7 +1261,7 @@ namespace helengine::ps2 {
         ::float4x4 projection;
         ::float4x4::CreatePerspectiveFieldOfView__out4(
             CameraFieldOfViewRadians,
-            viewport.Z / viewport.W,
+            ::CameraProjectionUtils::ResolveProjectionAspect(viewport.Z, viewport.W, GetCameraPixelAspect(camera)),
             camera->get_NearPlaneDistance(),
             camera->get_FarPlaneDistance(),
             projection);
