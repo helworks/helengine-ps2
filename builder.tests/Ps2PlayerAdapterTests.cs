@@ -248,7 +248,7 @@ public sealed class Ps2PlayerAdapterTests : IDisposable {
     [Fact]
     public void ApplyPlaySettings_DeclaresThePs2FramebufferSize() {
         Ps2PlayerAdapter adapter = new Ps2PlayerAdapter();
-        PlayerPlaySettings settings = new PlayerPlaySettings(PlayerWindowScale.Fit, PlayerWindowMonitor.Editor, 1, false, true, false, 60d, new Dictionary<string, string>());
+        PlayerPlaySettings settings = new PlayerPlaySettings(PlayerWindowScale.Fit, PlayerWindowMonitor.Editor, 1, false, true, false, 60d, new Dictionary<string, string>(), null);
 
         PlayerRenderSize size = adapter.ApplyPlaySettings(settings);
 
