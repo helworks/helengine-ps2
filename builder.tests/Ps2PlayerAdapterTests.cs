@@ -237,7 +237,8 @@ public sealed class Ps2PlayerAdapterTests : IDisposable {
         Assert.True(definition.PlayerCapability.SupportsPlay);
         Assert.Equal(typeof(Ps2PlayerAdapter).FullName, definition.PlayerCapability.AdapterTypeName);
         Assert.Equal("ps2-staging", definition.PlayerCapability.ContentRootRelativePath);
-        Assert.Equal(60d, definition.PlayerCapability.TargetFrameRate);
+        Assert.Equal(0d, definition.PlayerCapability.TargetFrameRate);
+        Assert.True(definition.PlayerCapability.FrameRateFromVideoMode);
         Assert.Equal(PlayerInputDevices.Gamepad, definition.PlayerCapability.InputDevices);
         Assert.IsAssignableFrom<IPlatformPlayerAdapter>(Activator.CreateInstance(typeof(Ps2PlayerAdapter)));
     }

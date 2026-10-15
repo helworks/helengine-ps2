@@ -55,4 +55,73 @@ public sealed class Ps2PlatformDefinitionFactoryTests {
         Assert.Equal("ps2", capability.RuntimePlatformName);
         Assert.Equal("1.0.0", capability.RuntimePlatformVersion);
     }
+
+    /// <summary>
+    /// The PS2 offers exactly the 12 NTSC and PAL modes, selected by a graphics choice whose values equal the capability
+    /// ids and default to today's 640x448 interlaced NTSC mode.
+    /// </summary>
+    [Fact]
+    public void Create_DeclaresTheTwelvePs2VideoModes() {
+        PlatformDefinition definition = Ps2PlatformDefinitionFactory.Create();
+        string[] expectedIds = [
+            "ntsc-640x448i", "ntsc-512x448i", "ntsc-640x224p", "ntsc-512x224p", "ntsc-320x224p", "ntsc-256x224p",
+            "pal-640x512i", "pal-512x512i", "pal-640x256p", "pal-512x256p", "pal-320x256p", "pal-256x256p"
+        ];
+
+        Assert.Equal(expectedIds, definition.VideoModeCapability.GetModeIds());
+        foreach (PlatformGraphicsProfileDefinition profile in definition.GraphicsProfiles) {
+            PlatformSettingDefinition setting = Assert.Single(profile.Settings, candidate => candidate.SettingId == "video-mode");
+            Assert.Equal(expectedIds, setting.AllowedValues);
+            Assert.Equal("ntsc-640x448i", setting.DefaultValue);
+            Assert.DoesNotContain(profile.Settings, candidate => candidate.SettingId == "default-width" || candidate.SettingId == "default-height");
+        }
+    }
+
+    /// <summary>Every mode resolves to its size, scan and rates; an unknown id is rejected naming it.</summary>
+    [Theory]
+    [InlineData("ntsc-640x448i", 640, 448, false, 59.94d, 60d)]
+    [InlineData("ntsc-512x448i", 512, 448, false, 59.94d, 60d)]
+    [InlineData("ntsc-640x224p", 640, 224, true, 59.94d, 60d)]
+    [InlineData("ntsc-512x224p", 512, 224, true, 59.94d, 60d)]
+    [InlineData("ntsc-320x224p", 320, 224, true, 59.94d, 60d)]
+    [InlineData("ntsc-256x224p", 256, 224, true, 59.94d, 60d)]
+    [InlineData("pal-640x512i", 640, 512, false, 50d, 50d)]
+    [InlineData("pal-512x512i", 512, 512, false, 50d, 50d)]
+    [InlineData("pal-640x256p", 640, 256, true, 50d, 50d)]
+    [InlineData("pal-512x256p", 512, 256, true, 50d, 50d)]
+    [InlineData("pal-320x256p", 320, 256, true, 50d, 50d)]
+    [InlineData("pal-256x256p", 256, 256, true, 50d, 50d)]
+    public void VideoModes_ResolveEveryId(string id, int width, int height, bool progressive, double refresh, double playerRate) {
+        PlatformVideoMode mode = Ps2PlatformDefinitionFactory.Create().VideoModeCapability.Resolve(id, "ps2");
+
+        Assert.Equal(width, mode.Width);
+        Assert.Equal(height, mode.Height);
+        Assert.Equal(progressive, mode.IsProgressive);
+        Assert.Equal(refresh, mode.RefreshRateHz);
+        Assert.Equal(playerRate, mode.PlayerFrameRate);
+        Assert.Equal(4, mode.DisplayAspectWidth);
+        Assert.Equal(3, mode.DisplayAspectHeight);
+        Assert.Equal(4d * height / (3d * width), mode.PixelAspect, 12);
+        Assert.Equal(id.StartsWith("pal-", StringComparison.Ordinal), Ps2VideoModes.IsPal(mode));
+    }
+
+    /// <summary>An unknown mode id is rejected naming it.</summary>
+    [Fact]
+    public void VideoModes_RejectUnknownId() {
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() => Ps2PlatformDefinitionFactory.Create().VideoModeCapability.Resolve("ntsc-640x480p", "ps2"));
+
+        Assert.Contains("ntsc-640x480p", exception.Message);
+    }
+
+    /// <summary>Play follows the project's mode by default and takes its frame rate from the mode.</summary>
+    [Fact]
+    public void Create_PlayVideoModeDefaultsToProject() {
+        PlatformPlayerCapability capability = Ps2PlatformDefinitionFactory.Create().PlayerCapability;
+
+        PlatformSettingDefinition playSetting = capability.FindPlaySetting("video-mode");
+        Assert.Equal("project", playSetting.DefaultValue);
+        Assert.Equal("project", playSetting.AllowedValues[0]);
+        Assert.Equal(13, playSetting.AllowedValues.Length);
+        Assert.True(capability.FrameRateFromVideoMode);
+    }
 }

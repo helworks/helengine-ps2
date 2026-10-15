@@ -38,20 +38,7 @@ public static class Ps2PlatformDefinitionFactory {
                     "PS2 Standard Forward",
                     "Standard PS2 forward renderer for gameplay scenes.",
                     [
-                        new PlatformSettingDefinition(
-                            "default-width",
-                            "Default Width",
-                            PlatformSettingKind.Text,
-                            "640",
-                            true,
-                            []),
-                        new PlatformSettingDefinition(
-                            "default-height",
-                            "Default Height",
-                            PlatformSettingKind.Text,
-                            "448",
-                            true,
-                            []),
+                        Ps2VideoModes.CreateGraphicsSetting(),
                         new PlatformSettingDefinition(
                             "vsync-enabled",
                             "VSync Enabled",
@@ -79,20 +66,7 @@ public static class Ps2PlatformDefinitionFactory {
                     "PS2 Showcase Forward",
                     "Expensive PS2 forward renderer for tiny showcase scenes.",
                     [
-                        new PlatformSettingDefinition(
-                            "default-width",
-                            "Default Width",
-                            PlatformSettingKind.Text,
-                            "640",
-                            true,
-                            []),
-                        new PlatformSettingDefinition(
-                            "default-height",
-                            "Default Height",
-                            PlatformSettingKind.Text,
-                            "448",
-                            true,
-                            []),
+                        Ps2VideoModes.CreateGraphicsSetting(),
                         new PlatformSettingDefinition(
                             "vsync-enabled",
                             "VSync Enabled",
@@ -366,9 +340,10 @@ public static class Ps2PlatformDefinitionFactory {
                 false,
                 "ps2-host-debugger"),
             CreateAssetCookCapabilities(),
-            // The native PS2 host presents on the NTSC vsync (gsKit_sync_flip under GS_MODE_NTSC, ~59.94 Hz) and updates
-            // with the measured frame delta. The desktop Play player uses exactly 60 FPS so it divides common desktop
-            // refresh rates (60/120/240 Hz) evenly; the 0.1% gap to 59.94 is immaterial for gameplay testing.
+            // The native PS2 host presents on the vsync of the selected video mode (gsKit_sync_flip at 59.94 Hz for the
+            // NTSC modes, 50 Hz for PAL) and updates with the measured frame delta. The capability frame rate is 0: the
+            // desktop Play player takes its rate from the selected video mode instead, 60 FPS for NTSC modes (it divides
+            // common desktop refresh rates evenly; the 0.1% gap to 59.94 is immaterial for gameplay testing) and 50 for PAL.
             // A PS2 has only its pad: the desktop player hides the desktop keyboard and mouse from PS2 games and feeds the
             // pad from a desktop controller or the keyboard-emulated pad instead.
             // The player reports the same PlatformInfo as the native runtime; both read Ps2RuntimePlatformIdentity (the
@@ -377,11 +352,12 @@ public static class Ps2PlatformDefinitionFactory {
                 true,
                 "helengine.ps2.builder.Ps2PlayerAdapter",
                 "ps2-staging",
-                60d,
+                0d,
                 PlayerInputDevices.Gamepad,
                 Ps2RuntimePlatformIdentity.Name,
                 Ps2RuntimePlatformIdentity.Version,
-                []));
+                [Ps2VideoModes.CreatePlaySetting()]),
+            videoModeCapability: Ps2VideoModes.CreateCapability());
     }
 
     /// <summary>
