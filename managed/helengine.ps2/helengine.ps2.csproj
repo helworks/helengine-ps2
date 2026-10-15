@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="$(HelengineRoot)\engine\helengine.core\helengine.core.csproj" />
+    <ProjectReference Include="$(HelengineRoot)\engine\helengine.nativeownership\helengine.nativeownership.csproj" />
   </ItemGroup>
 
   <ItemGroup>
