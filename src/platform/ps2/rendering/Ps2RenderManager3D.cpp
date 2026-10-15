@@ -1258,10 +1258,12 @@ namespace helengine::ps2 {
         ::float4x4 view;
         ::float4x4::CreateLookAt__ref0_ref1_ref2_out3(cameraPosition, cameraTarget, cameraUp, view);
 
+        // The camera is always drawn into the main framebuffer, whatever output tag or render target it carries,
+        // so the projection uses the main window's pixel aspect (the surface actually drawn), as DirectX11 does.
         ::float4x4 projection;
         ::float4x4::CreatePerspectiveFieldOfView__out4(
             CameraFieldOfViewRadians,
-            ::CameraProjectionUtils::ResolveProjectionAspect(viewport.Z, viewport.W, GetCameraPixelAspect(camera)),
+            ::CameraProjectionUtils::ResolveProjectionAspect(viewport.Z, viewport.W, get_MainWindowPixelAspect()),
             camera->get_NearPlaneDistance(),
             camera->get_FarPlaneDistance(),
             projection);
