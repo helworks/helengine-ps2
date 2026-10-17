@@ -2,6 +2,13 @@ PS2DEV ?= /usr/local/ps2dev
 PS2SDK ?= $(PS2DEV)/ps2sdk
 GSKIT ?= $(PS2DEV)/gsKit
 HELENGINE_CORE_CPP_ROOT ?=
+# Opt-in log-only sampling of the existing host frame timing diagnostics.
+PS2_MENU_BENCHMARK ?= 0
+ifneq ($(PS2_MENU_BENCHMARK),0)
+ifneq ($(PS2_MENU_BENCHMARK),1)
+$(error PS2_MENU_BENCHMARK must be 0 or 1)
+endif
+endif
 PKG_CONFIG ?= pkg-config
 GSKIT_CFLAGS := $(shell $(PKG_CONFIG) --cflags gsKit 2>/dev/null)
 GSKIT_LIBS := $(shell $(PKG_CONFIG) --libs gsKit 2>/dev/null)
@@ -53,6 +60,10 @@ PS2_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuClippedTexturedBatch.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuClippedTexturedBatchBuilder.cpp \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/Ps2VuVifPacketBuilder.cpp
+ifeq ($(PS2_MENU_BENCHMARK),1)
+PS2_SOURCES += $(SOURCE_DIR)/platform/ps2/Ps2RenderCommandCpuProfileSink.cpp
+PS2_SOURCES += $(SOURCE_DIR)/platform/ps2/Ps2PlaybackCpuProfile.cpp
+endif
 VU_PROGRAM_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueDraw3D.vsm \
 	$(SOURCE_DIR)/platform/ps2/rendering/vu/programs/Ps2OpaqueTexturedDraw3D.vsm \
@@ -84,6 +95,7 @@ HOST_CXX ?= g++
 
 CPPFLAGS := \
 	-D_EE \
+	-DHE_PS2_MENU_BENCHMARK=$(PS2_MENU_BENCHMARK) \
 	-I$(SOURCE_DIR) \
 	-I$(PS2SDK)/ee/include \
 	-I$(PS2SDK)/common/include \
@@ -125,6 +137,9 @@ PS2_VIDEO_MODE_TEST_TARGET := $(BUILD_DIR)/tests/ps2-video-mode-tests
 PS2_VIDEO_MODE_TEST_SOURCES := \
 	$(SOURCE_DIR)/platform/ps2/Ps2VideoModeBootRecordReader.cpp \
 	tests/native/Ps2VideoModeBootRecordTests.cpp
+
+PS2_TEXTURED_QUAD_GEOMETRY_TEST_TARGET := $(BUILD_DIR)/tests/ps2-textured-quad-geometry-tests
+PS2_TEXTURED_QUAD_PRIMITIVE_TEST_TARGET := $(BUILD_DIR)/tests/ps2-textured-quad-primitive-tests
 
 LDFLAGS := \
 	-T$(PS2SDK)/ee/startup/linkfile \
@@ -175,7 +190,7 @@ HOST_DEBUGGER_OBJECTS := \
 	$(HOST_DEBUGGER_BUILD_DIR)/generated/runtime/runtime_scene_catalog_manifest.o \
 	$(HOST_DEBUGGER_BUILD_DIR)/generated/runtime/runtime_ps2_asset_path_manifest.o
 
-.PHONY: all clean ps2-host-debugger ps2-rendering-tests ps2-video-mode-tests
+.PHONY: all clean ps2-host-debugger ps2-rendering-tests ps2-video-mode-tests ps2-textured-quad-tests
 
 all: $(TARGET)
 
@@ -204,6 +219,18 @@ ps2-video-mode-tests: $(PS2_VIDEO_MODE_TEST_TARGET)
 $(PS2_VIDEO_MODE_TEST_TARGET): $(PS2_VIDEO_MODE_TEST_SOURCES)
 	@mkdir -p $(dir $@)
 	$(HOST_CXX) $(HOST_CXXFLAGS) -I$(SOURCE_DIR) $^ -o $@
+
+ps2-textured-quad-tests: $(PS2_TEXTURED_QUAD_GEOMETRY_TEST_TARGET) $(PS2_TEXTURED_QUAD_PRIMITIVE_TEST_TARGET)
+	$(PS2_TEXTURED_QUAD_GEOMETRY_TEST_TARGET)
+	$(PS2_TEXTURED_QUAD_PRIMITIVE_TEST_TARGET)
+
+$(PS2_TEXTURED_QUAD_GEOMETRY_TEST_TARGET): tests/native/Ps2TexturedQuadGeometryTests.cpp $(SOURCE_DIR)/platform/ps2/rendering/Ps2TexturedQuadGeometry.hpp
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) $(HOST_CXXFLAGS) -I$(SOURCE_DIR) $< -o $@
+
+$(PS2_TEXTURED_QUAD_PRIMITIVE_TEST_TARGET): tests/native/Ps2TexturedQuadPrimitiveTests.cpp $(SOURCE_DIR)/platform/ps2/rendering/Ps2TexturedQuadPrimitive.hpp $(SOURCE_DIR)/platform/ps2/rendering/Ps2TexturedQuadGeometry.hpp
+	@mkdir -p $(dir $@)
+	$(HOST_CXX) $(HOST_CXXFLAGS) -I$(SOURCE_DIR) $< -o $@
 
 $(GENERATED_CORE_STAGE_STAMP): $(GENERATED_CORE_STAGE_INPUTS) $(SOURCE_DIR)/app_context_ps2.hpp
 	@rm -rf $(GENERATED_CORE_STAGE_ROOT)

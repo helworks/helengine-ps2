@@ -10,6 +10,25 @@ namespace helengine::ps2 {
     /// texel-space triangle fan built from the top-left-origin corners of Ps2TexturedQuadGeometry.
     class Ps2TexturedQuadPrimitive {
     public:
+        /// Retains exact affine corners; only positively aligned rectangles use the GS sprite fast path.
+        static Ps2TexturedQuadPrimitive FromCorners(Ps2TexturedPolygon polygon, double textureWidth, double textureHeight,
+            bool clipped, double clipX = 0, double clipY = 0, double clipWidth = 0, double clipHeight = 0) {
+            Ps2TexturedQuadPrimitive primitive;
+            primitive.IsRotated = true;
+            if (polygon.Count == 4) {
+                const auto& tl = polygon.Vertices[0];
+                const auto& tr = polygon.Vertices[1];
+                const auto& br = polygon.Vertices[2];
+                const auto& bl = polygon.Vertices[3];
+                primitive.IsRotated = !(tl.Y == tr.Y && bl.Y == br.Y && tl.X == bl.X && tr.X == br.X
+                    && tr.X > tl.X && bl.Y > tl.Y);
+            }
+            if (!primitive.IsRotated) { return primitive; }
+            primitive.Polygon = clipped ? Ps2TexturedQuadGeometry::Clip(polygon, clipX, clipY, clipWidth, clipHeight) : polygon;
+            primitive.ScaleToTexels(textureWidth, textureHeight);
+            return primitive;
+        }
+
         /// True when the quad must be drawn as the triangle fan in Polygon instead of an axis-aligned sprite.
         bool IsRotated = false;
 

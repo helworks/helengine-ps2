@@ -24,7 +24,9 @@ ENV PKG_CONFIG_PATH=${GSKIT}/lib/pkgconfig:${PS2SDK}/ports/lib/pkgconfig:${PS2SD
 RUN mkdir -p ${PS2DEV} \
     && curl -L https://github.com/ps2dev/ps2dev/releases/download/latest/ps2dev-ubuntu-latest.tar.gz -o /tmp/ps2dev-latest.tar.gz \
     && tar -xf /tmp/ps2dev-latest.tar.gz --strip-components 1 -C ${PS2DEV} \
-    && find ${PS2DEV} -type f -name '*.pc' -exec sed -i 's|/__w/ps2dev/ps2dev/ps2dev|/usr/local/ps2dev|g' {} + \
+    && find ${PS2DEV} -type f -name '*.pc' -exec sed -i \
+        -e 's|/__w/ps2dev/ps2dev/ps2dev|/usr/local/ps2dev|g' \
+        -e '/^Requires/s/;/ /g' {} + \
     && rm -f /tmp/ps2dev-latest.tar.gz
 
 WORKDIR /workspace

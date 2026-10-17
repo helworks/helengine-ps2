@@ -1,3 +1,5 @@
+#include "Batch2DGeometry.hpp"
+#include "SpriteQuad2D.hpp"
 #include "platform/ps2/Ps2BootHost.hpp"
 
 #include <dma.h>
@@ -64,6 +66,10 @@
 #include "RenderCommand2DType.hpp"
 #include "RenderCommandList2D.hpp"
 #include "RenderCommandListBuilder2D.hpp"
+#if HE_PS2_MENU_BENCHMARK
+#include "platform/ps2/Ps2RenderCommandCpuProfileSink.hpp"
+#include "platform/ps2/Ps2PlaybackCpuProfile.hpp"
+#endif
 #include "SceneAsset.hpp"
 #include "SceneComponentAssetRecord.hpp"
 #include "SceneEntityAsset.hpp"
@@ -71,7 +77,11 @@
 #include "SpriteComponent.hpp"
 #include "platform/ps2/audio/Ps2AudioBackend.hpp"
 #include "platform/ps2/Ps2InputBackend.hpp"
+#include "platform/ps2/Ps2SceneStartup.hpp"
 #include "platform/ps2/rendering/Ps2RenderManager3D.hpp"
+#include "platform/ps2/rendering/Ps2TexturedQuadPrimitive.hpp"
+#include "platform/ps2/Ps2TexturedQuadMath.hpp"
+#include "platform/ps2/Ps2GlyphBatch.hpp"
 #include "platform/ps2/rendering/Ps2RuntimeMaterial.hpp"
 #include "platform/ps2/rendering/vu/Ps2VuMicroProgramAddresses.hpp"
 #include "TextureUtils.hpp"
@@ -94,6 +104,7 @@
 #include "runtime/runtime_ps2_asset_path_manifest.hpp"
 #include "runtime/runtime_ps2_platform_info.hpp"
 #include "runtime/runtime_scene_catalog_manifest.hpp"
+#include "runtime/runtime_startup_manifest.hpp"
 #include "runtime/runtime_standard_platform_input_manifest.hpp"
 #include "runtime/native_exceptions.hpp"
 #include "RuntimeModel.hpp"
@@ -160,7 +171,14 @@ namespace {
     constexpr double CubeRuntimeDiagnosticWatchSeconds = 5.0;
     constexpr const char* CubeRuntimeDiagnosticSceneId = "textured_cube_grid";
     constexpr bool EnableVerboseEntityDisposalDiagnostics = false;
-    constexpr bool EnableFrameTimingDiagnostics = false;
+    // Benchmark builds reuse the sampler without producing diagnostic overlay rows.
+#ifndef HE_PS2_MENU_BENCHMARK
+#define HE_PS2_MENU_BENCHMARK 0
+#endif
+#if HE_PS2_MENU_BENCHMARK != 0 && HE_PS2_MENU_BENCHMARK != 1
+#error HE_PS2_MENU_BENCHMARK must be 0 or 1
+#endif
+    constexpr bool EnableFrameTimingDiagnostics = HE_PS2_MENU_BENCHMARK != 0;
     constexpr bool EnableVuOutputReadbackOverlayDiagnostics = true;
     constexpr bool EnableFrameTimingDiagnosticHalt = false;
     constexpr bool EnableFirstUpdateStateHalt = false;
@@ -175,6 +193,15 @@ namespace {
     constexpr const char* BootLogHostFallbackFilePath = "host0:ps2_bootlog.txt";
     constexpr int BootLogHistoryMaxEntries = 64;
     constexpr int FrameTimingSampleFrameCount = 60;
+#if HE_PS2_MENU_BENCHMARK
+    helengine::ps2::Ps2RenderCommandCpuProfileSink FrameTimingCommandProfileSink;
+    /// Exclusive CPU playback spans share the existing sixty-frame sampling window.
+    helengine::ps2::Ps2PlaybackCpuProfile FrameTimingPlaybackProfile;
+    /// Borrows the renderer's one command builder for benchmark accounting without owning extra payloads.
+    ::RenderCommandListBuilder2D* FrameTimingCommandListBuilder = nullptr;
+    /// Records the platform's configured metadata byte budget for the benchmark window.
+    int32_t FrameTimingTextCommandReuseBudgetBytes = 0;
+#endif
     constexpr double MemoryDiagnosticsSparseSampleDelaySeconds = 60.0;
     constexpr int MemoryDiagnosticsSparseSampleCount = 4;
     constexpr float CubeSpriteDiagnosticLeft = 211.843231f;
@@ -208,6 +235,8 @@ namespace {
     bool CubeFrameGifWaitBeginLogged = false;
     bool CubeFrameGifWaitEndLogged = false;
     bool LoggedFirst2dCommandTrace = false;
+    /// Logs only the first two successful textured sprites, after loading-only shapes have passed.
+    uint32_t TexturedSpriteColorAuditCount = 0;
     std::string Pending2dCommandTraceSceneId;
     bool Draw2dExecutionDiagnosticsCompleted = false;
     int32_t ActiveDraw2dDiagnosticCommandIndex = -1;
@@ -368,7 +397,8 @@ namespace {
             }
 
             ::Entity* cameraParent = camera->get_ParentUnsafe();
-            if (cameraParent == nullptr || cameraParent->get_IsDisposed()) {
+            if (cameraParent == nullptr || cameraParent->get_IsDisposed() ||
+                !cameraParent->get_IsHierarchyEnabled() || cameraParent->get_IsRenderHierarchySuppressed()) {
                 continue;
             }
 
@@ -1066,6 +1096,20 @@ namespace {
             + std::to_string(averageVuBatchDispatchCount)
             + " fps="
             + std::to_string(averageFramesPerSecond));
+#if HE_PS2_MENU_BENCHMARK
+        BootLog(FrameTimingCommandProfileSink.CompleteWindow(
+            FrameTimingFrameCount, FrameTimingDraw2dCommandBuildMilliseconds));
+        BootLog(FrameTimingPlaybackProfile.CompleteWindow(
+            FrameTimingFrameCount, averageDraw2dCommandPlaybackMilliseconds));
+        if (FrameTimingCommandListBuilder != nullptr) {
+            BootLog("draw2d command reuse budgetBytes=" + std::to_string(FrameTimingTextCommandReuseBudgetBytes)
+                + " metadataCapacityBytes=" + std::to_string(FrameTimingCommandListBuilder->get_TextCommandReuseMetadataCapacityBytes())
+                + " textCapacity=" + std::to_string(FrameTimingCommandListBuilder->get_TextCommandReuseTextCapacity())
+                + " metricCapacity=" + std::to_string(FrameTimingCommandListBuilder->get_TextCommandReuseMetricCapacity())
+                + " cachedGlyphCount=" + std::to_string(FrameTimingCommandListBuilder->get_CachedGlyphCount()));
+        }
+#endif
+#if !HE_PS2_MENU_BENCHMARK
         const double averageFrameMilliseconds = averageFramesPerSecond <= 0.0 ? 0.0 : 1000.0 / averageFramesPerSecond;
         if (EnableVuOutputReadbackOverlayDiagnostics) {
             const ::float4 vuTriangleVertexA0 = renderManager3DBackend.GetLastVuOutputTriangleVertexA0();
@@ -1150,6 +1194,7 @@ namespace {
         }
         FrameTimingOverlayPending = true;
         FrameTimingOverlayPresented = false;
+#endif
         FrameTimingSampleCompleted = true;
         FrameTimingUpdateSeconds = 0.0;
         FrameTimingDraw3dSeconds = 0.0;
@@ -2004,7 +2049,15 @@ namespace {
             (*entries)[index] = new ::RuntimeSceneCatalogEntry(manifestEntry.SceneId, manifestEntry.CookedRelativePath);
         }
 
-        return new ::RuntimeSceneCatalog(entries);
+        ::RuntimeSceneCatalog* catalog = new ::RuntimeSceneCatalog(entries);
+        // The current Core catalog copies its borrowed inputs and their dependency arrays.
+        // Release these temporary originals without claiming ownership of catalog copies.
+        for (int32_t index = 0; index < static_cast<int32_t>(count); index++) {
+            (*entries)[index]->Dispose();
+            delete (*entries)[index];
+        }
+        delete entries;
+        return catalog;
     }
 
     ::StandardPlatformInputConfiguration* BuildStandardPlatformInputConfigurationFromManifest() {
@@ -2056,6 +2109,9 @@ namespace {
     }
 
     bool EnsureTextureUploaded(Ps2TextureRecord& record) {
+#if HE_PS2_MENU_BENCHMARK
+        FrameTimingPlaybackProfile.Count(helengine::ps2::Ps2PlaybackCounter::ResidentTextureChecks);
+#endif
         if (record.Uploaded) return true;
         if (!helengine::ps2::UploadNativeTexture(ActiveGsGlobal, record.Texture, record.Layout)) {
             BootLog("render2d native texture upload failed: insufficient page-aligned GS VRAM.");
@@ -2064,6 +2120,11 @@ namespace {
         record.VramPixelBytes = record.Layout.VramPixelBytes;
         record.VramClutBytes = record.Layout.VramPaletteBytes;
         record.Uploaded = true;
+#if HE_PS2_MENU_BENCHMARK
+        FrameTimingPlaybackProfile.Count(helengine::ps2::Ps2PlaybackCounter::UploadedTextures);
+        FrameTimingPlaybackProfile.Count(helengine::ps2::Ps2PlaybackCounter::UploadBytes,
+            static_cast<uint64_t>(record.Layout.DmaPixelBytes) + record.Layout.DmaPaletteBytes);
+#endif
         return true;
     }
     u64 ResolveSpriteRgba(const ::byte4& color) {
@@ -2072,9 +2133,7 @@ namespace {
     }
 
     u8 ResolveTexturedSpriteColorComponent(u8 component) {
-        const double normalizedComponent = static_cast<double>(component) / 255.0;
-        const double ps2Component = normalizedComponent * 128.0;
-        return static_cast<u8>(std::clamp(std::lround(ps2Component), 0l, 128l));
+        return helengine::ps2::Ps2TexturedQuadMath::ResolveColor(component);
     }
 
     u64 ResolveTexturedSpriteRgba(const ::byte4& color) {
@@ -2086,43 +2145,8 @@ namespace {
     }
 
     bool TryClipQuadToRect(const ::float4& clipRect, ::float4& bounds, ::float4& sourceRect) {
-        const double boundsLeft = bounds.X;
-        const double boundsTop = bounds.Y;
-        const double boundsRight = static_cast<double>(bounds.X) + static_cast<double>(bounds.Z);
-        const double boundsBottom = static_cast<double>(bounds.Y) + static_cast<double>(bounds.W);
-        const double clipLeft = clipRect.X;
-        const double clipTop = clipRect.Y;
-        const double clipRight = static_cast<double>(clipRect.X) + static_cast<double>(clipRect.Z);
-        const double clipBottom = static_cast<double>(clipRect.Y) + static_cast<double>(clipRect.W);
-        const double clippedLeft = std::max(boundsLeft, clipLeft);
-        const double clippedTop = std::max(boundsTop, clipTop);
-        const double clippedRight = std::min(boundsRight, clipRight);
-        const double clippedBottom = std::min(boundsBottom, clipBottom);
-        const double boundsWidth = boundsRight - boundsLeft;
-        const double boundsHeight = boundsBottom - boundsTop;
-        if (boundsWidth <= 0.0 || boundsHeight <= 0.0 || clippedRight <= clippedLeft || clippedBottom <= clippedTop) {
-            return false;
-        }
-
-        const double leftRatio = (clippedLeft - boundsLeft) / boundsWidth;
-        const double topRatio = (clippedTop - boundsTop) / boundsHeight;
-        const double rightRatio = (clippedRight - boundsLeft) / boundsWidth;
-        const double bottomRatio = (clippedBottom - boundsTop) / boundsHeight;
-        const double sourceLeft = static_cast<double>(sourceRect.X) + (static_cast<double>(sourceRect.Z) * leftRatio);
-        const double sourceTop = static_cast<double>(sourceRect.Y) + (static_cast<double>(sourceRect.W) * topRatio);
-        const double sourceRight = static_cast<double>(sourceRect.X) + (static_cast<double>(sourceRect.Z) * rightRatio);
-        const double sourceBottom = static_cast<double>(sourceRect.Y) + (static_cast<double>(sourceRect.W) * bottomRatio);
-        bounds = ::float4(
-            static_cast<float>(clippedLeft),
-            static_cast<float>(clippedTop),
-            static_cast<float>(clippedRight - clippedLeft),
-            static_cast<float>(clippedBottom - clippedTop));
-        sourceRect = ::float4(
-            static_cast<float>(sourceLeft),
-            static_cast<float>(sourceTop),
-            static_cast<float>(sourceRight - sourceLeft),
-            static_cast<float>(sourceBottom - sourceTop));
-        return true;
+        return helengine::ps2::Ps2TexturedQuadMath::TryClip(clipRect.X, clipRect.Y, clipRect.Z, clipRect.W,
+            bounds.X, bounds.Y, bounds.Z, bounds.W, sourceRect.X, sourceRect.Y, sourceRect.Z, sourceRect.W);
     }
 
     class Ps2RenderManager2D final : public RenderManager2D {
@@ -2131,13 +2155,73 @@ namespace {
             : CommandListBuilder(new ::RenderCommandListBuilder2D()),
               TexturedQuadAlphaStateActive(false),
               GlyphBatchTexture(nullptr),
+              GlyphBatchTextureRecord(nullptr),
               StaticGlyphCommandList(nullptr),
               StaticGlyphCommandListVersion(-1),
-              StaticGlyphTexture(nullptr) {
+              StaticGlyphTexture(nullptr),
+              IsDisposed(false),
+              IsSceneInvalidationSubscribed(false) {
+#if HE_PS2_MENU_BENCHMARK
+            CommandListBuilder->SetCpuProfileSink(&FrameTimingCommandProfileSink);
+            FrameTimingCommandListBuilder = CommandListBuilder;
+#endif
         }
 
         ~Ps2RenderManager2D() override {
+            Dispose();
             delete CommandListBuilder;
+        }
+
+        /// Configures only the existing owned builder, before any authored scene is materialized.
+        void ConfigureTextCommandReuse(int32_t metadataBudgetBytes, ::SceneManager* sceneManager) {
+            if (metadataBudgetBytes < 0 || sceneManager == nullptr || IsDisposed) {
+                throw std::invalid_argument("PS2 text command reuse requires a nonnegative budget and a live scene manager and renderer.");
+            }
+            if (IsSceneInvalidationSubscribed) {
+                sceneManager->SceneUnloading -= ::Event::Bind(this, &Ps2RenderManager2D::HandleSceneUnloading);
+                IsSceneInvalidationSubscribed = false;
+            }
+            CommandListBuilder->SetTextCommandReuseMemoryBudgetBytes(metadataBudgetBytes);
+            if (metadataBudgetBytes > 0 && CommandListBuilder->get_TextCommandReuseMetadataCapacityBytes() > 0) {
+                sceneManager->SceneUnloading += ::Event::Bind(this, &Ps2RenderManager2D::HandleSceneUnloading);
+                IsSceneInvalidationSubscribed = true;
+            }
+#if HE_PS2_MENU_BENCHMARK
+            FrameTimingTextCommandReuseBudgetBytes = metadataBudgetBytes;
+#endif
+        }
+
+        /// Drops borrowed scene, font and texture references before their owner can release them.
+        void InvalidateTextCommandReuse() {
+            if (!IsDisposed) {
+                CommandListBuilder->InvalidateTextCommandReuse();
+            }
+            StaticGlyphVertices.clear();
+            StaticGlyphCommandList = nullptr;
+            StaticGlyphCommandListVersion = -1;
+            StaticGlyphTexture = nullptr;
+            GlyphBatchVertices.clear();
+            GlyphBatchTexture = nullptr;
+            GlyphBatchTextureRecord = nullptr;
+        }
+
+        /// Unsubscribes while Core's manager is alive and releases the builder once before renderer resources.
+        void Dispose() override {
+            if (IsDisposed) { return; }
+            if (IsSceneInvalidationSubscribed) {
+                ::Core* core = ::Core::get_Instance();
+                if (core != nullptr && core->get_SceneManager() != nullptr) {
+                    core->get_SceneManager()->SceneUnloading -= ::Event::Bind(this, &Ps2RenderManager2D::HandleSceneUnloading);
+                }
+                IsSceneInvalidationSubscribed = false;
+            }
+            InvalidateTextCommandReuse();
+            IsDisposed = true;
+#if HE_PS2_MENU_BENCHMARK
+            FrameTimingCommandListBuilder = nullptr;
+#endif
+            CommandListBuilder->Dispose();
+            RenderManager2D::Dispose();
         }
 
         RuntimeTexture* BuildTextureFromRaw(TextureAsset* data) override {
@@ -2345,6 +2429,8 @@ namespace {
                 throw std::invalid_argument("PS2 runtime texture release requires one texture.");
             }
 
+            InvalidateTextCommandReuse();
+
             if (texture == StaticGlyphTexture) {
                 StaticGlyphVertices.clear();
                 StaticGlyphCommandList = nullptr;
@@ -2366,6 +2452,8 @@ namespace {
                 throw std::invalid_argument("PS2 font release requires one font.");
             }
 
+            InvalidateTextCommandReuse();
+
             auto fontTextureIt = FontTextureRecords.find(font);
             if (fontTextureIt != FontTextureRecords.end()) {
                 ReleaseTextureRecord(fontTextureIt->second);
@@ -2376,6 +2464,7 @@ namespace {
         }
 
         void FlushReleasedTextures() override {
+            InvalidateTextCommandReuse();
             if (ActiveGsGlobal == 0) {
                 return;
             }
@@ -2436,7 +2525,9 @@ namespace {
                             commandTrace += " clip=" + FormatFloat4(commandList->GetClipPushRect(commandList->GetClipPushPayloadIndex(commandIndex)));
                         } else if (tracedCommandType == ::RenderCommand2DType::TexturedQuad) {
                             const int32_t payloadIndex = commandList->GetTexturedQuadPayloadIndex(commandIndex);
-                            commandTrace += " bounds=" + FormatFloat4(commandList->GetTexturedQuadBounds(payloadIndex));
+                            const auto geometry = commandList->GetTexturedQuadGeometry(payloadIndex);
+                            commandTrace += " topEdge=" + FormatFloat4(::float4(geometry.TopLeft.X, geometry.TopLeft.Y, geometry.TopRight.X, geometry.TopRight.Y));
+                            commandTrace += " bottomEdge=" + FormatFloat4(::float4(geometry.BottomLeft.X, geometry.BottomLeft.Y, geometry.BottomRight.X, geometry.BottomRight.Y));
                             commandTrace += " src=" + FormatFloat4(commandList->GetTexturedQuadSourceRect(payloadIndex));
                             commandTrace += " color=" + FormatByte4(commandList->GetTexturedQuadColor(payloadIndex));
                             ::RuntimeTexture* tracedTexture = commandList->GetTexturedQuadTexture(payloadIndex);
@@ -2460,15 +2551,46 @@ namespace {
                 }
 
                 const std::clock_t commandPlaybackStartTicks = std::clock();
+#if HE_PS2_MENU_BENCHMARK
+                FrameTimingPlaybackProfile.BeginPlayback();
+                FrameTimingPlaybackProfile.SelectStage(helengine::ps2::Ps2PlaybackStage::StaticGlyphFastPath);
+#endif
                 if (TryDrawStaticGlyphCommandList(commandList)) {
+#if HE_PS2_MENU_BENCHMARK
+                    FrameTimingPlaybackProfile.EndPlayback();
+#endif
                     const std::clock_t commandPlaybackEndTicks = std::clock();
                     LastRender2dCommandPlaybackMilliseconds += ResolveMillisecondsFromClockTicks(commandPlaybackStartTicks, commandPlaybackEndTicks);
                     continue;
                 }
 
+#if HE_PS2_MENU_BENCHMARK
+                // A failed static probe stays in the outer residual, never in a glyph-run span.
+                FrameTimingPlaybackProfile.DiscardStage();
+#endif
                 clipStack.clear();
                 for (int32_t commandIndex = 0; commandIndex < commandList->get_Count(); commandIndex++) {
                     const ::RenderCommand2DType commandType = commandList->GetCommandType(commandIndex);
+#if HE_PS2_MENU_BENCHMARK
+                    // Selecting the same category performs no clock read: adjacent glyphs form one run.
+                    if (commandType == ::RenderCommand2DType::GlyphQuad) {
+                        FrameTimingPlaybackProfile.SelectStage(clipStack.empty()
+                            ? helengine::ps2::Ps2PlaybackStage::UnclippedGlyphRun
+                            : helengine::ps2::Ps2PlaybackStage::ClippedGlyphRun);
+                        if (!clipStack.empty()) {
+                            FrameTimingPlaybackProfile.Count(helengine::ps2::Ps2PlaybackCounter::ClippedGlyphQuads);
+                        }
+                    } else if (commandType == ::RenderCommand2DType::TexturedQuad) {
+                        FrameTimingPlaybackProfile.SelectStage(helengine::ps2::Ps2PlaybackStage::SpriteQuad);
+                        FrameTimingPlaybackProfile.Count(helengine::ps2::Ps2PlaybackCounter::SpriteQuads);
+                    } else if (commandType == ::RenderCommand2DType::RoundedRect) {
+                        FrameTimingPlaybackProfile.SelectStage(helengine::ps2::Ps2PlaybackStage::SolidRect);
+                        FrameTimingPlaybackProfile.Count(helengine::ps2::Ps2PlaybackCounter::SolidRects);
+                    } else if (commandType == ::RenderCommand2DType::ClipPush || commandType == ::RenderCommand2DType::ClipPop) {
+                        FrameTimingPlaybackProfile.SelectStage(helengine::ps2::Ps2PlaybackStage::ClipTransition);
+                        FrameTimingPlaybackProfile.Count(helengine::ps2::Ps2PlaybackCounter::ClipCommands);
+                    }
+#endif
                     if (EnableDraw2dExecutionDiagnostics && !Draw2dExecutionDiagnosticsCompleted) {
                         ActiveDraw2dDiagnosticCommandIndex = commandIndex;
                         BootLog(
@@ -2493,7 +2615,7 @@ namespace {
                         const int32_t payloadIndex = commandList->GetTexturedQuadPayloadIndex(commandIndex);
                         DrawTexturedQuad(
                             commandList->GetTexturedQuadTexture(payloadIndex),
-                            commandList->GetTexturedQuadBounds(payloadIndex),
+                            commandList->GetTexturedQuadGeometry(payloadIndex),
                             commandList->GetTexturedQuadSourceRect(payloadIndex),
                             commandList->GetTexturedQuadColor(payloadIndex),
                             clipStack.empty() ? nullptr : &clipStack.back());
@@ -2509,8 +2631,7 @@ namespace {
                                 commandList->GetGlyphQuadSourceRect(payloadIndex),
                                 commandList->GetGlyphQuadColor(payloadIndex));
                         } else {
-                            FlushGlyphBatch();
-                            DrawTexturedQuad(
+                            AppendGlyphQuadToBatch(
                                 commandList->GetGlyphQuadTexture(payloadIndex),
                                 commandList->GetGlyphQuadBounds(payloadIndex),
                                 commandList->GetGlyphQuadSourceRect(payloadIndex),
@@ -2541,7 +2662,13 @@ namespace {
                     }
                 }
 
+#if HE_PS2_MENU_BENCHMARK
+                FrameTimingPlaybackProfile.SelectStage(helengine::ps2::Ps2PlaybackStage::FinalGlyphFlush);
+#endif
                 FlushGlyphBatch();
+#if HE_PS2_MENU_BENCHMARK
+                FrameTimingPlaybackProfile.EndPlayback();
+#endif
                 const std::clock_t commandPlaybackEndTicks = std::clock();
                 LastRender2dCommandPlaybackMilliseconds += ResolveMillisecondsFromClockTicks(commandPlaybackStartTicks, commandPlaybackEndTicks);
             }
@@ -2562,16 +2689,8 @@ namespace {
                 return;
             }
 
-            const ::int2 size = sprite->get_Size();
-            const float width = size.X > 0 ? static_cast<float>(size.X) : static_cast<float>(sprite->get_Texture()->get_Width());
-            const float height = size.Y > 0 ? static_cast<float>(size.Y) : static_cast<float>(sprite->get_Texture()->get_Height());
-            const ::float3 position = sprite->get_Parent()->get_Position();
-            DrawTexturedQuad(
-                sprite->get_Texture(),
-                ::float4(position.X, position.Y, width, height),
-                sprite->get_SourceRect(),
-                sprite->get_Color(),
-                nullptr);
+            DrawTexturedQuad(sprite->get_Texture(), ::Batch2DGeometry::ResolveSpriteQuad(sprite),
+                sprite->get_SourceRect(), sprite->get_Color(), nullptr);
         }
 
         void DrawText(ITextDrawable2D* text) override {
@@ -2651,10 +2770,21 @@ namespace {
         bool TexturedQuadAlphaStateActive;
         std::vector<GSPRIMUVPOINT> GlyphBatchVertices;
         ::RuntimeTexture* GlyphBatchTexture;
+        /// Borrows the map entry only until flush or pre-release invalidation; no texture is owned here.
+        Ps2TextureRecord* GlyphBatchTextureRecord;
         std::vector<GSPRIMUVPOINT> StaticGlyphVertices;
         ::RenderCommandList2D* StaticGlyphCommandList;
         int32_t StaticGlyphCommandListVersion;
         ::RuntimeTexture* StaticGlyphTexture;
+        /// Makes renderer teardown idempotent while the native host retains its static renderer instance.
+        bool IsDisposed;
+        /// Avoids allocating or removing an event subscriber when bounded metadata reuse is disabled or cannot fit.
+        bool IsSceneInvalidationSubscribed;
+
+        /// Runs before SceneManager disposes entity roots, queue membership or the scene's borrowed font assets.
+        void HandleSceneUnloading(::SceneManager*, ::SceneUnloadingEventArgs*) {
+            InvalidateTextCommandReuse();
+        }
 
         bool TryDrawStaticGlyphCommandList(::RenderCommandList2D* commandList) {
             if (commandList == nullptr || commandList->get_Count() <= 0) {
@@ -2665,6 +2795,10 @@ namespace {
                 && commandList->get_Version() == StaticGlyphCommandListVersion
                 && StaticGlyphTexture != nullptr
                 && !StaticGlyphVertices.empty()) {
+#if HE_PS2_MENU_BENCHMARK
+                FrameTimingPlaybackProfile.Count(helengine::ps2::Ps2PlaybackCounter::BatchedGlyphQuads,
+                    StaticGlyphVertices.size() / 2);
+#endif
                 DrawGlyphVertices(StaticGlyphTexture, StaticGlyphVertices);
                 return true;
             }
@@ -2686,13 +2820,14 @@ namespace {
 
             GlyphBatchVertices.clear();
             GlyphBatchTexture = glyphTexture;
+            GlyphBatchTextureRecord = nullptr;
             for (int32_t commandIndex = 0; commandIndex < commandList->get_Count(); commandIndex++) {
                 const int32_t payloadIndex = commandList->GetGlyphQuadPayloadIndex(commandIndex);
                 AppendGlyphQuadToBatch(
                     commandList->GetGlyphQuadTexture(payloadIndex),
                     commandList->GetGlyphQuadBounds(payloadIndex),
                     commandList->GetGlyphQuadSourceRect(payloadIndex),
-                    commandList->GetGlyphQuadColor(payloadIndex));
+                    commandList->GetGlyphQuadColor(payloadIndex), nullptr, false);
             }
 
             if (GlyphBatchVertices.empty()) {
@@ -2706,14 +2841,19 @@ namespace {
             DrawGlyphVertices(StaticGlyphTexture, StaticGlyphVertices);
             GlyphBatchVertices.clear();
             GlyphBatchTexture = nullptr;
+            GlyphBatchTextureRecord = nullptr;
             return true;
         }
 
+        /// Encodes a normal bounded batch, resolving/uploading its borrowed texture once.
+        /// Static-cache construction bypasses only the capacity flush, preserving its existing full-cache behavior.
         void AppendGlyphQuadToBatch(
             ::RuntimeTexture* runtimeTexture,
             const ::float4& bounds,
             const ::float4& sourceRect,
-            const ::byte4& color) {
+            const ::byte4& color,
+            const ::float4* clipRect = nullptr,
+            bool bounded = true) {
             if (ActiveGsGlobal == nullptr || runtimeTexture == nullptr) {
                 return;
             }
@@ -2722,58 +2862,67 @@ namespace {
                 FlushGlyphBatch();
             }
 
-            auto textureIt = TextureRecords.find(runtimeTexture);
-            if (textureIt == TextureRecords.end() || !EnsureTextureUploaded(textureIt->second)) {
-                return;
+            if (bounded && helengine::ps2::Ps2GlyphBatch::IsFull(GlyphBatchVertices.size())) {
+                FlushGlyphBatch();
             }
 
-            if (GlyphBatchTexture == nullptr) {
+            if (GlyphBatchTextureRecord == nullptr) {
+                auto textureIt = TextureRecords.find(runtimeTexture);
+                if (textureIt == TextureRecords.end()) {
+                    if (clipRect != nullptr && (!Pending2dCommandTraceSceneId.empty() || LoggedFirst2dCommandTrace)) {
+                        BootLog(std::string("draw2d textured missing texture record texture=") + runtimeTexture->get_Id()
+                            + " sceneId=" + (Pending2dCommandTraceSceneId.empty() ? std::string("unknown") : Pending2dCommandTraceSceneId));
+                    }
+                    return;
+                }
+                if (!EnsureTextureUploaded(textureIt->second)) {
+                    if (clipRect != nullptr) {
+                        BootLog(std::string("draw2d textured upload failed texture=") + runtimeTexture->get_Id()
+                            + " width=" + std::to_string(textureIt->second.Texture.Width)
+                            + " height=" + std::to_string(textureIt->second.Texture.Height));
+                    }
+                    return;
+                }
                 GlyphBatchTexture = runtimeTexture;
+                GlyphBatchTextureRecord = &textureIt->second;
             }
 
-            const Ps2TextureRecord& record = textureIt->second;
-            const double textureWidth = static_cast<double>(record.Texture.Width);
-            const double textureHeight = static_cast<double>(record.Texture.Height);
-            const float sourceLeft = static_cast<float>(static_cast<double>(sourceRect.X) * textureWidth);
-            const float sourceTop = static_cast<float>(static_cast<double>(sourceRect.Y) * textureHeight);
-            const float sourceRight = static_cast<float>((static_cast<double>(sourceRect.X) + static_cast<double>(sourceRect.Z)) * textureWidth);
-            const float sourceBottom = static_cast<float>((static_cast<double>(sourceRect.Y) + static_cast<double>(sourceRect.W)) * textureHeight);
-
-            const u64 rgba = ResolveTexturedSpriteRgba(color);
-            GSPRIMUVPOINT firstVertex {};
-            firstVertex.rgbaq.color.rgbaq = rgba;
-            firstVertex.rgbaq.tag = GS_RGBAQ;
-            firstVertex.uv.coord.u = static_cast<u16>(gsKit_float_to_int_u(&record.Texture, sourceLeft));
-            firstVertex.uv.coord.v = static_cast<u16>(gsKit_float_to_int_v(&record.Texture, sourceTop));
-            firstVertex.uv.tag = GS_UV;
-            firstVertex.xyz2 = vertex_to_XYZ2(ActiveGsGlobal, bounds.X, bounds.Y, 0);
-
-            GSPRIMUVPOINT secondVertex {};
-            secondVertex.rgbaq.color.rgbaq = rgba;
-            secondVertex.rgbaq.tag = GS_RGBAQ;
-            secondVertex.uv.coord.u = static_cast<u16>(gsKit_float_to_int_u(&record.Texture, sourceRight));
-            secondVertex.uv.coord.v = static_cast<u16>(gsKit_float_to_int_v(&record.Texture, sourceBottom));
-            secondVertex.uv.tag = GS_UV;
-            secondVertex.xyz2 = vertex_to_XYZ2(ActiveGsGlobal, bounds.X + bounds.Z, bounds.Y + bounds.W, 0);
-
-            GlyphBatchVertices.push_back(firstVertex);
-            GlyphBatchVertices.push_back(secondVertex);
+            ::float4 clippedBounds = bounds;
+            ::float4 clippedSource = sourceRect;
+            if (clipRect != nullptr && !TryClipQuadToRect(*clipRect, clippedBounds, clippedSource)) return;
+            helengine::ps2::Ps2GlyphBatch::Append(GlyphBatchVertices, ActiveGsGlobal, GlyphBatchTextureRecord->Texture,
+                clippedBounds.X, clippedBounds.Y, clippedBounds.Z, clippedBounds.W,
+                clippedSource.X, clippedSource.Y, clippedSource.Z, clippedSource.W,
+                color.X, color.Y, color.Z, color.W, clipRect != nullptr);
+#if HE_PS2_MENU_BENCHMARK
+            FrameTimingPlaybackProfile.Count(helengine::ps2::Ps2PlaybackCounter::BatchedGlyphQuads);
+#endif
         }
 
+        /// Submits a nonempty batch in order and clears borrowed state even when clipping produced no vertices.
         void FlushGlyphBatch() {
             if (GlyphBatchVertices.empty()) {
+                GlyphBatchTexture = nullptr;
+                GlyphBatchTextureRecord = nullptr;
                 return;
             }
 
-            DrawGlyphVertices(GlyphBatchTexture, GlyphBatchVertices);
+#if HE_PS2_MENU_BENCHMARK
+            FrameTimingPlaybackProfile.Count(helengine::ps2::Ps2PlaybackCounter::NonemptyGlyphFlushes);
+#endif
+            DrawGlyphVertices(GlyphBatchTexture, GlyphBatchVertices, GlyphBatchTextureRecord);
             GlyphBatchVertices.clear();
             GlyphBatchTexture = nullptr;
+            GlyphBatchTextureRecord = nullptr;
         }
 
-        void DrawGlyphVertices(::RuntimeTexture* runtimeTexture, const std::vector<GSPRIMUVPOINT>& vertices) {
-            auto textureIt = TextureRecords.find(runtimeTexture);
-            if (textureIt == TextureRecords.end()) {
-                throw std::invalid_argument("PS2 glyph batch texture record is required.");
+        /// Uses the active batch's resolved record, or resolves the existing static cache once per submission.
+        void DrawGlyphVertices(::RuntimeTexture* runtimeTexture, const std::vector<GSPRIMUVPOINT>& vertices,
+            Ps2TextureRecord* record = nullptr) {
+            if (record == nullptr) {
+                auto textureIt = TextureRecords.find(runtimeTexture);
+                if (textureIt == TextureRecords.end()) throw std::invalid_argument("PS2 glyph batch texture record is required.");
+                record = &textureIt->second;
             }
 
             if (!TexturedQuadAlphaStateActive) {
@@ -2783,12 +2932,15 @@ namespace {
                 TexturedQuadAlphaStateActive = true;
             }
 
-            helengine::ps2::QueueNativeTextureAlpha(ActiveGsGlobal, &textureIt->second.Texture);
+            helengine::ps2::QueueNativeTextureAlpha(ActiveGsGlobal, &record->Texture);
             gskit_prim_list_sprite_texture_uv_3d(
                 ActiveGsGlobal,
-                &textureIt->second.Texture,
+                &record->Texture,
                 static_cast<int>(vertices.size()),
                 vertices.data());
+#if HE_PS2_MENU_BENCHMARK
+            FrameTimingPlaybackProfile.Count(helengine::ps2::Ps2PlaybackCounter::SubmittedPrimitives, vertices.size() / 2);
+#endif
         }
 
         void DrawSolidQuad(::float4 bounds, const ::byte4& color, const ::float4* clipRect) {
@@ -2812,6 +2964,9 @@ namespace {
             }
 
             const u64 rgba = ResolveSpriteRgba(color);
+#if HE_PS2_MENU_BENCHMARK
+            FrameTimingPlaybackProfile.Count(helengine::ps2::Ps2PlaybackCounter::SubmittedPrimitives);
+#endif
             if (!TexturedQuadAlphaStateActive) {
                 gsKit_set_test(ActiveGsGlobal, GS_ATEST_OFF);
                 gsKit_set_primalpha(ActiveGsGlobal, GS_SETREG_ALPHA(0, 1, 0, 1, 0), 0);
@@ -2836,7 +2991,19 @@ namespace {
             }
         }
 
+        /// Keeps unrotated glyph geometry on the existing sprite primitive path.
         void DrawTexturedQuad(::RuntimeTexture* runtimeTexture, ::float4 bounds, ::float4 sourceRect, const ::byte4& color, const ::float4* clipRect) {
+            ::SpriteQuad2D quad;
+            quad.TopLeft = ::float2(bounds.X, bounds.Y);
+            quad.TopRight = ::float2(bounds.X + bounds.Z, bounds.Y);
+            quad.BottomRight = ::float2(bounds.X + bounds.Z, bounds.Y + bounds.W);
+            quad.BottomLeft = ::float2(bounds.X, bounds.Y + bounds.W);
+            DrawTexturedQuad(runtimeTexture, quad, sourceRect, color, clipRect);
+        }
+
+        /// Submits exact resolved sprite corners and clips their interpolated UVs.
+        void DrawTexturedQuad(::RuntimeTexture* runtimeTexture, const ::SpriteQuad2D& quad, ::float4 sourceRect, const ::byte4& color, const ::float4* clipRect) {
+            ::float4 bounds(quad.TopLeft.X, quad.TopLeft.Y, quad.TopRight.X - quad.TopLeft.X, quad.BottomLeft.Y - quad.TopLeft.Y);
             if (ActiveGsGlobal == 0 || runtimeTexture == nullptr) {
                 return;
             }
@@ -2875,12 +3042,23 @@ namespace {
                 return;
             }
 
-            if (clipRect != nullptr && !TryClipQuadToRect(*clipRect, bounds, sourceRect)) {
+            const double textureWidth = static_cast<double>(record.Texture.Width);
+            const double textureHeight = static_cast<double>(record.Texture.Height);
+            const auto polygon = helengine::ps2::Ps2TexturedQuadGeometry::CreateCorners(
+                quad.TopLeft.X, quad.TopLeft.Y, quad.TopRight.X, quad.TopRight.Y,
+                quad.BottomRight.X, quad.BottomRight.Y, quad.BottomLeft.X, quad.BottomLeft.Y,
+                sourceRect.X, sourceRect.Y, sourceRect.Z, sourceRect.W);
+            const auto primitive = helengine::ps2::Ps2TexturedQuadPrimitive::FromCorners(polygon, textureWidth, textureHeight,
+                clipRect != nullptr, clipRect != nullptr ? clipRect->X : 0, clipRect != nullptr ? clipRect->Y : 0,
+                clipRect != nullptr ? clipRect->Z : 0, clipRect != nullptr ? clipRect->W : 0);
+            if (primitive.IsRotated) {
+                if (primitive.TriangleCount() == 0) {
+                    return;
+                }
+            } else if (clipRect != nullptr && !TryClipQuadToRect(*clipRect, bounds, sourceRect)) {
                 return;
             }
 
-            const double textureWidth = static_cast<double>(record.Texture.Width);
-            const double textureHeight = static_cast<double>(record.Texture.Height);
             const double sourceX = static_cast<double>(sourceRect.X) * textureWidth;
             const double sourceY = static_cast<double>(sourceRect.Y) * textureHeight;
             const double sourceWidth = static_cast<double>(sourceRect.Z) * textureWidth;
@@ -2900,7 +3078,37 @@ namespace {
                     + runtimeTexture->get_Id());
             }
             helengine::ps2::QueueNativeTextureAlpha(ActiveGsGlobal, &record.Texture);
-            gsKit_prim_sprite_texture(
+            if (TexturedSpriteColorAuditCount < 2) {
+                ++TexturedSpriteColorAuditCount;
+                BootLog("render2d textured color audit sample=" + std::to_string(TexturedSpriteColorAuditCount)
+                    + " texture=" + runtimeTexture->get_Id() + " sourceColor=" + FormatByte4(color)
+                    + " gsRgbaq=" + std::to_string(rgba)
+                    + " gsRed=" + std::to_string(rgba & 255u)
+                    + " gsGreen=" + std::to_string((rgba >> 8) & 255u)
+                    + " gsBlue=" + std::to_string((rgba >> 16) & 255u)
+                    + " gsAlpha=" + std::to_string((rgba >> 24) & 255u)
+                    + " tcc=" + std::to_string(ActiveGsGlobal->PrimAlphaEnable)
+                    + " sdkTfx=0 texA=" + std::to_string(helengine::ps2::GetNativeTextureAlpha(&record.Texture))
+                    + " psm=" + std::to_string(record.Texture.PSM)
+                    + " width=" + std::to_string(record.Texture.Width) + " height=" + std::to_string(record.Texture.Height));
+            }
+#if HE_PS2_MENU_BENCHMARK
+            FrameTimingPlaybackProfile.Count(helengine::ps2::Ps2PlaybackCounter::SubmittedPrimitives,
+                primitive.IsRotated ? primitive.TriangleCount() : 1);
+#endif
+            if (primitive.IsRotated) {
+                const helengine::ps2::Ps2TexturedVertex& first = primitive.Polygon.Vertices[0];
+                for (std::size_t index = 1; index + 1 < primitive.Polygon.Count; ++index) {
+                    const helengine::ps2::Ps2TexturedVertex& second = primitive.Polygon.Vertices[index];
+                    const helengine::ps2::Ps2TexturedVertex& third = primitive.Polygon.Vertices[index + 1];
+                    gsKit_prim_triangle_texture(ActiveGsGlobal, &record.Texture,
+                        static_cast<float>(first.X), static_cast<float>(first.Y), static_cast<float>(first.U), static_cast<float>(first.V),
+                        static_cast<float>(second.X), static_cast<float>(second.Y), static_cast<float>(second.U), static_cast<float>(second.V),
+                        static_cast<float>(third.X), static_cast<float>(third.Y), static_cast<float>(third.U), static_cast<float>(third.V),
+                        0.0f, rgba);
+                }
+            } else {
+                gsKit_prim_sprite_texture(
                 ActiveGsGlobal,
                 &record.Texture,
                 bounds.X,
@@ -2913,6 +3121,7 @@ namespace {
                 static_cast<float>(sourceY + sourceHeight),
                 0.0f,
                 rgba);
+            }
             if (EnableDraw2dExecutionDiagnostics && !Draw2dExecutionDiagnosticsCompleted) {
                 BootLog(
                     std::string("draw2d textured end index=")
@@ -3013,6 +3222,8 @@ namespace helengine::ps2 {
         EngineOptions->set_RenderList3DInitialCapacity(4);
         EngineOptions->set_PhysicsFixedStepSeconds(1.0 / 20.0);
         EngineOptions->set_PhysicsMaxStepsPerUpdate(1);
+        EngineOptions->set_SceneLoadingBudgetMilliseconds(Ps2SceneStartup::ValidateBudget(
+            he_get_runtime_scene_loading_budget_milliseconds()));
         EngineOptions->set_SceneCatalog(BuildRuntimeSceneCatalogFromManifest());
         EngineOptions->set_StandardPlatformInputConfiguration(BuildStandardPlatformInputConfigurationFromManifest());
         EngineCore = new Core(EngineOptions);
@@ -3052,6 +3263,8 @@ namespace helengine::ps2 {
             EngineOptions);
         EngineCore->SetAudioBackend(EngineAudioBackend);
         BootLog("core initialized");
+        RenderManager2DBackend.ConfigureTextCommandReuse(
+            he_get_runtime_render2d_text_command_reuse_memory_budget_bytes(), EngineCore->get_SceneManager());
 #if HE_PS2_HAS_PHYSICS3D_RUNTIME_REGISTRATION
         if (EnablePackagedPhysics3DRegistration && HasPackagedPhysics3DScenes()) {
             if (EnablePhysicsWarmupTrace) {
@@ -3189,11 +3402,29 @@ namespace helengine::ps2 {
             }
             BootLog(std::string("startup scene id: ") + startupSceneId);
             if (EngineCore != nullptr && EngineCore->get_SceneManager() != nullptr) {
-                BootLog("startup scene invoking scene manager load");
+                const char* loadingSceneId = he_get_runtime_loading_screen_scene_id();
+                if (loadingSceneId == nullptr) {
+                    throw std::invalid_argument("PS2 loading scene metadata is missing.");
+                }
+                if (loadingSceneId[0] != '\0') {
+                    std::size_t count = 0;
+                    const HERuntimeSceneCatalogEntry* entries = he_runtime_scene_catalog_entries(&count);
+                    bool found = false;
+                    for (std::size_t index = 0; entries != nullptr && index < count; index++) {
+                        if (entries[index].SceneId != nullptr && std::strcmp(entries[index].SceneId, loadingSceneId) == 0) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) {
+                        throw std::invalid_argument("PS2 configured loading scene is not in the packaged catalog.");
+                    }
+                }
+                BootLog("startup preparing configured loading scene and requesting target transition");
                 const std::clock_t startupSceneLoadStartTicks = std::clock();
-                EngineCore->get_SceneManager()->LoadScene(startupSceneId, ::SceneLoadMode::Single);
+                Ps2SceneStartup::Start(*EngineCore->get_SceneManager(), startupSceneId.c_str(), loadingSceneId);
                 const std::clock_t startupSceneLoadEndTicks = std::clock();
-                BootLog("startup scene load returned from scene manager");
+                BootLog("startup scene bootstrap returned; target readiness advances at normal draw boundaries");
                 if (EnableStartupSceneLoadTimingDiagnostic) {
                     if (EnableStartupScenePreRenderHalt) {
                         BootLogHistory.clear();
@@ -3217,7 +3448,7 @@ namespace helengine::ps2 {
                     BootLogTimingValue("txp", CookedTexturePopulateMilliseconds);
                     BootLogTimingValue("txc", CookedTextureRuntimeTextureCreateMilliseconds);
                 }
-                BootLog(std::string("startup scene loaded: ") + startupScenePhysicalPath);
+                BootLog(std::string("startup scene scheduled: ") + startupScenePhysicalPath);
                 return true;
             }
 
