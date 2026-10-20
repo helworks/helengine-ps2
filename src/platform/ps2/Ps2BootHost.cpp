@@ -483,7 +483,7 @@ namespace {
             const std::clock_t nowTicks = std::clock();
             if (!String::Equals(sceneId, CurrentLoadSceneId, StringComparison::Ordinal)) {
                 CurrentLoadSceneId = sceneId;
-                LastSceneStage = String::Empty;
+                LastSceneStage = String::get_Empty();
                 LastSceneStageTicks = nowTicks;
                 SceneLoadStartTicks = nowTicks;
             }
