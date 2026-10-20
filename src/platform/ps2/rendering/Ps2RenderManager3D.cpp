@@ -1009,20 +1009,20 @@ namespace helengine::ps2 {
         return runtimeMaterial;
     }
 
-    ::RuntimeMaterial* Ps2RenderManager3D::BuildMaterialFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) {
+    ::RuntimeMaterial* Ps2RenderManager3D::BuildMaterialFromCooked(HeCppString cookedAssetPath, IContentStreamSource* contentStreamSource) {
         (void)contentStreamSource;
-        if (cookedAssetPath.empty()) {
+        if (cookedAssetPath.is_null() || cookedAssetPath.empty()) {
             throw std::invalid_argument("PS2 cooked material path is required.");
         }
 
-        const std::string resolvedCookedAssetPath = ResolvePs2CookedAssetOpenPath(cookedAssetPath);
+        const std::string resolvedCookedAssetPath = ResolvePs2CookedAssetOpenPath(cookedAssetPath.raw());
         ::FileStream* stream = nullptr;
         try {
             stream = ::File::OpenRead(resolvedCookedAssetPath);
         } catch (const std::exception& exception) {
             throw std::runtime_error(
                 std::string("BuildMaterialFromCooked failed path='")
-                + cookedAssetPath
+                + cookedAssetPath.raw()
                 + "' resolvedPath='"
                 + resolvedCookedAssetPath
                 + "' inner="
@@ -1045,20 +1045,20 @@ namespace helengine::ps2 {
         return BuildMaterialFromCooked(cookedMaterialAsset);
     }
 
-    ::RuntimeModel* Ps2RenderManager3D::BuildModelFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) {
+    ::RuntimeModel* Ps2RenderManager3D::BuildModelFromCooked(HeCppString cookedAssetPath, IContentStreamSource* contentStreamSource) {
         (void)contentStreamSource;
-        if (cookedAssetPath.empty()) {
+        if (cookedAssetPath.is_null() || cookedAssetPath.empty()) {
             throw std::invalid_argument("PS2 cooked model path is required.");
         }
 
-        const std::string resolvedCookedAssetPath = ResolvePs2CookedAssetOpenPath(cookedAssetPath);
+        const std::string resolvedCookedAssetPath = ResolvePs2CookedAssetOpenPath(cookedAssetPath.raw());
         ::FileStream* modelStream = nullptr;
         try {
             modelStream = ::File::OpenRead(resolvedCookedAssetPath);
         } catch (const std::exception& exception) {
             throw std::runtime_error(
                 std::string("BuildModelFromCooked failed path='")
-                + cookedAssetPath
+                + cookedAssetPath.raw()
                 + "' resolvedPath='"
                 + resolvedCookedAssetPath
                 + "' inner="

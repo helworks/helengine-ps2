@@ -112,7 +112,7 @@ namespace helengine::ps2 {
         AlphaMode = ::Ps2MaterialAlphaMode::Opaque;
         RenderClass = ::Ps2RenderClass::Opaque;
         HasTextureRelativePathValue = !materialAsset->TextureRelativePath.empty();
-        TextureRelativePath = HasTextureRelativePathValue ? materialAsset->TextureRelativePath : std::string();
+        TextureRelativePath = HasTextureRelativePathValue ? materialAsset->TextureRelativePath.raw() : std::string();
         DoubleSided = materialAsset->DoubleSided;
         UseVertexColor = materialAsset->UseVertexColor;
         CastShadows = false;
@@ -136,7 +136,7 @@ namespace helengine::ps2 {
         BaseColorB = materialAsset->BaseColorB;
         BaseColorA = materialAsset->BaseColorA;
         HasTextureRelativePathValue = !materialAsset->TextureRelativePath.empty();
-        TextureRelativePath = HasTextureRelativePathValue ? materialAsset->TextureRelativePath : std::string();
+        TextureRelativePath = HasTextureRelativePathValue ? materialAsset->TextureRelativePath.raw() : std::string();
         DoubleSided = materialAsset->DoubleSided;
         CastShadows = materialAsset->CastShadows;
         UseVertexColor = materialAsset->UseVertexColor;

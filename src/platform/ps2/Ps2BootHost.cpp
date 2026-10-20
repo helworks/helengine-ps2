@@ -424,6 +424,9 @@ namespace {
 
     void BootLog(const std::string& message);
 
+    /// <summary>Logs managed diagnostic text through the existing nullable native bridge.</summary>
+    void BootLog(const HeCppString& message);
+
     void HostLogOnly(const char* message);
 
     void HostLogOnly(const std::string& message);
@@ -458,7 +461,7 @@ namespace {
             return new ::RuntimeMemoryDiagnosticsSnapshot();
         }
 
-        void ReportEntityDisposalStage(std::string stage, int32_t entityChildCount, int32_t componentCount, int32_t componentIndex) override {
+        void ReportEntityDisposalStage(HeCppString stage, int32_t entityChildCount, int32_t componentCount, int32_t componentIndex) override {
             if (!EnableVerboseEntityDisposalDiagnostics) {
                 return;
             }
@@ -479,7 +482,7 @@ namespace {
                 + std::to_string(componentIndex));
         }
 
-        void ReportSceneTransitionStage(std::string stage, std::string sceneId, int32_t loadedSceneCount, int32_t pendingOperationCount) override {
+        void ReportSceneTransitionStage(HeCppString stage, HeCppString sceneId, int32_t loadedSceneCount, int32_t pendingOperationCount) override {
             const std::clock_t nowTicks = std::clock();
             if (!String::Equals(sceneId, CurrentLoadSceneId, StringComparison::Ordinal)) {
                 CurrentLoadSceneId = sceneId;
@@ -506,14 +509,14 @@ namespace {
             if (String::Equals(stage, "LoadSceneImmediateEnd", StringComparison::Ordinal)
                 && (sceneId.find("colored_cube_grid") != std::string::npos
                     || sceneId.find("textured_cube_grid") != std::string::npos)) {
-                Pending2dCommandTraceSceneId = sceneId;
+                Pending2dCommandTraceSceneId = sceneId.raw();
                 LoggedFirst2dCommandTrace = false;
             }
             LastSceneStage = stage;
             LastSceneStageTicks = nowTicks;
         }
 
-        void ReportUpdateStage(std::string stage) override {
+        void ReportUpdateStage(HeCppString stage) override {
             if (String::StartsWith(stage, "Ownership:", StringComparison::Ordinal)) {
                 BootLog(stage);
             }
@@ -538,7 +541,7 @@ namespace {
             }
 
             const long deltaBytes = static_cast<long>(mallinfo().uordblks) - UpdateableHeapProbeBeforeBytes;
-            const std::uint32_t typeHash = ParseUpdateableStageTypeHash(stage);
+            const std::uint32_t typeHash = ParseUpdateableStageTypeHash(stage.raw());
             AccumulateUpdateableHeapDelta(typeHash, deltaBytes);
         }
 
@@ -616,8 +619,8 @@ namespace {
 #endif
 
     private:
-        std::string CurrentLoadSceneId;
-        std::string LastSceneStage;
+        HeCppString CurrentLoadSceneId;
+        HeCppString LastSceneStage;
         std::clock_t LastSceneStageTicks;
         std::clock_t SceneLoadStartTicks;
         std::unordered_map<std::string, double> PhaseTimingsMilliseconds;
@@ -739,7 +742,7 @@ namespace {
             return "null";
         }
 
-        List<std::string>* loadedSceneIds = sceneManager->GetLoadedSceneIds();
+        List<HeCppString>* loadedSceneIds = sceneManager->GetLoadedSceneIds();
         if (loadedSceneIds == nullptr) {
             return "null";
         }
@@ -750,7 +753,7 @@ namespace {
                 result += ",";
             }
 
-            result += (*loadedSceneIds)[index];
+            result += (*loadedSceneIds)[index].raw();
         }
 
         delete loadedSceneIds;
@@ -801,7 +804,7 @@ namespace {
             return summary;
         }
 
-        summary += firstComponent->get_ComponentTypeId();
+        summary += firstComponent->get_ComponentTypeId().raw();
         return summary;
     }
 
@@ -1351,6 +1354,11 @@ namespace {
         BootLog(message.c_str());
     }
 
+    /// <summary>Logs managed text using the native logger's existing empty representation for null.</summary>
+    void BootLog(const HeCppString& message) {
+        BootLog(message.is_null() ? "" : message.raw().c_str());
+    }
+
     std::string BuildSceneLoadRuntimeDiagnostics(::Core* engineCore) {
         if (engineCore == nullptr) {
             return std::string();
@@ -1363,25 +1371,25 @@ namespace {
         }
 
         return std::string(" sceneTrace=")
-            + (sceneManager != nullptr ? sceneManager->get_LastTraceStage() : std::string("null"))
+            + (sceneManager != nullptr ? sceneManager->get_LastTraceStage().raw() : std::string("null"))
             + " sceneLoadTrace="
-            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTraceStage() : std::string("null"))
+            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTraceStage().raw() : std::string("null"))
             + " rootIndex="
             + std::to_string(sceneLoadService != nullptr ? sceneLoadService->get_LastTraceRootEntityIndex() : -1)
             + " depth="
             + std::to_string(sceneLoadService != nullptr ? sceneLoadService->get_LastTraceEntityDepth() : -1)
             + " component="
-            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTraceComponentTypeId() : std::string("null"))
+            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTraceComponentTypeId().raw() : std::string("null"))
             + " textStage="
-            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTextLoadStage() : std::string("null"))
+            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTextLoadStage().raw() : std::string("null"))
             + " textureStage="
-            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTextureLoadStage() : std::string("null"))
+            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTextureLoadStage().raw() : std::string("null"))
             + " texturePath="
-            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTextureRelativePath() : std::string("null"))
+            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTextureRelativePath().raw() : std::string("null"))
             + " fontPath="
-            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTextFontRelativePath() : std::string("null"))
+            + (sceneLoadService != nullptr ? sceneLoadService->get_LastTextFontRelativePath().raw() : std::string("null"))
             + " fontDeserialize="
-            + (sceneLoadService != nullptr ? sceneLoadService->get_LastFontDeserializeStage() : std::string("null"));
+            + (sceneLoadService != nullptr ? sceneLoadService->get_LastFontDeserializeStage().raw() : std::string("null"));
     }
 
     void BootLogRuntimeException(const char* phase, const std::string& detail, ::Core* engineCore, bool includeSceneLoadDiagnostics) {
@@ -1910,8 +1918,8 @@ namespace {
             }
         }
 
-        const std::string cookedAtlasTextureRelativePath = font->get_CookedAtlasTextureRelativePath();
-        if (cookedAtlasTextureRelativePath.empty()) {
+        const HeCppString cookedAtlasTextureRelativePath = font->get_CookedAtlasTextureRelativePath();
+        if (cookedAtlasTextureRelativePath.is_null() || cookedAtlasTextureRelativePath.empty()) {
             return nullptr;
         }
 
@@ -2263,14 +2271,14 @@ namespace {
             return texture;
         }
 
-        RuntimeTexture* BuildTextureFromCooked(std::string cookedAssetPath, IContentStreamSource* contentStreamSource) override {
+        RuntimeTexture* BuildTextureFromCooked(HeCppString cookedAssetPath, IContentStreamSource* contentStreamSource) override {
             (void)contentStreamSource;
-            if (cookedAssetPath.empty()) {
+            if (cookedAssetPath.is_null() || cookedAssetPath.empty()) {
                 throw std::invalid_argument("PS2 cooked texture path is required.");
             }
 
             BootLog(std::string("render2d build cooked texture begin path=") + cookedAssetPath);
-            const std::string resolvedCookedAssetPath = ResolvePs2CookedAssetOpenPath(cookedAssetPath);
+            const std::string resolvedCookedAssetPath = ResolvePs2CookedAssetOpenPath(cookedAssetPath.raw());
             if (resolvedCookedAssetPath != cookedAssetPath) {
                 BootLog(
                     std::string("render2d build cooked texture resolved path=")
@@ -2531,14 +2539,14 @@ namespace {
                             commandTrace += " src=" + FormatFloat4(commandList->GetTexturedQuadSourceRect(payloadIndex));
                             commandTrace += " color=" + FormatByte4(commandList->GetTexturedQuadColor(payloadIndex));
                             ::RuntimeTexture* tracedTexture = commandList->GetTexturedQuadTexture(payloadIndex);
-                            commandTrace += " texId=" + (tracedTexture != nullptr ? tracedTexture->get_Id() : std::string("null"));
+                            commandTrace += " texId=" + (tracedTexture != nullptr ? tracedTexture->get_Id().raw() : std::string("null"));
                         } else if (tracedCommandType == ::RenderCommand2DType::GlyphQuad) {
                             const int32_t payloadIndex = commandList->GetGlyphQuadPayloadIndex(commandIndex);
                             commandTrace += " bounds=" + FormatFloat4(commandList->GetGlyphQuadBounds(payloadIndex));
                             commandTrace += " src=" + FormatFloat4(commandList->GetGlyphQuadSourceRect(payloadIndex));
                             commandTrace += " color=" + FormatByte4(commandList->GetGlyphQuadColor(payloadIndex));
                             ::RuntimeTexture* tracedTexture = commandList->GetGlyphQuadTexture(payloadIndex);
-                            commandTrace += " texId=" + (tracedTexture != nullptr ? tracedTexture->get_Id() : std::string("null"));
+                            commandTrace += " texId=" + (tracedTexture != nullptr ? tracedTexture->get_Id().raw() : std::string("null"));
                         } else if (tracedCommandType == ::RenderCommand2DType::RoundedRect) {
                             const int32_t payloadIndex = commandList->GetRoundedRectPayloadIndex(commandIndex);
                             commandTrace += " bounds=" + FormatFloat4(commandList->GetRoundedRectBounds(payloadIndex));
@@ -2703,7 +2711,7 @@ namespace {
                 return;
             }
 
-            std::string content = text->get_Text();
+            HeCppString content = text->get_Text();
             const double fontScale = std::max(static_cast<double>(text->get_FontScale()), 0.0001);
             if (text->get_WrapText()) {
                 const double wrappedWidth = static_cast<double>(text->get_Size().X) / fontScale;

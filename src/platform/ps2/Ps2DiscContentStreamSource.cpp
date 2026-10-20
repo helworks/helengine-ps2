@@ -9,7 +9,7 @@ namespace helengine::ps2 {
     /// </summary>
     /// <param name="assetPath">Cooked logical or disc-relative asset path to open.</param>
     /// <returns>A readable stream whose contents are owned by the returned stream instance.</returns>
-    ::Stream* Ps2DiscContentStreamSource::OpenRead(std::string assetPath) {
-        return Ps2DiscFileSystem::OpenRead(assetPath.c_str());
+    ::Stream* Ps2DiscContentStreamSource::OpenRead(HeCppString assetPath) {
+        return Ps2DiscFileSystem::OpenRead(assetPath.is_null() ? nullptr : assetPath.raw().c_str());
     }
 }

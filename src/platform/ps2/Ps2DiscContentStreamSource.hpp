@@ -15,6 +15,6 @@ namespace helengine::ps2 {
         /// </summary>
         /// <param name="assetPath">Cooked logical or disc-relative asset path to open.</param>
         /// <returns>A readable stream whose contents are owned by the returned stream instance.</returns>
-        ::Stream* OpenRead(std::string assetPath) override;
+        ::Stream* OpenRead(HeCppString assetPath) override;
     };
 }

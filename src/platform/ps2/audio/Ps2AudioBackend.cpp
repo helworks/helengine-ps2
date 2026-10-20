@@ -117,7 +117,7 @@ namespace helengine::ps2 {
         if (asset->Channels != 1 && asset->Channels != 2) {
             throw std::runtime_error("PS2 audio playback currently supports only mono or stereo 16-bit PCM assets.");
         }
-        if (!UsesPcmEncoding(asset->EncodingFamilyId)) {
+        if (!UsesPcmEncoding(asset->EncodingFamilyId.raw())) {
             throw std::runtime_error("PS2 audio playback currently requires shared PCM cooked assets.");
         }
         if (asset->EncodedBytes == nullptr || asset->EncodedBytes->Length <= 0 || asset->EncodedBytes->Data == nullptr) {
@@ -182,14 +182,14 @@ namespace helengine::ps2 {
         ReleaseActiveVoice();
     }
 
-    void Ps2AudioBackend::SetBusGain(std::string busId, float gain) {
+    void Ps2AudioBackend::SetBusGain(HeCppString busId, float gain) {
         BusGainsById[NormalizeBusId(std::move(busId))] = ClampGain(gain);
         if (HasActiveVoice) {
             ApplyActiveVoiceState();
         }
     }
 
-    void Ps2AudioBackend::SetBusPaused(std::string busId, bool paused) {
+    void Ps2AudioBackend::SetBusPaused(HeCppString busId, bool paused) {
         std::string normalizedBusId = NormalizeBusId(std::move(busId));
         if (paused) {
             PausedBusIds.insert(normalizedBusId);
@@ -225,19 +225,20 @@ namespace helengine::ps2 {
         }
     }
 
-    std::string Ps2AudioBackend::NormalizeBusId(std::string busId) {
-        if (busId.empty()) {
+    std::string Ps2AudioBackend::NormalizeBusId(HeCppString busId) {
+        if (busId.is_null() || busId.empty()) {
             return "master";
         }
 
+        std::string normalizedBusId = busId.raw();
         std::transform(
-            busId.begin(),
-            busId.end(),
-            busId.begin(),
+            normalizedBusId.begin(),
+            normalizedBusId.end(),
+            normalizedBusId.begin(),
             [](unsigned char value) {
                 return static_cast<char>(std::tolower(value));
             });
-        return busId;
+        return normalizedBusId;
     }
 
     float Ps2AudioBackend::ClampGain(float gain) {
