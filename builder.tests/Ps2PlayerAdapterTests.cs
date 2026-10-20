@@ -312,7 +312,7 @@ public sealed class Ps2PlayerAdapterTests : IDisposable {
                 ["double-sided"] = "true",
                 ["cast-shadows"] = "false",
                 ["vertex-color-mode"] = "multiply"
-            }));
+            }, numericPolicy: global::helengine.NumericPrecisionPolicy.Default));
         return result.CookedMaterialBytes;
     }
 

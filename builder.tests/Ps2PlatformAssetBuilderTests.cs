@@ -683,7 +683,7 @@ public class Ps2PlatformAssetBuilderTests {
                 ["double-sided"] = "false",
                 ["cast-shadows"] = "false",
                 ["vertex-color-mode"] = "multiply"
-            }));
+            }, numericPolicy: global::helengine.NumericPrecisionPolicy.Default));
 
         Ps2MaterialAsset materialAsset = Assert.IsType<Ps2MaterialAsset>(Ps2AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
         Assert.Equal("ps2-standard-forward", materialAsset.RendererFamilyId);
@@ -719,7 +719,7 @@ public class Ps2PlatformAssetBuilderTests {
                 ["cast-shadows"] = "false",
                 ["vertex-color-mode"] = "multiply",
                 ["base-color"] = "#FF4040FF"
-            }));
+            }, numericPolicy: global::helengine.NumericPrecisionPolicy.Default));
 
         Ps2MaterialAsset materialAsset = Assert.IsType<Ps2MaterialAsset>(Ps2AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
         Assert.Equal((byte)255, ReadByteField(materialAsset, "BaseColorR"));
@@ -749,7 +749,7 @@ public class Ps2PlatformAssetBuilderTests {
                 ["double-sided"] = "false",
                 ["cast-shadows"] = "false",
                 ["vertex-color-mode"] = "multiply"
-            }));
+            }, numericPolicy: global::helengine.NumericPrecisionPolicy.Default));
 
         Ps2MaterialAsset materialAsset = Assert.IsType<Ps2MaterialAsset>(Ps2AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
         Assert.Equal(Ps2DiscPathResolver.ResolveDiscRelativePath(logicalImportedTexturePath), materialAsset.TextureRelativePath);
@@ -776,7 +776,7 @@ public class Ps2PlatformAssetBuilderTests {
                 ["casts-shadow"] = "true",
                 ["receives-shadow"] = "true",
                 ["base-color"] = "#FFFFFFFF"
-            }));
+            }, numericPolicy: global::helengine.NumericPrecisionPolicy.Default));
 
         Ps2MaterialAsset materialAsset = Assert.IsType<Ps2MaterialAsset>(Ps2AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
         Assert.Equal(Ps2DiscPathResolver.ResolveDiscRelativePath(logicalImportedTexturePath), materialAsset.TextureRelativePath);
@@ -806,7 +806,7 @@ public class Ps2PlatformAssetBuilderTests {
                 ["roughness"] = "0.22",
                 ["specular-strength"] = "0.88",
                 ["emissive-strength"] = "0.15"
-            }));
+            }, numericPolicy: global::helengine.NumericPrecisionPolicy.Default));
 
         Ps2MaterialAsset materialAsset = Assert.IsType<Ps2MaterialAsset>(Ps2AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
         Assert.Equal(Ps2MaterialAlphaMode.AlphaBlend, materialAsset.AlphaMode);
@@ -839,7 +839,7 @@ public class Ps2PlatformAssetBuilderTests {
                 ["double-sided"] = "false",
                 ["cast-shadows"] = "false",
                 ["vertex-color-mode"] = "multiply"
-            }));
+            }, numericPolicy: global::helengine.NumericPrecisionPolicy.Default));
 
         Ps2MaterialAsset materialAsset = Assert.IsType<Ps2MaterialAsset>(Ps2AssetSerializer.DeserializeFromBytes(result.CookedMaterialBytes));
         Assert.Equal(Ps2MaterialAlphaMode.AlphaTest, materialAsset.AlphaMode);
