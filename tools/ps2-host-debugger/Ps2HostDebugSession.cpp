@@ -260,7 +260,7 @@ namespace helengine::ps2::host {
         try {
             const std::filesystem::path hostPath = FileSystem->ResolveHostPath(normalizedRuntimePath);
             if (hostPath.extension() == ".HEF" || hostPath.extension() == ".hef") {
-                AssetContentManager->Load<FontAsset*>(normalizedRuntimePath, RuntimeContentProcessorIds::FontAsset);
+                AssetContentManager->Load<FontAsset*>(normalizedRuntimePath, RuntimeContentProcessorIds::FontAsset());
                 std::cout << "[ps2-host-debug] font resolved path=" << normalizedRuntimePath << std::endl;
                 return;
             }
