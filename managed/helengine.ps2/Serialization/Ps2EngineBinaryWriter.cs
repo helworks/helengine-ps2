@@ -83,22 +83,22 @@ namespace helengine {
         }
 
         /// <summary>
-        /// Writes a two-component floating point vector using the writer's endianness.
+        /// Writes a two-component vector as fixed IEEE32 values using the writer's endianness.
         /// </summary>
         /// <param name="value">Value to write.</param>
         public void WriteFloat2(float2 value) {
-            WriteSingle(value.X);
-            WriteSingle(value.Y);
+            WriteSingle((float)value.X);
+            WriteSingle((float)value.Y);
         }
 
         /// <summary>
-        /// Writes a three-component floating point vector using the writer's endianness.
+        /// Writes a three-component vector as fixed IEEE32 values using the writer's endianness.
         /// </summary>
         /// <param name="value">Value to write.</param>
         public void WriteFloat3(float3 value) {
-            WriteSingle(value.X);
-            WriteSingle(value.Y);
-            WriteSingle(value.Z);
+            WriteSingle((float)value.X);
+            WriteSingle((float)value.Y);
+            WriteSingle((float)value.Z);
         }
 
         /// <summary>

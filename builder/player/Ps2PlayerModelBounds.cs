@@ -25,13 +25,13 @@ public static class Ps2PlayerModelBounds {
         for (int positionIndex = 1; positionIndex < positions.Length; positionIndex++) {
             float3 position = positions[positionIndex];
             boundsMin = new float3(
-                Math.Min(boundsMin.X, position.X),
-                Math.Min(boundsMin.Y, position.Y),
-                Math.Min(boundsMin.Z, position.Z));
+                RealMath.Min(boundsMin.X, position.X),
+                RealMath.Min(boundsMin.Y, position.Y),
+                RealMath.Min(boundsMin.Z, position.Z));
             boundsMax = new float3(
-                Math.Max(boundsMax.X, position.X),
-                Math.Max(boundsMax.Y, position.Y),
-                Math.Max(boundsMax.Z, position.Z));
+                RealMath.Max(boundsMax.X, position.X),
+                RealMath.Max(boundsMax.Y, position.Y),
+                RealMath.Max(boundsMax.Z, position.Z));
         }
     }
 }

@@ -887,6 +887,26 @@ public class Ps2PlatformAssetBuilderTests {
             texCoordBlockQwordOffset);
     }
 
+    /// <summary>
+    /// Keeps position, normal and UV lanes at IEEE32 width when source vectors use configurable Real storage.
+    /// </summary>
+    [Fact]
+    public void CookPackedMesh_WhenVectorsUseReal_PreservesIeee32QwordLanes() {
+        using ModelAsset model = new() {
+            Positions = [new float3(1.5, -2.25, 4)],
+            Normals = [new float3(0.5, -1, 0)],
+            TexCoords = [new float2(0.25, 0.75)],
+            Indices16 = [0, 0, 0]
+        };
+
+        byte[] bytes = new Ps2PackedMeshCooker().Cook(model);
+
+        Assert.Equal(176, bytes.Length);
+        Assert.Equal(Convert.FromHexString("0000C03F000010C0000080400000803F"), bytes[32..48]);
+        Assert.Equal(Convert.FromHexString("0000003F000080BF0000000000000000"), bytes[80..96]);
+        Assert.Equal(Convert.FromHexString("0000803E0000403F0000000000000000"), bytes[128..144]);
+    }
+
     [Fact]
     public async Task BuildAsync_WhenGivenGeneratedCoreAndCookedArtifacts_ProducesElfAndCookedTree() {
         string workingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));

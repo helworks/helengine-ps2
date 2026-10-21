@@ -76,9 +76,9 @@ public sealed class Ps2PackedMeshCooker {
                 throw new InvalidOperationException($"Packed PS2 mesh position index '{sourceIndex}' is outside the available position array.");
             }
 
-            writer.Write(positions[sourceIndex].X);
-            writer.Write(positions[sourceIndex].Y);
-            writer.Write(positions[sourceIndex].Z);
+            writer.Write((float)positions[sourceIndex].X);
+            writer.Write((float)positions[sourceIndex].Y);
+            writer.Write((float)positions[sourceIndex].Z);
             writer.Write(1f);
         }
     }
@@ -100,9 +100,9 @@ public sealed class Ps2PackedMeshCooker {
         for (int index = 0; index < triangleIndices.Length; index++) {
             int sourceIndex = (int)triangleIndices[index];
             if (sourceIndex >= 0 && sourceIndex < normals.Length) {
-                writer.Write(normals[sourceIndex].X);
-                writer.Write(normals[sourceIndex].Y);
-                writer.Write(normals[sourceIndex].Z);
+                writer.Write((float)normals[sourceIndex].X);
+                writer.Write((float)normals[sourceIndex].Y);
+                writer.Write((float)normals[sourceIndex].Z);
             } else {
                 writer.Write(0f);
                 writer.Write(0f);
@@ -130,8 +130,8 @@ public sealed class Ps2PackedMeshCooker {
         for (int index = 0; index < triangleIndices.Length; index++) {
             int sourceIndex = (int)triangleIndices[index];
             if (sourceIndex >= 0 && sourceIndex < texCoords.Length) {
-                writer.Write(texCoords[sourceIndex].X);
-                writer.Write(texCoords[sourceIndex].Y);
+                writer.Write((float)texCoords[sourceIndex].X);
+                writer.Write((float)texCoords[sourceIndex].Y);
             } else {
                 writer.Write(0f);
                 writer.Write(0f);
