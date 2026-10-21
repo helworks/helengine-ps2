@@ -331,7 +331,7 @@ public static class Ps2PlatformDefinitionFactory {
             new RuntimeGenerationContract(
                 RuntimeMaterialResolutionMode.CookedPlatformOwned,
                 false,
-                PackagedPathPolicy.RootedOrContentRelative),
+                PackagedPathPolicy.RootedOrContentRelative, null, false, requiresCookedViewportLayout: true),
             new PlatformHostDebugCapability(
                 true,
                 PlatformHostDebugRunnerKind.NativeExecutable,

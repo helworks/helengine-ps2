@@ -11,7 +11,20 @@ using helengine.files;
 
 namespace helengine.ps2.builder;
 
-public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder {
+public sealed class Ps2PlatformAssetBuilder : IPlatformAssetBuilder, IPlatformLayoutTargetProvider {
+    /// <summary>Uses the same selected GS framebuffer mode as the native video boot record, including its pixel aspect.</summary>
+    public PlatformLayoutTarget ResolveLayoutTarget(PlatformLayoutTargetRequest request) {
+        ArgumentNullException.ThrowIfNull(request);
+        PlatformVideoMode mode = request.VideoMode;
+        if (mode == null) {
+            if (!request.GraphicsOptionValues.TryGetValue(Ps2VideoModes.SettingId, out string modeId)) {
+                throw new InvalidOperationException("PS2 layout cook requires a selected video-mode.");
+            }
+            mode = Definition.VideoModeCapability.Resolve(modeId, "ps2");
+        }
+        if (mode == null) { throw new InvalidOperationException("PS2 layout cook requires a declared video-mode."); }
+        return new PlatformLayoutTarget(mode.Width, mode.Height, mode.PixelAspect, false, 0d, 1d);
+    }
     /// <summary>
     /// Environment-variable name used to override the PS2 repository root during build execution.
     /// </summary>
