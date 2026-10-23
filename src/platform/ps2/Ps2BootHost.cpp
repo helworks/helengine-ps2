@@ -409,10 +409,10 @@ namespace {
 
             const ::float4 clearColor = clearSettings.get_ClearColor();
             return GS_SETREG_RGBAQ(
-                ResolveCameraClearColorComponent(clearColor.X, 255.0f),
-                ResolveCameraClearColorComponent(clearColor.Y, 255.0f),
-                ResolveCameraClearColorComponent(clearColor.Z, 255.0f),
-                ResolveCameraClearColorComponent(clearColor.W, 128.0f),
+                ResolveCameraClearColorComponent(static_cast<float>(clearColor.X), 255.0f),
+                ResolveCameraClearColorComponent(static_cast<float>(clearColor.Y), 255.0f),
+                ResolveCameraClearColorComponent(static_cast<float>(clearColor.Z), 255.0f),
+                ResolveCameraClearColorComponent(static_cast<float>(clearColor.W), 128.0f),
                 0x00);
         }
 
@@ -888,15 +888,15 @@ namespace {
         const ::float4& vertex1,
         const ::float4& vertex2) {
         return std::string(label)
-            + " " + std::to_string(static_cast<int>(vertex0.X))
-            + "," + std::to_string(static_cast<int>(vertex0.Y))
-            + "," + std::to_string(static_cast<int>(vertex0.Z))
-            + " " + std::to_string(static_cast<int>(vertex1.X))
-            + "," + std::to_string(static_cast<int>(vertex1.Y))
-            + "," + std::to_string(static_cast<int>(vertex1.Z))
-            + " " + std::to_string(static_cast<int>(vertex2.X))
-            + "," + std::to_string(static_cast<int>(vertex2.Y))
-            + "," + std::to_string(static_cast<int>(vertex2.Z));
+            + " " + std::to_string(static_cast<int32_t>(vertex0.X))
+            + "," + std::to_string(static_cast<int32_t>(vertex0.Y))
+            + "," + std::to_string(static_cast<int32_t>(vertex0.Z))
+            + " " + std::to_string(static_cast<int32_t>(vertex1.X))
+            + "," + std::to_string(static_cast<int32_t>(vertex1.Y))
+            + "," + std::to_string(static_cast<int32_t>(vertex1.Z))
+            + " " + std::to_string(static_cast<int32_t>(vertex2.X))
+            + "," + std::to_string(static_cast<int32_t>(vertex2.Y))
+            + "," + std::to_string(static_cast<int32_t>(vertex2.Z));
     }
 
     void ApplyPlatformPerformanceOverlayRows(::Core* engineCore) {
@@ -1142,10 +1142,10 @@ namespace {
                 vuTriangleVertexB2);
             const ::float4x4 lastFrameView = renderManager3DBackend.GetLastFrameView();
             FrameTimingOverlayAdditionalText =
-                std::string("V1 ") + std::to_string(lastFrameView.M11) + "," + std::to_string(lastFrameView.M12) + "," + std::to_string(lastFrameView.M13) + "," + std::to_string(lastFrameView.M14)
-                + "\nV2 " + std::to_string(lastFrameView.M21) + "," + std::to_string(lastFrameView.M22) + "," + std::to_string(lastFrameView.M23) + "," + std::to_string(lastFrameView.M24)
-                + "\nV3 " + std::to_string(lastFrameView.M31) + "," + std::to_string(lastFrameView.M32) + "," + std::to_string(lastFrameView.M33) + "," + std::to_string(lastFrameView.M34)
-                + "\nV4 " + std::to_string(lastFrameView.M41) + "," + std::to_string(lastFrameView.M42) + "," + std::to_string(lastFrameView.M43) + "," + std::to_string(lastFrameView.M44);
+                std::string("V1 ") + std::to_string(static_cast<double>(lastFrameView.M11)) + "," + std::to_string(static_cast<double>(lastFrameView.M12)) + "," + std::to_string(static_cast<double>(lastFrameView.M13)) + "," + std::to_string(static_cast<double>(lastFrameView.M14))
+                + "\nV2 " + std::to_string(static_cast<double>(lastFrameView.M21)) + "," + std::to_string(static_cast<double>(lastFrameView.M22)) + "," + std::to_string(static_cast<double>(lastFrameView.M23)) + "," + std::to_string(static_cast<double>(lastFrameView.M24))
+                + "\nV3 " + std::to_string(static_cast<double>(lastFrameView.M31)) + "," + std::to_string(static_cast<double>(lastFrameView.M32)) + "," + std::to_string(static_cast<double>(lastFrameView.M33)) + "," + std::to_string(static_cast<double>(lastFrameView.M34))
+                + "\nV4 " + std::to_string(static_cast<double>(lastFrameView.M41)) + "," + std::to_string(static_cast<double>(lastFrameView.M42)) + "," + std::to_string(static_cast<double>(lastFrameView.M43)) + "," + std::to_string(static_cast<double>(lastFrameView.M44));
         } else {
             FrameTimingOverlayLine1 =
                 std::string(FrameTimingOverlayBuildNumber)
@@ -1256,13 +1256,13 @@ namespace {
         const ::float4 screenBounds = renderManager3DBackend.GetLastSubmittedScreenBounds();
         FrameTimingOverlayLine2 =
             std::string("SB:")
-            + std::to_string(static_cast<int>(screenBounds.X))
+            + std::to_string(static_cast<int32_t>(screenBounds.X))
             + ","
-            + std::to_string(static_cast<int>(screenBounds.Y))
+            + std::to_string(static_cast<int32_t>(screenBounds.Y))
             + ","
-            + std::to_string(static_cast<int>(screenBounds.Z))
+            + std::to_string(static_cast<int32_t>(screenBounds.Z))
             + ","
-            + std::to_string(static_cast<int>(screenBounds.W));
+            + std::to_string(static_cast<int32_t>(screenBounds.W));
         FrameTimingOverlayPending = true;
         FrameTimingOverlayPresented = false;
     }
@@ -1419,13 +1419,13 @@ namespace {
 
     std::string FormatFloat4(const ::float4& value) {
         return "("
-            + std::to_string(value.X)
+            + std::to_string(static_cast<double>(value.X))
             + ","
-            + std::to_string(value.Y)
+            + std::to_string(static_cast<double>(value.Y))
             + ","
-            + std::to_string(value.Z)
+            + std::to_string(static_cast<double>(value.Z))
             + ","
-            + std::to_string(value.W)
+            + std::to_string(static_cast<double>(value.W))
             + ")";
     }
 
@@ -2153,8 +2153,24 @@ namespace {
     }
 
     bool TryClipQuadToRect(const ::float4& clipRect, ::float4& bounds, ::float4& sourceRect) {
-        return helengine::ps2::Ps2TexturedQuadMath::TryClip(clipRect.X, clipRect.Y, clipRect.Z, clipRect.W,
-            bounds.X, bounds.Y, bounds.Z, bounds.W, sourceRect.X, sourceRect.Y, sourceRect.Z, sourceRect.W);
+        // This standalone GS playback helper has a tested primitive-f32 contract.
+        float boundsX = static_cast<float>(bounds.X);
+        float boundsY = static_cast<float>(bounds.Y);
+        float width = static_cast<float>(bounds.Z);
+        float height = static_cast<float>(bounds.W);
+        float sourceX = static_cast<float>(sourceRect.X);
+        float sourceY = static_cast<float>(sourceRect.Y);
+        float sourceWidth = static_cast<float>(sourceRect.Z);
+        float sourceHeight = static_cast<float>(sourceRect.W);
+        if (!helengine::ps2::Ps2TexturedQuadMath::TryClip(
+            static_cast<float>(clipRect.X), static_cast<float>(clipRect.Y),
+            static_cast<float>(clipRect.Z), static_cast<float>(clipRect.W),
+            boundsX, boundsY, width, height, sourceX, sourceY, sourceWidth, sourceHeight)) {
+            return false;
+        }
+        bounds = ::float4(boundsX, boundsY, width, height);
+        sourceRect = ::float4(sourceX, sourceY, sourceWidth, sourceHeight);
+        return true;
     }
 
     class Ps2RenderManager2D final : public RenderManager2D {
@@ -2712,17 +2728,17 @@ namespace {
             }
 
             HeCppString content = text->get_Text();
-            const double fontScale = std::max(static_cast<double>(text->get_FontScale()), 0.0001);
+            const RealEvaluation fontScale = RealMath::Max(text->get_FontScale(), RealEvaluation(0.0001f));
             if (text->get_WrapText()) {
-                const double wrappedWidth = static_cast<double>(text->get_Size().X) / fontScale;
-                content = TextLayoutUtils::WrapText(content, font, std::max(static_cast<int32_t>(1), static_cast<int32_t>(std::round(wrappedWidth))));
+                const RealEvaluation wrappedWidth = static_cast<RealEvaluation>(text->get_Size().X) / fontScale;
+                content = TextLayoutUtils::WrapText(content, font, std::max(static_cast<int32_t>(1), static_cast<int32_t>(RealMath::Round(wrappedWidth, MidpointRounding::AwayFromZero))));
             }
 
-            const double lineHeight = std::max(static_cast<double>(font->get_LineHeight()) * fontScale, 1.0);
-            const double baseX = std::round(text->get_Parent()->get_Position().X);
-            const double baseY = std::round(text->get_Parent()->get_Position().Y);
-            double offsetX = 0.0;
-            double offsetY = 0.0;
+            const RealEvaluation lineHeight = RealMath::Max(RealEvaluation(font->get_LineHeight()) * fontScale, RealEvaluation(1));
+            const RealEvaluation baseX = RealMath::Round(text->get_Parent()->get_Position().X, MidpointRounding::AwayFromZero);
+            const RealEvaluation baseY = RealMath::Round(text->get_Parent()->get_Position().Y, MidpointRounding::AwayFromZero);
+            RealEvaluation offsetX = 0.0;
+            RealEvaluation offsetY = 0.0;
 
             for (int32_t index = 0; index < static_cast<int32_t>(content.size()); index++) {
                 const char character = content[static_cast<std::size_t>(index)];
@@ -2737,7 +2753,7 @@ namespace {
                 }
 
                 if (character == ' ') {
-                    offsetX += static_cast<double>(font->get_FontInfo()->get_SpaceWidth()) * fontScale;
+                    offsetX += static_cast<RealEvaluation>(font->get_FontInfo()->get_SpaceWidth()) * fontScale;
                     continue;
                 }
 
@@ -2746,9 +2762,9 @@ namespace {
                     continue;
                 }
 
-                const double glyphWidth = static_cast<double>(glyph.SourceRect.Z) * static_cast<double>(font->get_AtlasWidth()) * fontScale;
-                const double glyphHeight = static_cast<double>(glyph.SourceRect.W) * static_cast<double>(font->get_AtlasHeight()) * fontScale;
-                const double drawY = baseY + std::round(offsetY) + (static_cast<double>(glyph.OffsetY) * fontScale);
+                const RealEvaluation glyphWidth = static_cast<RealEvaluation>(glyph.SourceRect.Z) * static_cast<RealEvaluation>(font->get_AtlasWidth()) * fontScale;
+                const RealEvaluation glyphHeight = static_cast<RealEvaluation>(glyph.SourceRect.W) * static_cast<RealEvaluation>(font->get_AtlasHeight()) * fontScale;
+                const RealEvaluation drawY = baseY + RealMath::Round(offsetY, MidpointRounding::AwayFromZero) + (static_cast<RealEvaluation>(glyph.OffsetY) * fontScale);
                 DrawTexturedQuad(
                     font->get_Texture(),
                     ::float4(static_cast<float>(baseX + offsetX), static_cast<float>(drawY), static_cast<float>(glyphWidth), static_cast<float>(glyphHeight)),
@@ -2756,8 +2772,8 @@ namespace {
                     text->get_Color(),
                     nullptr);
 
-                const double advanceWidth = glyph.AdvanceWidth > 0.0f
-                    ? static_cast<double>(glyph.AdvanceWidth) * fontScale
+                const RealEvaluation advanceWidth = glyph.AdvanceWidth > 0.0f
+                    ? static_cast<RealEvaluation>(glyph.AdvanceWidth) * fontScale
                     : glyphWidth;
                 offsetX += advanceWidth;
             }
@@ -2899,8 +2915,8 @@ namespace {
             ::float4 clippedSource = sourceRect;
             if (clipRect != nullptr && !TryClipQuadToRect(*clipRect, clippedBounds, clippedSource)) return;
             helengine::ps2::Ps2GlyphBatch::Append(GlyphBatchVertices, ActiveGsGlobal, GlyphBatchTextureRecord->Texture,
-                clippedBounds.X, clippedBounds.Y, clippedBounds.Z, clippedBounds.W,
-                clippedSource.X, clippedSource.Y, clippedSource.Z, clippedSource.W,
+                static_cast<float>(clippedBounds.X), static_cast<float>(clippedBounds.Y), static_cast<float>(clippedBounds.Z), static_cast<float>(clippedBounds.W),
+                static_cast<float>(clippedSource.X), static_cast<float>(clippedSource.Y), static_cast<float>(clippedSource.Z), static_cast<float>(clippedSource.W),
                 color.X, color.Y, color.Z, color.W, clipRect != nullptr);
 #if HE_PS2_MENU_BENCHMARK
             FrameTimingPlaybackProfile.Count(helengine::ps2::Ps2PlaybackCounter::BatchedGlyphQuads);
@@ -2983,10 +2999,10 @@ namespace {
             }
             gsKit_prim_sprite(
                 ActiveGsGlobal,
-                bounds.X,
-                bounds.Y,
-                bounds.X + bounds.Z,
-                bounds.Y + bounds.W,
+                static_cast<float>(bounds.X),
+                static_cast<float>(bounds.Y),
+                static_cast<float>(bounds.X + bounds.Z),
+                static_cast<float>(bounds.Y + bounds.W),
                 0,
                 rgba);
 
@@ -3053,12 +3069,12 @@ namespace {
             const double textureWidth = static_cast<double>(record.Texture.Width);
             const double textureHeight = static_cast<double>(record.Texture.Height);
             const auto polygon = helengine::ps2::Ps2TexturedQuadGeometry::CreateCorners(
-                quad.TopLeft.X, quad.TopLeft.Y, quad.TopRight.X, quad.TopRight.Y,
-                quad.BottomRight.X, quad.BottomRight.Y, quad.BottomLeft.X, quad.BottomLeft.Y,
-                sourceRect.X, sourceRect.Y, sourceRect.Z, sourceRect.W);
+                static_cast<double>(quad.TopLeft.X), static_cast<double>(quad.TopLeft.Y), static_cast<double>(quad.TopRight.X), static_cast<double>(quad.TopRight.Y),
+                static_cast<double>(quad.BottomRight.X), static_cast<double>(quad.BottomRight.Y), static_cast<double>(quad.BottomLeft.X), static_cast<double>(quad.BottomLeft.Y),
+                static_cast<double>(sourceRect.X), static_cast<double>(sourceRect.Y), static_cast<double>(sourceRect.Z), static_cast<double>(sourceRect.W));
             const auto primitive = helengine::ps2::Ps2TexturedQuadPrimitive::FromCorners(polygon, textureWidth, textureHeight,
-                clipRect != nullptr, clipRect != nullptr ? clipRect->X : 0, clipRect != nullptr ? clipRect->Y : 0,
-                clipRect != nullptr ? clipRect->Z : 0, clipRect != nullptr ? clipRect->W : 0);
+                clipRect != nullptr, clipRect != nullptr ? static_cast<double>(clipRect->X) : 0, clipRect != nullptr ? static_cast<double>(clipRect->Y) : 0,
+                clipRect != nullptr ? static_cast<double>(clipRect->Z) : 0, clipRect != nullptr ? static_cast<double>(clipRect->W) : 0);
             if (primitive.IsRotated) {
                 if (primitive.TriangleCount() == 0) {
                     return;
@@ -3119,12 +3135,12 @@ namespace {
                 gsKit_prim_sprite_texture(
                 ActiveGsGlobal,
                 &record.Texture,
-                bounds.X,
-                bounds.Y,
+                static_cast<float>(bounds.X),
+                static_cast<float>(bounds.Y),
                 static_cast<float>(sourceX),
                 static_cast<float>(sourceY),
-                bounds.X + bounds.Z,
-                bounds.Y + bounds.W,
+                static_cast<float>(bounds.X + bounds.Z),
+                static_cast<float>(bounds.Y + bounds.W),
                 static_cast<float>(sourceX + sourceWidth),
                 static_cast<float>(sourceY + sourceHeight),
                 0.0f,

@@ -108,10 +108,10 @@ namespace helengine::ps2 {
         }
 
         float ResolveProjectionClipW(const ::float3& viewPosition, const ::float4x4& projection) {
-            return (viewPosition.X * projection.M14)
+            return static_cast<float>((viewPosition.X * projection.M14)
                 + (viewPosition.Y * projection.M24)
                 + (viewPosition.Z * projection.M34)
-                + projection.M44;
+                + projection.M44);
         }
 
         std::uint64_t BuildPerspectiveTextureRegisterList(int context) {
@@ -145,16 +145,16 @@ namespace helengine::ps2 {
             | (static_cast<std::uint64_t>(GS_XYZ2) << 20u);
 
         float ResolvePerspectiveTextureReciprocalW(const ::float3& viewPosition, const ::float4x4& projection) {
-            const float clipW = ResolveProjectionClipW(viewPosition, projection);
+            const RealEvaluation clipW = ResolveProjectionClipW(viewPosition, projection);
             if (clipW <= MinimumClipW) {
                 throw std::invalid_argument("PS2 VU textured GIF packet encoding requires a positive clip W.");
             }
 
-            return 1.0f / clipW;
+            return static_cast<float>(1.0f / clipW);
         }
 
         std::uint64_t BuildPerspectiveTextureCoordinateRegister(const ::float2& texCoord, float reciprocalClipW) {
-            const gs_stq coordinate = vertex_to_STQ(texCoord.X * reciprocalClipW, texCoord.Y * reciprocalClipW);
+            const gs_stq coordinate = vertex_to_STQ(static_cast<float>(texCoord.X * reciprocalClipW), static_cast<float>(texCoord.Y * reciprocalClipW));
             return coordinate.st.st;
         }
 
@@ -311,22 +311,22 @@ namespace helengine::ps2 {
             <= MaximumTexturedVuExceptionalPacketQwords);
 
         void CopyMatrixWords(const ::float4x4& matrix, float* destinationWords) {
-            destinationWords[0] = matrix.M11;
-            destinationWords[1] = matrix.M12;
-            destinationWords[2] = matrix.M13;
-            destinationWords[3] = matrix.M14;
-            destinationWords[4] = matrix.M21;
-            destinationWords[5] = matrix.M22;
-            destinationWords[6] = matrix.M23;
-            destinationWords[7] = matrix.M24;
-            destinationWords[8] = matrix.M31;
-            destinationWords[9] = matrix.M32;
-            destinationWords[10] = matrix.M33;
-            destinationWords[11] = matrix.M34;
-            destinationWords[12] = matrix.M41;
-            destinationWords[13] = matrix.M42;
-            destinationWords[14] = matrix.M43;
-            destinationWords[15] = matrix.M44;
+            destinationWords[0] = static_cast<float>(matrix.M11);
+            destinationWords[1] = static_cast<float>(matrix.M12);
+            destinationWords[2] = static_cast<float>(matrix.M13);
+            destinationWords[3] = static_cast<float>(matrix.M14);
+            destinationWords[4] = static_cast<float>(matrix.M21);
+            destinationWords[5] = static_cast<float>(matrix.M22);
+            destinationWords[6] = static_cast<float>(matrix.M23);
+            destinationWords[7] = static_cast<float>(matrix.M24);
+            destinationWords[8] = static_cast<float>(matrix.M31);
+            destinationWords[9] = static_cast<float>(matrix.M32);
+            destinationWords[10] = static_cast<float>(matrix.M33);
+            destinationWords[11] = static_cast<float>(matrix.M34);
+            destinationWords[12] = static_cast<float>(matrix.M41);
+            destinationWords[13] = static_cast<float>(matrix.M42);
+            destinationWords[14] = static_cast<float>(matrix.M43);
+            destinationWords[15] = static_cast<float>(matrix.M44);
         }
 
         /// <summary>
@@ -446,12 +446,12 @@ namespace helengine::ps2 {
             const ::float4& viewport,
             Ps2VuUntexturedSharedState& sharedState) {
             CopyMatrixWords(worldViewProjection, sharedState.WorldViewProjectionMatrix);
-            sharedState.GsScale[0] = viewport.Z * 0.5f;
-            sharedState.GsScale[1] = viewport.W * -0.5f;
+            sharedState.GsScale[0] = static_cast<float>(viewport.Z * 0.5f);
+            sharedState.GsScale[1] = static_cast<float>(viewport.W * -0.5f);
             sharedState.GsScale[2] = -65535.0f;
             sharedState.GsScale[3] = 0.0f;
-            sharedState.GsOffset[0] = 2048.0f + viewport.X + (viewport.Z * 0.5f);
-            sharedState.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
+            sharedState.GsOffset[0] = static_cast<float>(2048.0f + viewport.X + (viewport.Z * 0.5f));
+            sharedState.GsOffset[1] = static_cast<float>(2048.0f + viewport.Y + (viewport.W * 0.5f));
             sharedState.GsOffset[2] = 65535.0f;
             sharedState.GsOffset[3] = 0.0f;
         }
@@ -591,9 +591,9 @@ namespace helengine::ps2 {
             for (const Ps2VuCpuTexturedClipVertex& current : vertices) {
                 const bool currentInside = current.ViewPosition.Z <= nearPlaneZ;
                 if (currentInside != previousInside) {
-                    const float denominator = current.ViewPosition.Z - previous.ViewPosition.Z;
-                    if (std::abs(denominator) > MinimumNearPlaneEpsilon) {
-                        const float amount = (nearPlaneZ - previous.ViewPosition.Z) / denominator;
+                    const RealEvaluation denominator = current.ViewPosition.Z - previous.ViewPosition.Z;
+                    if (RealMath::Abs(denominator) > MinimumNearPlaneEpsilon) {
+                        const float amount = static_cast<float>((nearPlaneZ - previous.ViewPosition.Z) / denominator);
                         clippedVertices.push_back(InterpolateTexturedClipVertex(previous, current, amount));
                     }
                 }
@@ -632,9 +632,9 @@ namespace helengine::ps2 {
             for (const Ps2VuUntexturedClipVertex& current : vertices) {
                 const bool currentInside = current.ViewPosition.Z <= nearPlaneZ;
                 if (currentInside != previousInside) {
-                    const float denominator = current.ViewPosition.Z - previous.ViewPosition.Z;
-                    if (std::abs(denominator) > MinimumNearPlaneEpsilon) {
-                        const float amount = (nearPlaneZ - previous.ViewPosition.Z) / denominator;
+                    const RealEvaluation denominator = current.ViewPosition.Z - previous.ViewPosition.Z;
+                    if (RealMath::Abs(denominator) > MinimumNearPlaneEpsilon) {
+                        const float amount = static_cast<float>((nearPlaneZ - previous.ViewPosition.Z) / denominator);
                         clippedVertices.push_back(InterpolateUntexturedClipVertex(previous, current, amount));
                     }
                 }
@@ -660,28 +660,28 @@ namespace helengine::ps2 {
             const Ps2VuUntexturedClipVertex& vertex,
             const ::float4x4& projection,
             Ps2VuScreenFrustumPlane plane) {
-            const float clipX = (vertex.ViewPosition.X * projection.M11)
+            const RealEvaluation clipX = (vertex.ViewPosition.X * projection.M11)
                 + (vertex.ViewPosition.Y * projection.M21)
                 + (vertex.ViewPosition.Z * projection.M31)
                 + projection.M41;
-            const float clipY = (vertex.ViewPosition.X * projection.M12)
+            const RealEvaluation clipY = (vertex.ViewPosition.X * projection.M12)
                 + (vertex.ViewPosition.Y * projection.M22)
                 + (vertex.ViewPosition.Z * projection.M32)
                 + projection.M42;
-            const float clipW = (vertex.ViewPosition.X * projection.M14)
+            const RealEvaluation clipW = (vertex.ViewPosition.X * projection.M14)
                 + (vertex.ViewPosition.Y * projection.M24)
                 + (vertex.ViewPosition.Z * projection.M34)
                 + projection.M44;
 
             if (plane == Ps2VuScreenFrustumPlane::Left) {
-                return clipX + clipW;
+                return static_cast<float>(clipX + clipW);
             } else if (plane == Ps2VuScreenFrustumPlane::Right) {
-                return clipW - clipX;
+                return static_cast<float>(clipW - clipX);
             } else if (plane == Ps2VuScreenFrustumPlane::Bottom) {
-                return clipY + clipW;
+                return static_cast<float>(clipY + clipW);
             }
 
-            return clipW - clipY;
+            return static_cast<float>(clipW - clipY);
         }
 
         void ClipUntexturedPolygonAgainstScreenFrustumPlane(
@@ -702,7 +702,7 @@ namespace helengine::ps2 {
                 const bool currentInside = currentDistance >= 0.0f;
                 if (currentInside != previousInside) {
                     const float denominator = currentDistance - previousDistance;
-                    if (std::abs(denominator) > MinimumNearPlaneEpsilon) {
+                    if (RealMath::Abs(denominator) > MinimumNearPlaneEpsilon) {
                         const float amount = -previousDistance / denominator;
                         outputVertices.push_back(InterpolateUntexturedClipVertex(previous, current, amount));
                     }
@@ -788,7 +788,7 @@ namespace helengine::ps2 {
                 const bool currentInside = currentDistance >= 0.0f;
                 if (currentInside != previousInside) {
                     const float denominator = currentDistance - previousDistance;
-                    if (std::abs(denominator) > MinimumNearPlaneEpsilon) {
+                    if (RealMath::Abs(denominator) > MinimumNearPlaneEpsilon) {
                         const float amount = -previousDistance / denominator;
                         outputVertices.push_back(InterpolateTexturedClipVertex(previous, current, amount));
                     }
@@ -866,19 +866,19 @@ namespace helengine::ps2 {
             float& screenY,
             float& screenZ,
             std::uint64_t& positionRegister) {
-            const float clipX = (viewPosition.X * projection.M11)
+            const RealEvaluation clipX = (viewPosition.X * projection.M11)
                 + (viewPosition.Y * projection.M21)
                 + (viewPosition.Z * projection.M31)
                 + projection.M41;
-            const float clipY = (viewPosition.X * projection.M12)
+            const RealEvaluation clipY = (viewPosition.X * projection.M12)
                 + (viewPosition.Y * projection.M22)
                 + (viewPosition.Z * projection.M32)
                 + projection.M42;
-            const float clipZ = (viewPosition.X * projection.M13)
+            const RealEvaluation clipZ = (viewPosition.X * projection.M13)
                 + (viewPosition.Y * projection.M23)
                 + (viewPosition.Z * projection.M33)
                 + projection.M43;
-            const float clipW = (viewPosition.X * projection.M14)
+            const RealEvaluation clipW = (viewPosition.X * projection.M14)
                 + (viewPosition.Y * projection.M24)
                 + (viewPosition.Z * projection.M34)
                 + projection.M44;
@@ -886,15 +886,15 @@ namespace helengine::ps2 {
                 return false;
             }
 
-            const float inverseClipW = 1.0f / clipW;
-            const float normalizedX = clipX * inverseClipW;
-            const float normalizedY = clipY * inverseClipW;
-            const float normalizedZ = clipZ * inverseClipW;
-            screenX = viewport.X + ((normalizedX + 1.0f) * 0.5f * viewport.Z);
-            screenY = viewport.Y + ((1.0f - normalizedY) * 0.5f * viewport.W);
+            const RealEvaluation inverseClipW = 1.0f / clipW;
+            const RealEvaluation normalizedX = clipX * inverseClipW;
+            const RealEvaluation normalizedY = clipY * inverseClipW;
+            const RealEvaluation normalizedZ = clipZ * inverseClipW;
+            screenX = static_cast<float>(viewport.X + ((normalizedX + 1.0f) * 0.5f * viewport.Z));
+            screenY = static_cast<float>(viewport.Y + ((1.0f - normalizedY) * 0.5f * viewport.W));
             const std::int32_t gsX = static_cast<std::int32_t>((2048.0f + screenX) * 16.0f);
             const std::int32_t gsY = static_cast<std::int32_t>((2048.0f + screenY) * 16.0f);
-            screenZ = (normalizedZ + 1.0f) * 0.5f;
+            screenZ = static_cast<float>((normalizedZ + 1.0f) * 0.5f);
             const float gsDepth = 1.0f - screenZ;
             const std::uint32_t gsZ = static_cast<std::uint32_t>(gsDepth * static_cast<float>(ResolveMaximumDepth(gsGlobal)));
             positionRegister = GS_SETREG_XYZ2(gsX, gsY, gsZ);
@@ -914,19 +914,19 @@ namespace helengine::ps2 {
             float& screenZ,
             std::uint64_t& positionRegister) {
             const ::float3& viewPosition = vertex.ViewPosition;
-            const float clipX = (viewPosition.X * projection.M11)
+            const RealEvaluation clipX = (viewPosition.X * projection.M11)
                 + (viewPosition.Y * projection.M21)
                 + (viewPosition.Z * projection.M31)
                 + projection.M41;
-            const float clipY = (viewPosition.X * projection.M12)
+            const RealEvaluation clipY = (viewPosition.X * projection.M12)
                 + (viewPosition.Y * projection.M22)
                 + (viewPosition.Z * projection.M32)
                 + projection.M42;
-            const float clipZ = (viewPosition.X * projection.M13)
+            const RealEvaluation clipZ = (viewPosition.X * projection.M13)
                 + (viewPosition.Y * projection.M23)
                 + (viewPosition.Z * projection.M33)
                 + projection.M43;
-            const float clipW = (viewPosition.X * projection.M14)
+            const RealEvaluation clipW = (viewPosition.X * projection.M14)
                 + (viewPosition.Y * projection.M24)
                 + (viewPosition.Z * projection.M34)
                 + projection.M44;
@@ -937,19 +937,19 @@ namespace helengine::ps2 {
                 && (clipW - clipY) >= 0.0f;
             if (clipW <= MinimumClipW) {
                 isInsideScreenFrustum = false;
-                reciprocalClipW = 0.0f;
+                reciprocalClipW = static_cast<float>(0.0f);
                 return false;
             }
 
-            reciprocalClipW = 1.0f / clipW;
-            const float normalizedX = clipX * reciprocalClipW;
-            const float normalizedY = clipY * reciprocalClipW;
-            const float normalizedZ = clipZ * reciprocalClipW;
-            screenX = viewport.X + ((normalizedX + 1.0f) * 0.5f * viewport.Z);
-            screenY = viewport.Y + ((1.0f - normalizedY) * 0.5f * viewport.W);
+            reciprocalClipW = static_cast<float>(1.0f / clipW);
+            const RealEvaluation normalizedX = clipX * reciprocalClipW;
+            const RealEvaluation normalizedY = clipY * reciprocalClipW;
+            const RealEvaluation normalizedZ = clipZ * reciprocalClipW;
+            screenX = static_cast<float>(viewport.X + ((normalizedX + 1.0f) * 0.5f * viewport.Z));
+            screenY = static_cast<float>(viewport.Y + ((1.0f - normalizedY) * 0.5f * viewport.W));
             const std::int32_t gsX = static_cast<std::int32_t>((2048.0f + screenX) * 16.0f);
             const std::int32_t gsY = static_cast<std::int32_t>((2048.0f + screenY) * 16.0f);
-            screenZ = (normalizedZ + 1.0f) * 0.5f;
+            screenZ = static_cast<float>((normalizedZ + 1.0f) * 0.5f);
             const float gsDepth = 1.0f - screenZ;
             const std::uint32_t gsZ = static_cast<std::uint32_t>(gsDepth * static_cast<float>(ResolveMaximumDepth(gsGlobal)));
             positionRegister = GS_SETREG_XYZ2(gsX, gsY, gsZ);
@@ -973,7 +973,7 @@ namespace helengine::ps2 {
         }
 
         ::float3 NormalizeOrFallback(const ::float3& value, const ::float3& fallback) {
-            const float lengthSquared = ::float3::Dot(value, value);
+            const RealEvaluation lengthSquared = ::float3::Dot(value, value);
             if (lengthSquared <= 0.000001f) {
                 return fallback;
             }
@@ -1294,9 +1294,9 @@ namespace helengine::ps2 {
                 + static_cast<double>(normal.Z) * static_cast<double>(normal.Z);
             if (normalLengthSquared <= 0.000001) {
                 return GS_SETREG_RGBAQ(
-                    ApplyIntensityToChannel(0xFF, 0x40, lightColor.X),
-                    ApplyIntensityToChannel(0xFF, 0x40, lightColor.Y),
-                    ApplyIntensityToChannel(0xFF, 0x40, lightColor.Z),
+                    ApplyIntensityToChannel(0xFF, 0x40, static_cast<float>(lightColor.X)),
+                    ApplyIntensityToChannel(0xFF, 0x40, static_cast<float>(lightColor.Y)),
+                    ApplyIntensityToChannel(0xFF, 0x40, static_cast<float>(lightColor.Z)),
                     0x80,
                     0x00);
             }
@@ -1325,9 +1325,9 @@ namespace helengine::ps2 {
 
             const std::uint8_t intensity = static_cast<std::uint8_t>(std::clamp(std::lround(intensityValue), 0l, 255l));
             return GS_SETREG_RGBAQ(
-                ApplyIntensityToChannel(lightingConstants.BaseColorR, intensity, lightColor.X),
-                ApplyIntensityToChannel(lightingConstants.BaseColorG, intensity, lightColor.Y),
-                ApplyIntensityToChannel(lightingConstants.BaseColorB, intensity, lightColor.Z),
+                ApplyIntensityToChannel(lightingConstants.BaseColorR, intensity, static_cast<float>(lightColor.X)),
+                ApplyIntensityToChannel(lightingConstants.BaseColorG, intensity, static_cast<float>(lightColor.Y)),
+                ApplyIntensityToChannel(lightingConstants.BaseColorB, intensity, static_cast<float>(lightColor.Z)),
                 lightingConstants.BaseColorA,
                 0x00);
         }
@@ -1641,17 +1641,17 @@ namespace helengine::ps2 {
                     payload.DirectGifFlatColor = flatColor;
                     const Ps2VuUntexturedSharedState& emittedSharedState = triangleCrossesFrustumBoundary ? clippedSharedStateTemplate : sharedStateTemplate;
                     std::memcpy(&payload.SharedState, &emittedSharedState, sizeof(emittedSharedState));
-                    payload.TriangleRecord.SourceTriangle.PositionA[0] = emittedPositionA.X;
-                    payload.TriangleRecord.SourceTriangle.PositionA[1] = emittedPositionA.Y;
-                    payload.TriangleRecord.SourceTriangle.PositionA[2] = emittedPositionA.Z;
+                    payload.TriangleRecord.SourceTriangle.PositionA[0] = static_cast<float>(emittedPositionA.X);
+                    payload.TriangleRecord.SourceTriangle.PositionA[1] = static_cast<float>(emittedPositionA.Y);
+                    payload.TriangleRecord.SourceTriangle.PositionA[2] = static_cast<float>(emittedPositionA.Z);
                     payload.TriangleRecord.SourceTriangle.PositionA[3] = 1.0f;
-                    payload.TriangleRecord.SourceTriangle.PositionB[0] = emittedPositionB.X;
-                    payload.TriangleRecord.SourceTriangle.PositionB[1] = emittedPositionB.Y;
-                    payload.TriangleRecord.SourceTriangle.PositionB[2] = emittedPositionB.Z;
+                    payload.TriangleRecord.SourceTriangle.PositionB[0] = static_cast<float>(emittedPositionB.X);
+                    payload.TriangleRecord.SourceTriangle.PositionB[1] = static_cast<float>(emittedPositionB.Y);
+                    payload.TriangleRecord.SourceTriangle.PositionB[2] = static_cast<float>(emittedPositionB.Z);
                     payload.TriangleRecord.SourceTriangle.PositionB[3] = 1.0f;
-                    payload.TriangleRecord.SourceTriangle.PositionC[0] = emittedPositionC.X;
-                    payload.TriangleRecord.SourceTriangle.PositionC[1] = emittedPositionC.Y;
-                    payload.TriangleRecord.SourceTriangle.PositionC[2] = emittedPositionC.Z;
+                    payload.TriangleRecord.SourceTriangle.PositionC[0] = static_cast<float>(emittedPositionC.X);
+                    payload.TriangleRecord.SourceTriangle.PositionC[1] = static_cast<float>(emittedPositionC.Y);
+                    payload.TriangleRecord.SourceTriangle.PositionC[2] = static_cast<float>(emittedPositionC.Z);
                     payload.TriangleRecord.SourceTriangle.PositionC[3] = 1.0f;
                     untexturedTrianglePayloads.push_back(payload);
                 }
@@ -1860,10 +1860,10 @@ namespace helengine::ps2 {
                         SubmittedTriangleVertexA1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
                         SubmittedTriangleVertexA2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
                     } else {
-                        SubmittedScreenBounds.X = std::min(SubmittedScreenBounds.X, minX);
-                        SubmittedScreenBounds.Y = std::min(SubmittedScreenBounds.Y, minY);
-                        SubmittedScreenBounds.Z = std::max(SubmittedScreenBounds.Z, maxX);
-                        SubmittedScreenBounds.W = std::max(SubmittedScreenBounds.W, maxY);
+                        SubmittedScreenBounds.X = RealMath::Min(SubmittedScreenBounds.X, Real(minX));
+                        SubmittedScreenBounds.Y = RealMath::Min(SubmittedScreenBounds.Y, Real(minY));
+                        SubmittedScreenBounds.Z = RealMath::Max(SubmittedScreenBounds.Z, Real(maxX));
+                        SubmittedScreenBounds.W = RealMath::Max(SubmittedScreenBounds.W, Real(maxY));
                         if (SubmittedTriangleCount == 1u) {
                             SubmittedTriangleBoundsB = ::float4(minX, minY, maxX, maxY);
                             SubmittedTriangleVertexB0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
@@ -2118,8 +2118,8 @@ namespace helengine::ps2 {
                 AppendDiagnosticToHostBootLog(
                     std::string("[helengine-ps2] direct untextured world view")
                     + " batch=" + std::to_string(batchIndex)
-                    + " world=" + std::to_string(world.M41) + "," + std::to_string(world.M42) + "," + std::to_string(world.M43)
-                    + " view=" + std::to_string(worldViewMatrix.M41) + "," + std::to_string(worldViewMatrix.M42) + "," + std::to_string(worldViewMatrix.M43));
+                    + " world=" + std::to_string(static_cast<double>(world.M41)) + "," + std::to_string(static_cast<double>(world.M42)) + "," + std::to_string(static_cast<double>(world.M43))
+                    + " view=" + std::to_string(static_cast<double>(worldViewMatrix.M41)) + "," + std::to_string(static_cast<double>(worldViewMatrix.M42)) + "," + std::to_string(static_cast<double>(worldViewMatrix.M43)));
             }
             Ps2VuLightingConstants lightingConstants {};
             PopulateLightingConstants(*batch.Material, lightingConstants);
@@ -2172,17 +2172,17 @@ namespace helengine::ps2 {
                         : (createVifPacket ? packedPositionC : vertexC.ViewPosition);
                     if (!createVifPacket) {
                         Ps2VuOpaqueSourceTriangle sourceTriangle {};
-                        sourceTriangle.PositionA[0] = emittedPositionA.X;
-                        sourceTriangle.PositionA[1] = emittedPositionA.Y;
-                        sourceTriangle.PositionA[2] = emittedPositionA.Z;
+                        sourceTriangle.PositionA[0] = static_cast<float>(emittedPositionA.X);
+                        sourceTriangle.PositionA[1] = static_cast<float>(emittedPositionA.Y);
+                        sourceTriangle.PositionA[2] = static_cast<float>(emittedPositionA.Z);
                         sourceTriangle.PositionA[3] = 1.0f;
-                        sourceTriangle.PositionB[0] = emittedPositionB.X;
-                        sourceTriangle.PositionB[1] = emittedPositionB.Y;
-                        sourceTriangle.PositionB[2] = emittedPositionB.Z;
+                        sourceTriangle.PositionB[0] = static_cast<float>(emittedPositionB.X);
+                        sourceTriangle.PositionB[1] = static_cast<float>(emittedPositionB.Y);
+                        sourceTriangle.PositionB[2] = static_cast<float>(emittedPositionB.Z);
                         sourceTriangle.PositionB[3] = 1.0f;
-                        sourceTriangle.PositionC[0] = emittedPositionC.X;
-                        sourceTriangle.PositionC[1] = emittedPositionC.Y;
-                        sourceTriangle.PositionC[2] = emittedPositionC.Z;
+                        sourceTriangle.PositionC[0] = static_cast<float>(emittedPositionC.X);
+                        sourceTriangle.PositionC[1] = static_cast<float>(emittedPositionC.Y);
+                        sourceTriangle.PositionC[2] = static_cast<float>(emittedPositionC.Z);
                         sourceTriangle.PositionC[3] = 1.0f;
                         if (BuildUntexturedTriangleDirectGifVertexWords(sourceTriangle, flatColor, projection, viewport, gsGlobal, directGifPacketWords)) {
                             directGifPacketWords += DirectGifOpaqueTriangleVertexWordCount;
@@ -2197,17 +2197,17 @@ namespace helengine::ps2 {
                     payload.DirectGifFlatColor = flatColor;
                     const Ps2VuUntexturedSharedState& emittedSharedState = triangleCrossesNearPlane ? clippedSharedStateTemplate : sharedStateTemplate;
                     std::memcpy(&payload.SharedState, &emittedSharedState, sizeof(emittedSharedState));
-                    payload.TriangleRecord.SourceTriangle.PositionA[0] = emittedPositionA.X;
-                    payload.TriangleRecord.SourceTriangle.PositionA[1] = emittedPositionA.Y;
-                    payload.TriangleRecord.SourceTriangle.PositionA[2] = emittedPositionA.Z;
+                    payload.TriangleRecord.SourceTriangle.PositionA[0] = static_cast<float>(emittedPositionA.X);
+                    payload.TriangleRecord.SourceTriangle.PositionA[1] = static_cast<float>(emittedPositionA.Y);
+                    payload.TriangleRecord.SourceTriangle.PositionA[2] = static_cast<float>(emittedPositionA.Z);
                     payload.TriangleRecord.SourceTriangle.PositionA[3] = 1.0f;
-                    payload.TriangleRecord.SourceTriangle.PositionB[0] = emittedPositionB.X;
-                    payload.TriangleRecord.SourceTriangle.PositionB[1] = emittedPositionB.Y;
-                    payload.TriangleRecord.SourceTriangle.PositionB[2] = emittedPositionB.Z;
+                    payload.TriangleRecord.SourceTriangle.PositionB[0] = static_cast<float>(emittedPositionB.X);
+                    payload.TriangleRecord.SourceTriangle.PositionB[1] = static_cast<float>(emittedPositionB.Y);
+                    payload.TriangleRecord.SourceTriangle.PositionB[2] = static_cast<float>(emittedPositionB.Z);
                     payload.TriangleRecord.SourceTriangle.PositionB[3] = 1.0f;
-                    payload.TriangleRecord.SourceTriangle.PositionC[0] = emittedPositionC.X;
-                    payload.TriangleRecord.SourceTriangle.PositionC[1] = emittedPositionC.Y;
-                    payload.TriangleRecord.SourceTriangle.PositionC[2] = emittedPositionC.Z;
+                    payload.TriangleRecord.SourceTriangle.PositionC[0] = static_cast<float>(emittedPositionC.X);
+                    payload.TriangleRecord.SourceTriangle.PositionC[1] = static_cast<float>(emittedPositionC.Y);
+                    payload.TriangleRecord.SourceTriangle.PositionC[2] = static_cast<float>(emittedPositionC.Z);
                     payload.TriangleRecord.SourceTriangle.PositionC[3] = 1.0f;
                     untexturedTrianglePayloads.push_back(payload);
                 }
@@ -2420,27 +2420,27 @@ namespace helengine::ps2 {
             if (cachedSharedStateBatch != batch) {
                 const std::clock_t sharedStateBuildStartTicks = EnableTexturedVuAssemblyPhaseDiagnostics ? std::clock() : 0;
                 CopyMatrixWords(cachedWorldViewProjections[batchOffset], cachedSharedState.WorldViewProjectionMatrix);
-                cachedSharedState.GsScale[0] = viewport.Z * 0.5f;
-                cachedSharedState.GsScale[1] = viewport.W * -0.5f;
+                cachedSharedState.GsScale[0] = static_cast<float>(viewport.Z * 0.5f);
+                cachedSharedState.GsScale[1] = static_cast<float>(viewport.W * -0.5f);
                 cachedSharedState.GsScale[2] = -65535.0f;
                 cachedSharedState.GsScale[3] = 0.0f;
-                cachedSharedState.GsOffset[0] = 2048.0f + viewport.X + (viewport.Z * 0.5f);
-                cachedSharedState.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
+                cachedSharedState.GsOffset[0] = static_cast<float>(2048.0f + viewport.X + (viewport.Z * 0.5f));
+                cachedSharedState.GsOffset[1] = static_cast<float>(2048.0f + viewport.Y + (viewport.W * 0.5f));
                 cachedSharedState.GsOffset[2] = 65535.0f;
                 cachedSharedState.GsOffset[3] = 0.0f;
                 Ps2VuLightingConstants lightingConstants {};
                 PopulateLightingConstants(*batch->Material, lightingConstants);
                 const ::float3 resolvedLightColor = lightingConstants.Unlit ? WhiteLightColor : lightColor;
-                cachedSharedState.MaterialLighting[0] = (static_cast<float>(lightingConstants.BaseColorR) / 255.0f) * resolvedLightColor.X;
-                cachedSharedState.MaterialLighting[1] = (static_cast<float>(lightingConstants.BaseColorG) / 255.0f) * resolvedLightColor.Y;
-                cachedSharedState.MaterialLighting[2] = (static_cast<float>(lightingConstants.BaseColorB) / 255.0f) * resolvedLightColor.Z;
+                cachedSharedState.MaterialLighting[0] = static_cast<float>((static_cast<float>(lightingConstants.BaseColorR) / 255.0f) * resolvedLightColor.X);
+                cachedSharedState.MaterialLighting[1] = static_cast<float>((static_cast<float>(lightingConstants.BaseColorG) / 255.0f) * resolvedLightColor.Y);
+                cachedSharedState.MaterialLighting[2] = static_cast<float>((static_cast<float>(lightingConstants.BaseColorB) / 255.0f) * resolvedLightColor.Z);
                 cachedSharedState.MaterialLighting[3] = static_cast<float>(lightingConstants.DiffuseScale) * DirectionalLightDiffuseIntensity;
                 cachedSharedState.TriangleCount[1] = batch->Material->GetDoubleSided() ? 1u : 0u;
                 cachedSharedState.TriangleCount[2] = static_cast<std::uint32_t>(TexturedVuOutputStartQword);
                 CopyMatrixWords(worlds[batchIndex], cachedSharedState.WorldNormalMatrix);
-                cachedSharedState.WorldLightDirection[0] = normalizedLightDirection.X;
-                cachedSharedState.WorldLightDirection[1] = normalizedLightDirection.Y;
-                cachedSharedState.WorldLightDirection[2] = normalizedLightDirection.Z;
+                cachedSharedState.WorldLightDirection[0] = static_cast<float>(normalizedLightDirection.X);
+                cachedSharedState.WorldLightDirection[1] = static_cast<float>(normalizedLightDirection.Y);
+                cachedSharedState.WorldLightDirection[2] = static_cast<float>(normalizedLightDirection.Z);
                 cachedSharedState.WorldLightDirection[3] = 0.0f;
                 std::uint64_t nativeStatePrefix[8];
                 BuildNativeTextureStatePrefix(ResolveOpaqueUntexturedTestRegister(gsGlobal), GS_REG_TEST,
@@ -2799,10 +2799,10 @@ namespace helengine::ps2 {
                         SubmittedTriangleVertexA1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
                         SubmittedTriangleVertexA2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
                     } else {
-                        SubmittedScreenBounds.X = std::min(SubmittedScreenBounds.X, minX);
-                        SubmittedScreenBounds.Y = std::min(SubmittedScreenBounds.Y, minY);
-                        SubmittedScreenBounds.Z = std::max(SubmittedScreenBounds.Z, maxX);
-                        SubmittedScreenBounds.W = std::max(SubmittedScreenBounds.W, maxY);
+                        SubmittedScreenBounds.X = RealMath::Min(SubmittedScreenBounds.X, Real(minX));
+                        SubmittedScreenBounds.Y = RealMath::Min(SubmittedScreenBounds.Y, Real(minY));
+                        SubmittedScreenBounds.Z = RealMath::Max(SubmittedScreenBounds.Z, Real(maxX));
+                        SubmittedScreenBounds.W = RealMath::Max(SubmittedScreenBounds.W, Real(maxY));
                         if (SubmittedTriangleCount == 1u) {
                             SubmittedTriangleBoundsB = ::float4(minX, minY, maxX, maxY);
                             SubmittedTriangleVertexB0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);
@@ -2903,10 +2903,10 @@ namespace helengine::ps2 {
                         SubmittedTriangleVertexA1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
                         SubmittedTriangleVertexA2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
                     } else {
-                        SubmittedScreenBounds.X = std::min(SubmittedScreenBounds.X, minX);
-                        SubmittedScreenBounds.Y = std::min(SubmittedScreenBounds.Y, minY);
-                        SubmittedScreenBounds.Z = std::max(SubmittedScreenBounds.Z, maxX);
-                        SubmittedScreenBounds.W = std::max(SubmittedScreenBounds.W, maxY);
+                        SubmittedScreenBounds.X = RealMath::Min(SubmittedScreenBounds.X, Real(minX));
+                        SubmittedScreenBounds.Y = RealMath::Min(SubmittedScreenBounds.Y, Real(minY));
+                        SubmittedScreenBounds.Z = RealMath::Max(SubmittedScreenBounds.Z, Real(maxX));
+                        SubmittedScreenBounds.W = RealMath::Max(SubmittedScreenBounds.W, Real(maxY));
                         if (SubmittedTriangleCount == 1u) {
                             SubmittedTriangleBoundsB = ::float4(minX, minY, maxX, maxY);
                             SubmittedTriangleVertexB0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);

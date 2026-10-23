@@ -400,15 +400,15 @@ namespace helengine::ps2 {
             }
 
             const ::float4 viewport = camera->get_Viewport();
-            double offsetX = viewport.X;
-            double offsetY = viewport.Y;
-            double width = viewport.Z;
-            double height = viewport.W;
+            RealEvaluation offsetX = viewport.X;
+            RealEvaluation offsetY = viewport.Y;
+            RealEvaluation width = viewport.Z;
+            RealEvaluation height = viewport.W;
             if (width <= 1.0 && height <= 1.0) {
-                offsetX *= static_cast<double>(windowSize.X);
-                offsetY *= static_cast<double>(windowSize.Y);
-                width *= static_cast<double>(windowSize.X);
-                height *= static_cast<double>(windowSize.Y);
+                offsetX *= static_cast<RealEvaluation>(windowSize.X);
+                offsetY *= static_cast<RealEvaluation>(windowSize.Y);
+                width *= static_cast<RealEvaluation>(windowSize.X);
+                height *= static_cast<RealEvaluation>(windowSize.Y);
             }
 
             return ::float4(
@@ -580,10 +580,10 @@ namespace helengine::ps2 {
         }
 
         float ResolveProjectionClipW(const ::float3& viewPosition, const ::float4x4& projection) {
-            return (viewPosition.X * projection.M14)
+            return static_cast<float>((viewPosition.X * projection.M14)
                 + (viewPosition.Y * projection.M24)
                 + (viewPosition.Z * projection.M34)
-                + projection.M44;
+                + projection.M44);
         }
 
         GSPRIMSTQPOINT ResolvePerspectiveTextureVertex(
@@ -599,7 +599,7 @@ namespace helengine::ps2 {
             const std::uint32_t gsZ = static_cast<std::uint32_t>(gsDepth * static_cast<float>(MaximumGsDepth));
             GSPRIMSTQPOINT vertex;
             vertex.rgbaq = rgba_to_RGBAQ(static_cast<std::uint32_t>(color), q);
-            vertex.stq = vertex_to_STQ(normalizedTexCoord.X * q, normalizedTexCoord.Y * q);
+            vertex.stq = vertex_to_STQ(static_cast<float>(normalizedTexCoord.X * q), static_cast<float>(normalizedTexCoord.Y * q));
             vertex.xyz2 = vertex_to_XYZ2(gsGlobal, screenX, screenY, static_cast<int>(gsZ));
             return vertex;
         }
@@ -634,9 +634,9 @@ namespace helengine::ps2 {
             for (const Ps2ClipVertex& current : vertices) {
                 bool currentInside = current.ViewPosition.Z <= nearPlaneZ;
                 if (currentInside != previousInside) {
-                    const float denominator = current.ViewPosition.Z - previous.ViewPosition.Z;
-                    if (std::abs(denominator) > MinimumNearPlaneEpsilon) {
-                        const float amount = (nearPlaneZ - previous.ViewPosition.Z) / denominator;
+                    const RealEvaluation denominator = current.ViewPosition.Z - previous.ViewPosition.Z;
+                    if (RealMath::Abs(denominator) > MinimumNearPlaneEpsilon) {
+                        const float amount = static_cast<float>((nearPlaneZ - previous.ViewPosition.Z) / denominator);
                         clippedVertices.push_back(InterpolateClipVertex(previous, current, amount));
                     }
                 }
@@ -653,28 +653,28 @@ namespace helengine::ps2 {
             const Ps2ClipVertex& vertex,
             const ::float4x4& projection,
             Ps2ScreenFrustumPlane plane) {
-            const float clipX = (vertex.ViewPosition.X * projection.M11)
+            const RealEvaluation clipX = (vertex.ViewPosition.X * projection.M11)
                 + (vertex.ViewPosition.Y * projection.M21)
                 + (vertex.ViewPosition.Z * projection.M31)
                 + projection.M41;
-            const float clipY = (vertex.ViewPosition.X * projection.M12)
+            const RealEvaluation clipY = (vertex.ViewPosition.X * projection.M12)
                 + (vertex.ViewPosition.Y * projection.M22)
                 + (vertex.ViewPosition.Z * projection.M32)
                 + projection.M42;
-            const float clipW = (vertex.ViewPosition.X * projection.M14)
+            const RealEvaluation clipW = (vertex.ViewPosition.X * projection.M14)
                 + (vertex.ViewPosition.Y * projection.M24)
                 + (vertex.ViewPosition.Z * projection.M34)
                 + projection.M44;
 
             if (plane == Ps2ScreenFrustumPlane::Left) {
-                return clipX + clipW;
+                return static_cast<float>(clipX + clipW);
             } else if (plane == Ps2ScreenFrustumPlane::Right) {
-                return clipW - clipX;
+                return static_cast<float>(clipW - clipX);
             } else if (plane == Ps2ScreenFrustumPlane::Bottom) {
-                return clipY + clipW;
+                return static_cast<float>(clipY + clipW);
             }
 
-            return clipW - clipY;
+            return static_cast<float>(clipW - clipY);
         }
 
         void ClipPolygonAgainstScreenFrustumPlane(
@@ -883,9 +883,9 @@ namespace helengine::ps2 {
                     gsKit_prim_triangle_goraud_texture_3d(
                         gsGlobal,
                         triangle.Texture,
-                        glowAX, glowAY, glowAZ, glowTexCoordA.X, glowTexCoordA.Y,
-                        glowBX, glowBY, glowBZ, glowTexCoordB.X, glowTexCoordB.Y,
-                        glowCX, glowCY, glowCZ, glowTexCoordC.X, glowTexCoordC.Y,
+                        glowAX, glowAY, glowAZ, static_cast<float>(glowTexCoordA.X), static_cast<float>(glowTexCoordA.Y),
+                        glowBX, glowBY, glowBZ, static_cast<float>(glowTexCoordB.X), static_cast<float>(glowTexCoordB.Y),
+                        glowCX, glowCY, glowCZ, static_cast<float>(glowTexCoordC.X), static_cast<float>(glowTexCoordC.Y),
                         glowColorA, glowColorB, glowColorC);
                 } else {
                     gsKit_prim_triangle_gouraud_3d(
@@ -1264,7 +1264,7 @@ namespace helengine::ps2 {
         ::float4x4::CreatePerspectiveFieldOfView__out4(
             CameraFieldOfViewRadians,
             ::CameraProjectionUtils::ResolveProjectionAspect(viewport.Z, viewport.W, get_MainWindowPixelAspect()),
-            camera->get_NearPlaneDistance(),
+            static_cast<float>(camera->get_NearPlaneDistance()),
             camera->get_FarPlaneDistance(),
             projection);
 
@@ -1300,7 +1300,7 @@ namespace helengine::ps2 {
             if (EnableSingleProxyDiagnostics) {
                 const Ps2RenderProxy* firstProxy = ResolveRenderableProxyByIndex(plan, SingleProxyDiagnosticIndex);
                 if (firstProxy != nullptr) {
-                    DrawOpaqueProxyLegacy(*firstProxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                    DrawOpaqueProxyLegacy(*firstProxy, view, projection, viewport, static_cast<float>(camera->get_NearPlaneDistance()));
                 }
 
                 DrawHdrGlowPass(GsGlobal);
@@ -1311,29 +1311,29 @@ namespace helengine::ps2 {
             if (UseLegacyCpuOpaquePath) {
                 for (const Ps2RenderProxy* proxy : plan.OpaqueWorld) {
                     if (proxy != nullptr) {
-                        DrawOpaqueProxyLegacyTimed(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                        DrawOpaqueProxyLegacyTimed(*proxy, view, projection, viewport, static_cast<float>(camera->get_NearPlaneDistance()));
                     }
                 }
 
                 for (const Ps2RenderProxy* proxy : plan.OpaqueDynamic) {
                     if (proxy != nullptr) {
-                        DrawOpaqueProxyLegacyTimed(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                        DrawOpaqueProxyLegacyTimed(*proxy, view, projection, viewport, static_cast<float>(camera->get_NearPlaneDistance()));
                     }
                 }
             } else {
-                RenderOpaqueWithVuPath(plan, view, projection, viewport, camera->get_NearPlaneDistance());
+                RenderOpaqueWithVuPath(plan, view, projection, viewport, static_cast<float>(camera->get_NearPlaneDistance()));
                 PublishPerformanceOverlayMetrics();
             }
 
             for (const Ps2RenderProxy* proxy : plan.AlphaWorld) {
                 if (proxy != nullptr) {
-                    DrawAlphaProxy(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                    DrawAlphaProxy(*proxy, view, projection, viewport, static_cast<float>(camera->get_NearPlaneDistance()));
                 }
             }
 
             for (const Ps2RenderProxy* proxy : plan.AlphaDynamic) {
                 if (proxy != nullptr) {
-                    DrawAlphaProxy(*proxy, view, projection, viewport, camera->get_NearPlaneDistance());
+                    DrawAlphaProxy(*proxy, view, projection, viewport, static_cast<float>(camera->get_NearPlaneDistance()));
                 }
             }
 
@@ -1347,7 +1347,7 @@ namespace helengine::ps2 {
             view,
             projection,
             viewport,
-            camera->get_NearPlaneDistance(),
+            static_cast<float>(camera->get_NearPlaneDistance()),
             cameraPosition,
             cameraForward);
         DrawHdrGlowPass(GsGlobal);
@@ -1448,7 +1448,7 @@ namespace helengine::ps2 {
                     + " index=" + std::to_string(batchIndex)
                     + " proxyPtr=" + std::to_string(static_cast<unsigned long>(reinterpret_cast<std::uintptr_t>(batch.Proxy)))
                     + " materialPtr=" + std::to_string(static_cast<unsigned long>(reinterpret_cast<std::uintptr_t>(batch.Material)))
-                    + " world=" + std::to_string(world.M41) + "," + std::to_string(world.M42) + "," + std::to_string(world.M43)
+                    + " world=" + std::to_string(static_cast<double>(world.M41)) + "," + std::to_string(static_cast<double>(world.M42)) + "," + std::to_string(static_cast<double>(world.M43))
                     + " texturedFlag=" + std::to_string(batch.Textured ? 1 : 0)
                     + " hasTexturePath=" + std::to_string(batch.Material != nullptr && batch.Material->HasTextureRelativePath() ? 1 : 0)
                     + " texturePath=" + (batch.Material != nullptr && batch.Material->HasTextureRelativePath() ? batch.Material->GetTextureRelativePath() : std::string("none"))
@@ -2097,18 +2097,18 @@ namespace helengine::ps2 {
         ::float4x4::Multiply__ref0_ref1_out2(worldCopy, viewCopy, worldView);
         const ::float3& boundsMinimum = model->GetBoundsMinimum();
         const ::float3& boundsMaximum = model->GetBoundsMaximum();
-        const float boundX[] = { boundsMinimum.X, boundsMaximum.X };
-        const float boundY[] = { boundsMinimum.Y, boundsMaximum.Y };
-        const float boundZ[] = { boundsMinimum.Z, boundsMaximum.Z };
+        const Real boundX[] = { boundsMinimum.X, boundsMaximum.X };
+        const Real boundY[] = { boundsMinimum.Y, boundsMaximum.Y };
+        const Real boundZ[] = { boundsMinimum.Z, boundsMaximum.Z };
 
         bool allBoundsInside = true;
         for (std::size_t xIndex = 0u; xIndex < 2u; xIndex++) {
             for (std::size_t yIndex = 0u; yIndex < 2u; yIndex++) {
                 for (std::size_t zIndex = 0u; zIndex < 2u; zIndex++) {
                     const ::float3 viewPosition = TransformPosition(::float3(boundX[xIndex], boundY[yIndex], boundZ[zIndex]), worldView);
-                    const float clipX = (viewPosition.X * projection.M11) + (viewPosition.Y * projection.M21) + (viewPosition.Z * projection.M31) + projection.M41;
-                    const float clipY = (viewPosition.X * projection.M12) + (viewPosition.Y * projection.M22) + (viewPosition.Z * projection.M32) + projection.M42;
-                    const float clipW = (viewPosition.X * projection.M14) + (viewPosition.Y * projection.M24) + (viewPosition.Z * projection.M34) + projection.M44;
+                    const RealEvaluation clipX = (viewPosition.X * projection.M11) + (viewPosition.Y * projection.M21) + (viewPosition.Z * projection.M31) + projection.M41;
+                    const RealEvaluation clipY = (viewPosition.X * projection.M12) + (viewPosition.Y * projection.M22) + (viewPosition.Z * projection.M32) + projection.M42;
+                    const RealEvaluation clipW = (viewPosition.X * projection.M14) + (viewPosition.Y * projection.M24) + (viewPosition.Z * projection.M34) + projection.M44;
                     const bool isInside = viewPosition.Z < -(nearPlaneDistance + MinimumNearPlaneEpsilon)
                         && clipW > MinimumClipW
                         && (clipX + clipW) > MinimumNearPlaneEpsilon
@@ -2641,10 +2641,10 @@ namespace helengine::ps2 {
                     LastSubmittedTriangleVertexB1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
                     LastSubmittedTriangleVertexB2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
                 } else {
-                    LastSubmittedScreenBounds.X = std::min(LastSubmittedScreenBounds.X, minX);
-                    LastSubmittedScreenBounds.Y = std::min(LastSubmittedScreenBounds.Y, minY);
-                    LastSubmittedScreenBounds.Z = std::max(LastSubmittedScreenBounds.Z, maxX);
-                    LastSubmittedScreenBounds.W = std::max(LastSubmittedScreenBounds.W, maxY);
+                    LastSubmittedScreenBounds.X = RealMath::Min(LastSubmittedScreenBounds.X, Real(minX));
+                    LastSubmittedScreenBounds.Y = RealMath::Min(LastSubmittedScreenBounds.Y, Real(minY));
+                    LastSubmittedScreenBounds.Z = RealMath::Max(LastSubmittedScreenBounds.Z, Real(maxX));
+                    LastSubmittedScreenBounds.W = RealMath::Max(LastSubmittedScreenBounds.W, Real(maxY));
                 }
                 LastSubmittedTriangleCount++;
 
@@ -2942,19 +2942,19 @@ namespace helengine::ps2 {
         float& screenX,
         float& screenY,
         float& screenZ) const {
-        const float clipX = (viewPosition.X * projection.M11)
+        const RealEvaluation clipX = (viewPosition.X * projection.M11)
             + (viewPosition.Y * projection.M21)
             + (viewPosition.Z * projection.M31)
             + projection.M41;
-        const float clipY = (viewPosition.X * projection.M12)
+        const RealEvaluation clipY = (viewPosition.X * projection.M12)
             + (viewPosition.Y * projection.M22)
             + (viewPosition.Z * projection.M32)
             + projection.M42;
-        const float clipZ = (viewPosition.X * projection.M13)
+        const RealEvaluation clipZ = (viewPosition.X * projection.M13)
             + (viewPosition.Y * projection.M23)
             + (viewPosition.Z * projection.M33)
             + projection.M43;
-        const float clipW = (viewPosition.X * projection.M14)
+        const RealEvaluation clipW = (viewPosition.X * projection.M14)
             + (viewPosition.Y * projection.M24)
             + (viewPosition.Z * projection.M34)
             + projection.M44;
@@ -2963,14 +2963,14 @@ namespace helengine::ps2 {
             return false;
         }
 
-        const float inverseClipW = 1.0f / clipW;
-        const float normalizedX = clipX * inverseClipW;
-        const float normalizedY = clipY * inverseClipW;
-        const float normalizedZ = clipZ * inverseClipW;
+        const RealEvaluation inverseClipW = 1.0f / clipW;
+        const RealEvaluation normalizedX = clipX * inverseClipW;
+        const RealEvaluation normalizedY = clipY * inverseClipW;
+        const RealEvaluation normalizedZ = clipZ * inverseClipW;
 
-        screenX = viewport.X + ((normalizedX + 1.0f) * 0.5f * viewport.Z);
-        screenY = viewport.Y + ((1.0f - normalizedY) * 0.5f * viewport.W);
-        screenZ = (normalizedZ + 1.0f) * 0.5f;
+        screenX = static_cast<float>(viewport.X + ((normalizedX + 1.0f) * 0.5f * viewport.Z));
+        screenY = static_cast<float>(viewport.Y + ((1.0f - normalizedY) * 0.5f * viewport.W));
+        screenZ = static_cast<float>((normalizedZ + 1.0f) * 0.5f);
         return true;
     }
 
@@ -2994,8 +2994,8 @@ namespace helengine::ps2 {
             return 0xFF;
         }
 
-        const float clampedU = std::clamp(texCoord.X, 0.0f, 1.0f);
-        const float clampedV = std::clamp(texCoord.Y, 0.0f, 1.0f);
+        const float clampedU = static_cast<float>(RealMath::Clamp(texCoord.X, Real(0), Real(1)));
+        const float clampedV = static_cast<float>(RealMath::Clamp(texCoord.Y, Real(0), Real(1)));
         const std::size_t pixelX = static_cast<std::size_t>(clampedU * static_cast<float>(texture->Width - 1));
         const std::size_t pixelY = static_cast<std::size_t>(clampedV * static_cast<float>(texture->Height - 1));
         const std::size_t pixelIndex = (pixelY * static_cast<std::size_t>(texture->Width)) + pixelX;
@@ -3067,7 +3067,7 @@ namespace helengine::ps2 {
                     + " index=" + std::to_string(index)
                     + " drawable=" + std::to_string(static_cast<unsigned long>(reinterpret_cast<std::uintptr_t>(drawable)))
                     + " parent=" + std::to_string(static_cast<unsigned long>(reinterpret_cast<std::uintptr_t>(parent)))
-                    + " position=" + std::to_string(position.X) + "," + std::to_string(position.Y) + "," + std::to_string(position.Z)
+                    + " position=" + std::to_string(static_cast<double>(position.X)) + "," + std::to_string(static_cast<double>(position.Y)) + "," + std::to_string(static_cast<double>(position.Z))
                     + " model=" + std::to_string(proxy.GetModel() != nullptr ? 1 : 0)
                     + " material=" + std::to_string(proxy.GetMaterial() != nullptr ? 1 : 0));
             }
@@ -3109,9 +3109,9 @@ namespace helengine::ps2 {
             const ::float4 authoredLightColor = directionalLight->get_Color();
             const float authoredLightIntensity = directionalLight->get_Intensity();
             lightColor = ::float3(
-                std::clamp(authoredLightColor.X * authoredLightIntensity, 0.0f, 1.0f),
-                std::clamp(authoredLightColor.Y * authoredLightIntensity, 0.0f, 1.0f),
-                std::clamp(authoredLightColor.Z * authoredLightIntensity, 0.0f, 1.0f));
+                RealMath::Clamp(authoredLightColor.X * authoredLightIntensity, RealEvaluation(0), RealEvaluation(1)),
+                RealMath::Clamp(authoredLightColor.Y * authoredLightIntensity, RealEvaluation(0), RealEvaluation(1)),
+                RealMath::Clamp(authoredLightColor.Z * authoredLightIntensity, RealEvaluation(0), RealEvaluation(1)));
             return true;
         }
 
@@ -3172,9 +3172,9 @@ namespace helengine::ps2 {
         };
 
         return GS_SETREG_RGBAQ(
-            applyIntensity(material.GetBaseColorR(), lightColor.X),
-            applyIntensity(material.GetBaseColorG(), lightColor.Y),
-            applyIntensity(material.GetBaseColorB(), lightColor.Z),
+            applyIntensity(material.GetBaseColorR(), static_cast<float>(lightColor.X)),
+            applyIntensity(material.GetBaseColorG(), static_cast<float>(lightColor.Y)),
+            applyIntensity(material.GetBaseColorB(), static_cast<float>(lightColor.Z)),
             material.GetBaseColorA(),
             0x00);
     }

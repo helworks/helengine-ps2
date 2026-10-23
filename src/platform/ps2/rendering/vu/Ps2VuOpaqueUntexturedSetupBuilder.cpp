@@ -40,41 +40,41 @@ namespace helengine::ps2 {
             float& screenX,
             float& screenY,
             float& screenZ) {
-            const float clipX =
+            const RealEvaluation clipX =
                 (worldPosition.X * worldViewProjectionMatrix.M11)
                 + (worldPosition.Y * worldViewProjectionMatrix.M21)
                 + (worldPosition.Z * worldViewProjectionMatrix.M31)
                 + (worldPosition.W * worldViewProjectionMatrix.M41);
-            const float clipY =
+            const RealEvaluation clipY =
                 (worldPosition.X * worldViewProjectionMatrix.M12)
                 + (worldPosition.Y * worldViewProjectionMatrix.M22)
                 + (worldPosition.Z * worldViewProjectionMatrix.M32)
                 + (worldPosition.W * worldViewProjectionMatrix.M42);
-            const float clipZ =
+            const RealEvaluation clipZ =
                 (worldPosition.X * worldViewProjectionMatrix.M13)
                 + (worldPosition.Y * worldViewProjectionMatrix.M23)
                 + (worldPosition.Z * worldViewProjectionMatrix.M33)
                 + (worldPosition.W * worldViewProjectionMatrix.M43);
-            const float clipW =
+            const RealEvaluation clipW =
                 (worldPosition.X * worldViewProjectionMatrix.M14)
                 + (worldPosition.Y * worldViewProjectionMatrix.M24)
                 + (worldPosition.Z * worldViewProjectionMatrix.M34)
                 + (worldPosition.W * worldViewProjectionMatrix.M44);
-            if (std::fabs(clipW) <= MinimumClipW) {
+            if (RealMath::Abs(clipW) <= MinimumClipW) {
                 return false;
             }
 
-            const float normalizedX = clipX / clipW;
-            const float normalizedY = clipY / clipW;
-            const float normalizedZ = clipZ / clipW;
-            screenX = viewport.X + ((normalizedX + 1.0f) * 0.5f * viewport.Z);
-            screenY = viewport.Y + ((1.0f - normalizedY) * 0.5f * viewport.W);
-            screenZ = normalizedZ;
+            const RealEvaluation normalizedX = clipX / clipW;
+            const RealEvaluation normalizedY = clipY / clipW;
+            const RealEvaluation normalizedZ = clipZ / clipW;
+            screenX = static_cast<float>(viewport.X + ((normalizedX + 1.0f) * 0.5f * viewport.Z));
+            screenY = static_cast<float>(viewport.Y + ((1.0f - normalizedY) * 0.5f * viewport.W));
+            screenZ = static_cast<float>(normalizedZ);
             return std::isfinite(screenX) && std::isfinite(screenY) && std::isfinite(screenZ);
         }
 
         ::float3 NormalizeOrFallback(const ::float3& value, const ::float3& fallback) {
-            const float lengthSquared = ::float3::Dot(value, value);
+            const RealEvaluation lengthSquared = ::float3::Dot(value, value);
             if (lengthSquared <= 0.000001f) {
                 return fallback;
             }
@@ -91,22 +91,22 @@ namespace helengine::ps2 {
         }
 
         void CopyMatrix(const ::float4x4& source, float* destination) {
-            destination[0] = source.M11;
-            destination[1] = source.M12;
-            destination[2] = source.M13;
-            destination[3] = source.M14;
-            destination[4] = source.M21;
-            destination[5] = source.M22;
-            destination[6] = source.M23;
-            destination[7] = source.M24;
-            destination[8] = source.M31;
-            destination[9] = source.M32;
-            destination[10] = source.M33;
-            destination[11] = source.M34;
-            destination[12] = source.M41;
-            destination[13] = source.M42;
-            destination[14] = source.M43;
-            destination[15] = source.M44;
+            destination[0] = static_cast<float>(source.M11);
+            destination[1] = static_cast<float>(source.M12);
+            destination[2] = static_cast<float>(source.M13);
+            destination[3] = static_cast<float>(source.M14);
+            destination[4] = static_cast<float>(source.M21);
+            destination[5] = static_cast<float>(source.M22);
+            destination[6] = static_cast<float>(source.M23);
+            destination[7] = static_cast<float>(source.M24);
+            destination[8] = static_cast<float>(source.M31);
+            destination[9] = static_cast<float>(source.M32);
+            destination[10] = static_cast<float>(source.M33);
+            destination[11] = static_cast<float>(source.M34);
+            destination[12] = static_cast<float>(source.M41);
+            destination[13] = static_cast<float>(source.M42);
+            destination[14] = static_cast<float>(source.M43);
+            destination[15] = static_cast<float>(source.M44);
         }
 
         void PopulateDiagnosticTriangleSetup(
@@ -128,14 +128,14 @@ namespace helengine::ps2 {
             triangleSetup.SourceTriangle.PositionC[2] = 0.5f;
             triangleSetup.SourceTriangle.PositionC[3] = 1.0f;
             triangleSetup.FaceNormal[2] = -1.0f;
-            triangleSetup.LightDirection[0] = normalizedLightDirection.X;
-            triangleSetup.LightDirection[1] = normalizedLightDirection.Y;
-            triangleSetup.LightDirection[2] = normalizedLightDirection.Z;
-            triangleSetup.GsScale[0] = viewport.Z * 0.5f;
-            triangleSetup.GsScale[1] = viewport.W * -0.5f;
+            triangleSetup.LightDirection[0] = static_cast<float>(normalizedLightDirection.X);
+            triangleSetup.LightDirection[1] = static_cast<float>(normalizedLightDirection.Y);
+            triangleSetup.LightDirection[2] = static_cast<float>(normalizedLightDirection.Z);
+            triangleSetup.GsScale[0] = static_cast<float>(viewport.Z * 0.5f);
+            triangleSetup.GsScale[1] = static_cast<float>(viewport.W * -0.5f);
             triangleSetup.GsScale[2] = -65535.0f;
-            triangleSetup.GsOffset[0] = 2048.0f + viewport.X + (viewport.Z * 0.5f);
-            triangleSetup.GsOffset[1] = 2048.0f + viewport.Y + (viewport.W * 0.5f);
+            triangleSetup.GsOffset[0] = static_cast<float>(2048.0f + viewport.X + (viewport.Z * 0.5f));
+            triangleSetup.GsOffset[1] = static_cast<float>(2048.0f + viewport.Y + (viewport.W * 0.5f));
             triangleSetup.GsOffset[2] = 65535.0f;
         }
     }
@@ -219,11 +219,11 @@ namespace helengine::ps2 {
             ::float4x4::Multiply__ref0_ref1_out2(worldViewMatrix, projectionCopy, worldViewProjectionMatrix);
 
             float worldViewProjectionMatrixWords[16];
-            float lightDirectionWords[4] = { normalizedLightDirection.X, normalizedLightDirection.Y, normalizedLightDirection.Z, 0.0f };
-            float gsScaleWords[4] = { viewport.Z * 0.5f, viewport.W * -0.5f, -65535.0f, 0.0f };
+            float lightDirectionWords[4] = { static_cast<float>(normalizedLightDirection.X), static_cast<float>(normalizedLightDirection.Y), static_cast<float>(normalizedLightDirection.Z), 0.0f };
+            float gsScaleWords[4] = { static_cast<float>(viewport.Z * 0.5f), static_cast<float>(viewport.W * -0.5f), -65535.0f, 0.0f };
             float gsOffsetWords[4] = {
-                2048.0f + viewport.X + (viewport.Z * 0.5f),
-                2048.0f + viewport.Y + (viewport.W * 0.5f),
+                static_cast<float>(2048.0f + viewport.X + (viewport.Z * 0.5f)),
+                static_cast<float>(2048.0f + viewport.Y + (viewport.W * 0.5f)),
                 65535.0f,
                 0.0f
             };
@@ -270,21 +270,21 @@ namespace helengine::ps2 {
                     TransformPosition(::float4(faceNormal.X, faceNormal.Y, faceNormal.Z, 0.0f), world),
                     ::float3(0.0f, 0.0f, -1.0f));
                 Ps2VuOpaqueUntexturedTriangleSetup triangleSetup {};
-                triangleSetup.SourceTriangle.PositionA[0] = packedPositionA.X;
-                triangleSetup.SourceTriangle.PositionA[1] = packedPositionA.Y;
-                triangleSetup.SourceTriangle.PositionA[2] = packedPositionA.Z;
+                triangleSetup.SourceTriangle.PositionA[0] = static_cast<float>(packedPositionA.X);
+                triangleSetup.SourceTriangle.PositionA[1] = static_cast<float>(packedPositionA.Y);
+                triangleSetup.SourceTriangle.PositionA[2] = static_cast<float>(packedPositionA.Z);
                 triangleSetup.SourceTriangle.PositionA[3] = 1.0f;
-                triangleSetup.SourceTriangle.PositionB[0] = packedPositionB.X;
-                triangleSetup.SourceTriangle.PositionB[1] = packedPositionB.Y;
-                triangleSetup.SourceTriangle.PositionB[2] = packedPositionB.Z;
+                triangleSetup.SourceTriangle.PositionB[0] = static_cast<float>(packedPositionB.X);
+                triangleSetup.SourceTriangle.PositionB[1] = static_cast<float>(packedPositionB.Y);
+                triangleSetup.SourceTriangle.PositionB[2] = static_cast<float>(packedPositionB.Z);
                 triangleSetup.SourceTriangle.PositionB[3] = 1.0f;
-                triangleSetup.SourceTriangle.PositionC[0] = packedPositionC.X;
-                triangleSetup.SourceTriangle.PositionC[1] = packedPositionC.Y;
-                triangleSetup.SourceTriangle.PositionC[2] = packedPositionC.Z;
+                triangleSetup.SourceTriangle.PositionC[0] = static_cast<float>(packedPositionC.X);
+                triangleSetup.SourceTriangle.PositionC[1] = static_cast<float>(packedPositionC.Y);
+                triangleSetup.SourceTriangle.PositionC[2] = static_cast<float>(packedPositionC.Z);
                 triangleSetup.SourceTriangle.PositionC[3] = 1.0f;
-                triangleSetup.FaceNormal[0] = worldFaceNormal.X;
-                triangleSetup.FaceNormal[1] = worldFaceNormal.Y;
-                triangleSetup.FaceNormal[2] = worldFaceNormal.Z;
+                triangleSetup.FaceNormal[0] = static_cast<float>(worldFaceNormal.X);
+                triangleSetup.FaceNormal[1] = static_cast<float>(worldFaceNormal.Y);
+                triangleSetup.FaceNormal[2] = static_cast<float>(worldFaceNormal.Z);
                 triangleSetup.FaceNormal[3] = 0.0f;
                 std::memcpy(triangleSetup.LightDirection, lightDirectionWords, sizeof(lightDirectionWords));
                 std::memcpy(triangleSetup.WorldViewProjectionMatrix, worldViewProjectionMatrixWords, sizeof(worldViewProjectionMatrixWords));
@@ -324,10 +324,10 @@ namespace helengine::ps2 {
                             SubmittedTriangleVertexA1 = ::float4(screenBX, screenBY, screenBZ, 0.0f);
                             SubmittedTriangleVertexA2 = ::float4(screenCX, screenCY, screenCZ, 0.0f);
                         } else {
-                            SubmittedScreenBounds.X = std::min(SubmittedScreenBounds.X, minX);
-                            SubmittedScreenBounds.Y = std::min(SubmittedScreenBounds.Y, minY);
-                            SubmittedScreenBounds.Z = std::max(SubmittedScreenBounds.Z, maxX);
-                            SubmittedScreenBounds.W = std::max(SubmittedScreenBounds.W, maxY);
+                            SubmittedScreenBounds.X = RealMath::Min(SubmittedScreenBounds.X, Real(minX));
+                            SubmittedScreenBounds.Y = RealMath::Min(SubmittedScreenBounds.Y, Real(minY));
+                            SubmittedScreenBounds.Z = RealMath::Max(SubmittedScreenBounds.Z, Real(maxX));
+                            SubmittedScreenBounds.W = RealMath::Max(SubmittedScreenBounds.W, Real(maxY));
                             if (SubmittedTriangleCount == 2u) {
                                 SubmittedTriangleBoundsB = ::float4(minX, minY, maxX, maxY);
                                 SubmittedTriangleVertexB0 = ::float4(screenAX, screenAY, screenAZ, 0.0f);

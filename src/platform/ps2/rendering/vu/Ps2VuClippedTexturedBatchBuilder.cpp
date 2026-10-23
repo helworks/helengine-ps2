@@ -19,18 +19,18 @@ namespace helengine::ps2 {
         const ::float4 clipPositionB = ProjectPosition(viewPositionB, projection);
         const ::float4 clipPositionC = ProjectPosition(viewPositionC, projection);
         const Ps2VuTexturedClipVertex vertexA {
-            viewPositionA.X, viewPositionA.Y, viewPositionA.Z,
-            clipPositionA.X, clipPositionA.Y, clipPositionA.Z, clipPositionA.W,
+            static_cast<float>(viewPositionA.X), static_cast<float>(viewPositionA.Y), static_cast<float>(viewPositionA.Z),
+            static_cast<float>(clipPositionA.X), static_cast<float>(clipPositionA.Y), static_cast<float>(clipPositionA.Z), static_cast<float>(clipPositionA.W),
             sourceTriangle.TexCoordA[0], sourceTriangle.TexCoordA[1]
         };
         const Ps2VuTexturedClipVertex vertexB {
-            viewPositionB.X, viewPositionB.Y, viewPositionB.Z,
-            clipPositionB.X, clipPositionB.Y, clipPositionB.Z, clipPositionB.W,
+            static_cast<float>(viewPositionB.X), static_cast<float>(viewPositionB.Y), static_cast<float>(viewPositionB.Z),
+            static_cast<float>(clipPositionB.X), static_cast<float>(clipPositionB.Y), static_cast<float>(clipPositionB.Z), static_cast<float>(clipPositionB.W),
             sourceTriangle.TexCoordB[0], sourceTriangle.TexCoordB[1]
         };
         const Ps2VuTexturedClipVertex vertexC {
-            viewPositionC.X, viewPositionC.Y, viewPositionC.Z,
-            clipPositionC.X, clipPositionC.Y, clipPositionC.Z, clipPositionC.W,
+            static_cast<float>(viewPositionC.X), static_cast<float>(viewPositionC.Y), static_cast<float>(viewPositionC.Z),
+            static_cast<float>(clipPositionC.X), static_cast<float>(clipPositionC.Y), static_cast<float>(clipPositionC.Z), static_cast<float>(clipPositionC.W),
             sourceTriangle.TexCoordC[0], sourceTriangle.TexCoordC[1]
         };
         Ps2VuTexturedClipPolygon clippedPolygon;

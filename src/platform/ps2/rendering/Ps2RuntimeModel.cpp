@@ -91,10 +91,10 @@ namespace helengine::ps2 {
             (BoundsMinimum.X + BoundsMaximum.X) * 0.5f,
             (BoundsMinimum.Y + BoundsMaximum.Y) * 0.5f,
             (BoundsMinimum.Z + BoundsMaximum.Z) * 0.5f);
-        const float halfExtentX = (BoundsMaximum.X - BoundsMinimum.X) * 0.5f;
-        const float halfExtentY = (BoundsMaximum.Y - BoundsMinimum.Y) * 0.5f;
-        const float halfExtentZ = (BoundsMaximum.Z - BoundsMinimum.Z) * 0.5f;
-        BoundsRadius = std::sqrt((halfExtentX * halfExtentX) + (halfExtentY * halfExtentY) + (halfExtentZ * halfExtentZ));
+        const RealEvaluation halfExtentX = (BoundsMaximum.X - BoundsMinimum.X) * 0.5f;
+        const RealEvaluation halfExtentY = (BoundsMaximum.Y - BoundsMinimum.Y) * 0.5f;
+        const RealEvaluation halfExtentZ = (BoundsMaximum.Z - BoundsMinimum.Z) * 0.5f;
+        BoundsRadius = static_cast<float>(RealMath::Sqrt((halfExtentX * halfExtentX) + (halfExtentY * halfExtentY) + (halfExtentZ * halfExtentZ)));
 
         if (modelAsset->Normals != nullptr && modelAsset->Normals->Length > 0) {
             Normals.reserve(static_cast<std::size_t>(modelAsset->Normals->Length));
@@ -171,10 +171,10 @@ namespace helengine::ps2 {
             (BoundsMinimum.X + BoundsMaximum.X) * 0.5f,
             (BoundsMinimum.Y + BoundsMaximum.Y) * 0.5f,
             (BoundsMinimum.Z + BoundsMaximum.Z) * 0.5f);
-        const float halfExtentX = (BoundsMaximum.X - BoundsMinimum.X) * 0.5f;
-        const float halfExtentY = (BoundsMaximum.Y - BoundsMinimum.Y) * 0.5f;
-        const float halfExtentZ = (BoundsMaximum.Z - BoundsMinimum.Z) * 0.5f;
-        BoundsRadius = std::sqrt((halfExtentX * halfExtentX) + (halfExtentY * halfExtentY) + (halfExtentZ * halfExtentZ));
+        const RealEvaluation halfExtentX = (BoundsMaximum.X - BoundsMinimum.X) * 0.5f;
+        const RealEvaluation halfExtentY = (BoundsMaximum.Y - BoundsMinimum.Y) * 0.5f;
+        const RealEvaluation halfExtentZ = (BoundsMaximum.Z - BoundsMinimum.Z) * 0.5f;
+        BoundsRadius = static_cast<float>(RealMath::Sqrt((halfExtentX * halfExtentX) + (halfExtentY * halfExtentY) + (halfExtentZ * halfExtentZ)));
 
         if (modelAsset->Normals != nullptr && modelAsset->Normals->Length > 0) {
             Normals.reserve(static_cast<std::size_t>(modelAsset->Normals->Length));
