@@ -5,6 +5,7 @@ using helengine.baseplatform.Requests;
 using helengine.baseplatform.Reporting;
 using helengine.baseplatform.Targets;
 using helengine.ps2.builder;
+using ImageMagick;
 
 namespace helengine.ps2.builder.tests;
 
@@ -38,6 +39,32 @@ public sealed class Ps2NativeTextureWorkItemTests : IDisposable {
             Assert.Equal(4 * 2 * 4, Ps2NativeTextureCodec.Decode(cooked).Length);
         }
         Assert.Equal(original, File.ReadAllBytes(Source));
+    }
+
+    /// <summary>Imports an actual PNG source through the builder and preserves exact RGBA pixels.</summary>
+    [Fact]
+    public void PngSourceCooksAndPublishesWithoutWindowsEditorHost() {
+        string source = Path.Combine(Root, "source.png");
+        using (MagickImage image = new MagickImage(MagickColors.Red, 1, 1)) {
+            image.Write(source, MagickFormat.Png);
+        }
+        Assert.Empty(Execute([Item("textures/png.ps2tex", source: source)]));
+        using Ps2TextureAsset cooked = Assert.IsType<Ps2TextureAsset>(Ps2AssetSerializer.DeserializeFromBytes(File.ReadAllBytes(Path.Combine(Stage, "textures/png.ps2tex"))));
+        Assert.Equal("textures/png.ps2tex", cooked.Id);
+        Assert.NotEqual(0ul, cooked.RuntimeAssetId);
+        Assert.Equal(new byte[] { 255, 0, 0, 255 }, Ps2NativeTextureCodec.Decode(cooked));
+    }
+
+    /// <summary>Rasterizes the explicit source face through the portable host and publishes a nonempty GS atlas.</summary>
+    [Fact]
+    public void RawFontAtlasCooksAndPublishesWithoutWindowsEditorHost() {
+        string source = Path.Combine(AppContext.BaseDirectory, "fixtures", "Synthetic.ttf");
+        Assert.Empty(Execute([Item("fonts/portable.ps2tex", "font-atlas-texture", source: source)]));
+        using Ps2TextureAsset cooked = Assert.IsType<Ps2TextureAsset>(Ps2AssetSerializer.DeserializeFromBytes(File.ReadAllBytes(Path.Combine(Stage, "fonts/portable.ps2tex"))));
+        Assert.Equal("fonts/portable.ps2tex", cooked.Id);
+        Assert.NotEqual(0ul, cooked.RuntimeAssetId);
+        Assert.True(cooked.Width > 0 && cooked.Height > 0);
+        Assert.Contains(Ps2NativeTextureCodec.Decode(cooked), channel => channel != 0);
     }
 
     /// <summary>Rejects a bad later destination before an earlier valid texture can be written.</summary>

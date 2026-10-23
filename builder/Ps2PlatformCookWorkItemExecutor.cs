@@ -4,7 +4,6 @@ using helengine.baseplatform.Reporting;
 using helengine.baseplatform.Requests;
 using helengine.editor;
 using helengine.files;
-using System.Reflection;
 
 namespace helengine.ps2.builder;
 
@@ -240,7 +239,7 @@ public sealed class Ps2PlatformCookWorkItemExecutor {
     }
 
     /// <summary>
-    /// Attempts to import one raw source font through the existing Windows editor font importer and return its generated atlas texture.
+    /// Imports an explicit source face through the portable editor host while retaining the authored gdi-font identifier.
     /// </summary>
     /// <param name="sourceAssetPath">Absolute source font path declared by the editor work item.</param>
     /// <returns>Imported raw atlas texture when the source path points at one supported raw font file; otherwise null.</returns>
@@ -255,86 +254,18 @@ public sealed class Ps2PlatformCookWorkItemExecutor {
             return null;
         }
 
-        Assembly editorWindowsAssembly = ResolveEditorWindowsAssembly();
-        Type importerType = editorWindowsAssembly.GetType("helengine.editor.GdiFontImporter", throwOnError: true)
-            ?? throw new InvalidOperationException("The helengine.editor GdiFontImporter type could not be resolved.");
-        object importer = Activator.CreateInstance(importerType)
-            ?? throw new InvalidOperationException("The helengine.editor GdiFontImporter could not be created.");
-        MethodInfo importMethod = importerType.GetMethod("ImportFont", BindingFlags.Instance | BindingFlags.Public, [typeof(Stream)])
-            ?? throw new InvalidOperationException("The helengine.editor GdiFontImporter.ImportFont method could not be resolved.");
-
+        FontImporterRegistration registration = PortableImporterFactory.CreateDefault()
+            .OfType<FontImporterRegistration>()
+            .Single(importer => string.Equals(importer.ImporterId, "gdi-font", StringComparison.Ordinal));
         using FileStream stream = File.OpenRead(sourceAssetPath);
-        FontAsset fontAsset = importMethod.Invoke(importer, [stream]) as FontAsset;
+        FontAsset fontAsset = registration.Importer.ImportFont(stream, new FontAssetProcessorSettings {
+            PixelSize = FontAssetProcessorSettings.DefaultPixelSize
+        });
         if (fontAsset == null || fontAsset.SourceTextureAsset == null) {
             throw new InvalidOperationException($"Raw source font '{sourceAssetPath}' did not produce an atlas texture during host import.");
         }
 
         return fontAsset.SourceTextureAsset;
-    }
-
-    /// <summary>
-    /// Resolves the helengine Windows editor assembly that exposes the host font importer implementation.
-    /// </summary>
-    /// <returns>Loaded helengine.editor.windows assembly.</returns>
-    static Assembly ResolveEditorWindowsAssembly() {
-        Assembly[] loadedAssemblies = AppDomain.CurrentDomain.GetAssemblies();
-        for (int index = 0; index < loadedAssemblies.Length; index++) {
-            Assembly loadedAssembly = loadedAssemblies[index];
-            if (string.Equals(loadedAssembly.GetName().Name, "helengine.editor.windows", StringComparison.OrdinalIgnoreCase)) {
-                return loadedAssembly;
-            }
-        }
-
-        string helengineRootPath = ResolveHelengineRootPath();
-        string assemblyPath = Path.Combine(helengineRootPath, "engine", "helengine.editor.windows", "bin", "Debug", "net9.0-windows", "helengine.editor.windows.dll");
-        if (!File.Exists(assemblyPath)) {
-            throw new FileNotFoundException("The helengine.editor.windows assembly required for raw font atlas import was not found.", assemblyPath);
-        }
-
-        return Assembly.LoadFrom(assemblyPath);
-    }
-
-    /// <summary>
-    /// Resolves the sibling helengine checkout root so the PS2 builder can load optional host-only editor helpers.
-    /// </summary>
-    /// <returns>Absolute helengine checkout root path.</returns>
-    static string ResolveHelengineRootPath() {
-        string configuredRootPath = Environment.GetEnvironmentVariable("HELENGINE_ROOT") ?? string.Empty;
-        if (IsHelengineRootPath(configuredRootPath)) {
-            return Path.GetFullPath(configuredRootPath);
-        }
-
-        string currentPath = AppContext.BaseDirectory;
-        while (!string.IsNullOrWhiteSpace(currentPath)) {
-            string siblingHelengineRootPath = Path.GetFullPath(Path.Combine(currentPath, "..", "..", "..", "..", "..", "helengine"));
-            if (IsHelengineRootPath(siblingHelengineRootPath)) {
-                return siblingHelengineRootPath;
-            }
-
-            DirectoryInfo parentDirectory = Directory.GetParent(currentPath);
-            if (parentDirectory == null) {
-                break;
-            }
-
-            currentPath = parentDirectory.FullName;
-        }
-
-        throw new InvalidOperationException("Could not resolve the sibling helengine checkout required for raw font atlas import.");
-    }
-
-    /// <summary>
-    /// Returns whether the supplied path looks like one valid helengine checkout root.
-    /// </summary>
-    /// <param name="path">Candidate helengine checkout root.</param>
-    /// <returns>True when the expected helengine editor projects exist; otherwise false.</returns>
-    static bool IsHelengineRootPath(string path) {
-        if (string.IsNullOrWhiteSpace(path)) {
-            return false;
-        }
-
-        string editorProjectPath = Path.Combine(path, "engine", "helengine.editor", "helengine.editor.csproj");
-        string editorWindowsProjectPath = Path.Combine(path, "engine", "helengine.editor.windows", "helengine.editor.windows.csproj");
-        return File.Exists(editorProjectPath) && File.Exists(editorWindowsProjectPath);
     }
 
     /// <summary>

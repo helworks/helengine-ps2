@@ -1,4 +1,4 @@
-using System.Drawing;
+using helengine.editor;
 
 namespace helengine.ps2.builder;
 
@@ -35,34 +35,26 @@ public sealed class Ps2SourceTextureDecoder {
                 return result;
             } finally { texture.Dispose(); }
         }
-        if (!OperatingSystem.IsWindowsVersionAtLeast(6, 1)) throw new PlatformNotSupportedException("Authored image decoding requires the Windows image decoder; serialized textures are portable.");
+        string extension = Path.GetExtension(sourceAssetPath);
+        TextureImporterRegistration registration = PortableImporterFactory.CreateDefault()
+            .OfType<TextureImporterRegistration>()
+            .FirstOrDefault(importer => importer.Extensions.Contains(extension, StringComparer.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"No portable texture importer supports source extension '{extension}'.");
         using MemoryStream imageStream = new(bytes, false);
-        using Bitmap bitmap = new(imageStream);
-        if (bitmap.Width < 1 || bitmap.Height < 1) {
+        using TextureAsset importedTexture = registration.Importer.ImportTexture(imageStream)
+            ?? throw new InvalidOperationException($"Texture importer '{registration.ImporterId}' did not return a texture asset.");
+        if (importedTexture.Width < 1 || importedTexture.Height < 1) {
             throw new InvalidOperationException("Source textures must have positive dimensions.");
         }
-
-        ushort width = checked((ushort)bitmap.Width);
-        ushort height = checked((ushort)bitmap.Height);
-        byte[] rgbaBytes = new byte[checked(bitmap.Width * bitmap.Height * 4)];
-        int writeOffset = 0;
-        for (int y = 0; y < bitmap.Height; y++) {
-            for (int x = 0; x < bitmap.Width; x++) {
-                Color pixel = bitmap.GetPixel(x, y);
-                rgbaBytes[writeOffset++] = pixel.R;
-                rgbaBytes[writeOffset++] = pixel.G;
-                rgbaBytes[writeOffset++] = pixel.B;
-                rgbaBytes[writeOffset++] = pixel.A;
-            }
-        }
-
-        return new TextureAsset {
-            Width = width,
-            Height = height,
-            Colors = rgbaBytes,
+        TextureAsset decodedTexture = new TextureAsset {
+            Width = importedTexture.Width,
+            Height = importedTexture.Height,
+            Colors = TextureAssetPixelCodec.DecodeToRgba32(importedTexture),
             PaletteColors = Array.Empty<byte>(),
             ColorFormat = TextureAssetColorFormat.Rgba32,
             AlphaPrecision = TextureAssetAlphaPrecision.A8
         };
+        Ps2RuntimeTextureCooker.CopyIdentity(importedTexture, decodedTexture);
+        return decodedTexture;
     }
 }
