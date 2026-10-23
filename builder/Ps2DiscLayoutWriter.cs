@@ -142,7 +142,7 @@ public sealed class Ps2DiscLayoutWriter {
                 continue;
             }
             string logicalRelativePath = Path.GetRelativePath(sourceRootPath, filePath).Replace('\\', '/');
-            string physicalRelativePath = Ps2DiscPathResolver.ResolveDiscRelativePath(logicalRelativePath).Replace('/', '\\');
+            string physicalRelativePath = Ps2DiscPathResolver.ResolveDiscRelativePath(logicalRelativePath);
             string destinationFilePath = Path.Combine(discRootPath, physicalRelativePath);
             string destinationDirectoryPath = Path.GetDirectoryName(destinationFilePath)
                 ?? throw new InvalidOperationException($"Could not resolve destination directory for '{destinationFilePath}'.");
