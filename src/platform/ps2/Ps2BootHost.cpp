@@ -3309,7 +3309,14 @@ namespace helengine::ps2 {
         const char* path = Ps2VideoModeBootRecordReader::RuntimePath;
         std::FILE* file = std::fopen(path, "rb");
         if (file == nullptr) {
-            FatalHalt(std::string("video mode boot record missing: ") + path + " (rebuild the disc with the current PS2 builder)");
+            const int openError = errno;
+            sceCdlFILE recordInfo{};
+            const int searchResult = sceCdSearchFile(&recordInfo, "\\VIDMODE.BIN;1");
+            BootLog(std::string("video mode record search=") + std::to_string(searchResult)
+                + " bytes=" + std::to_string(recordInfo.size));
+            BootLogDiscProbe("video-mode-record", path);
+            FatalHalt(std::string("video mode boot record open failed: ") + path
+                + " errno=" + std::to_string(openError) + " (" + std::strerror(openError) + ")");
         }
 
         std::uint8_t bytes[Ps2VideoModeBootRecordReader::RecordSize + 1];
