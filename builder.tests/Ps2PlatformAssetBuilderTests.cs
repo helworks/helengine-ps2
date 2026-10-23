@@ -496,8 +496,11 @@ public class Ps2PlatformAssetBuilderTests {
     /// <summary>
     /// Verifies that the PS2 builder can resolve a font-atlas work item from one serialized generated texture asset staged by the editor.
     /// </summary>
-    [Fact]
-    public async Task BuildAsync_WhenFontAtlasTextureCookWorkItemUsesSerializedGeneratedTextureAsset_WritesPs2RuntimeTextureToDeclaredOutputPath() {
+    /// <param name="previousAuthoringFormat">Whether the source uses the supported version-25 authoring layout.</param>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BuildAsync_WhenFontAtlasTextureCookWorkItemUsesSerializedGeneratedTextureAsset_WritesPs2RuntimeTextureToDeclaredOutputPath(bool previousAuthoringFormat) {
         string workingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         string outputRoot = Path.Combine(workingRoot, "out");
         string stagingRoot = Path.Combine(workingRoot, "staging");
@@ -511,7 +514,7 @@ public class Ps2PlatformAssetBuilderTests {
         Directory.CreateDirectory(stagingRoot);
         Directory.CreateDirectory(generatedCoreRoot);
         File.WriteAllBytes(sceneOutputPath, helengine.files.AssetSerializer.SerializeToBytes(new SceneAsset()));
-        File.WriteAllBytes(sourceTexturePath, helengine.files.AssetSerializer.SerializeToBytes(new TextureAsset {
+        TextureAsset sourceTexture = new TextureAsset {
             Id = "generated/default-font-atlas",
             Width = 1,
             Height = 1,
@@ -519,7 +522,17 @@ public class Ps2PlatformAssetBuilderTests {
             AlphaPrecision = TextureAssetAlphaPrecision.Opaque,
             Colors = [255, 255, 255, 255],
             PaletteColors = Array.Empty<byte>()
-        }));
+        };
+        if (previousAuthoringFormat) {
+            using FileStream stream = File.Create(sourceTexturePath);
+            helengine.files.EngineBinaryHeaderSerializer.Write(stream, new EngineBinaryHeader(EngineBinaryEndianness.LittleEndian, 25,
+                helengine.files.EditorAssetBinarySerializer.FormatId, (ushort)EditorBinaryRecordKind.Asset, (ushort)EditorAssetBinaryValueKind.TextureAsset));
+            using helengine.files.EngineBinaryWriter writer = helengine.files.EngineBinaryWriter.Create(stream, EngineBinaryEndianness.LittleEndian, true);
+            writer.NumericPolicy = NumericPrecisionPolicy.Default;
+            new helengine.files.TextureAssetPayloadSerializer().Write(writer, sourceTexture);
+        } else {
+            File.WriteAllBytes(sourceTexturePath, helengine.files.AssetSerializer.SerializeToBytes(sourceTexture));
+        }
         File.WriteAllText(Path.Combine(generatedCoreRoot, "helengine_core_amalgamated.cpp"), "// generated");
 
         string previousDirectory = Directory.GetCurrentDirectory();

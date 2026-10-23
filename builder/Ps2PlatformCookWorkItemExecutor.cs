@@ -217,7 +217,7 @@ public sealed class Ps2PlatformCookWorkItemExecutor {
         }
 
         using FileStream stream = File.OpenRead(sourceAssetPath);
-        return AssetSerializer.Deserialize(stream) as TextureAsset;
+        return helengine.files.AssetSerializer.Deserialize(stream) as TextureAsset;
     }
 
     /// <summary>
