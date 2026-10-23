@@ -74,10 +74,34 @@ public sealed class Ps2NativeTextureWorkItemTests : IDisposable {
     [InlineData("bad.ps2tex:stream")]
     [InlineData("NUL.ps2tex")]
     [InlineData("bad?.ps2tex")]
+    [InlineData("bad|name.ps2tex")]
+    [InlineData("bad\"name.ps2tex")]
+    [InlineData("bad*name.ps2tex")]
     public void InvalidPathsWriteNothing(string path) {
         Assert.Single(Execute([Item("first.ps2tex"), Item(path)]));
         Assert.False(File.Exists(Path.Combine(Stage, "first.ps2tex")));
         Assert.Equal("previous", File.ReadAllText(Path.Combine(Stage, "previous.txt")));
+    }
+
+    /// <summary>Resolves an explicitly authorized POSIX staging root alias before checking its contained outputs.</summary>
+    [PosixFact]
+    public void AuthorizedStagingRootAliasPublishesInsideItsPhysicalRoot() {
+        string physicalRoot = Path.Combine(Root, "physical-working");
+        string alias = Path.Combine(Root, "working-alias");
+        Directory.CreateDirectory(physicalRoot);
+        Directory.CreateSymbolicLink(alias, physicalRoot);
+        Assert.Empty(Execute([Item("textures/alias.ps2tex")], workingRoot: alias));
+        Assert.True(File.Exists(Path.Combine(physicalRoot, "ps2-staging", "textures", "alias.ps2tex")));
+    }
+
+    /// <summary>Keeps rejecting an untrusted link nested inside the authorized staging root.</summary>
+    [PosixFact]
+    public void NestedStagingLinkWritesNothingOutsideRoot() {
+        string outside = Path.Combine(Root, "outside-stage");
+        Directory.CreateDirectory(outside);
+        Directory.CreateSymbolicLink(Path.Combine(Stage, "escape"), outside);
+        Assert.Single(Execute([Item("escape/forbidden.ps2tex")]));
+        Assert.False(File.Exists(Path.Combine(outside, "forbidden.ps2tex")));
     }
 
     /// <summary>Rejects exact and file/directory output collisions before publishing the batch.</summary>
@@ -144,20 +168,20 @@ public sealed class Ps2NativeTextureWorkItemTests : IDisposable {
     }
 
     /// <summary>Executes a batch through the public diagnostic boundary with no native build or image importer.</summary>
-    List<PlatformBuildDiagnostic> Execute(PlatformCookWorkItem[] items, PlatformBuildArtifact[] artifacts = null) {
+    List<PlatformBuildDiagnostic> Execute(PlatformCookWorkItem[] items, PlatformBuildArtifact[] artifacts = null, string workingRoot = null) {
         List<PlatformBuildDiagnostic> diagnostics = [];
-        new Ps2PlatformCookWorkItemExecutor().Execute(Request(items, artifacts), diagnostics, new RecordingDiagnosticReporter(), new RecordingProgressReporter(), CancellationToken.None);
+        new Ps2PlatformCookWorkItemExecutor().Execute(Request(items, artifacts, workingRoot), diagnostics, new RecordingDiagnosticReporter(), new RecordingProgressReporter(), CancellationToken.None);
         return diagnostics;
     }
 
     /// <summary>Creates the minimal PS2 target request required by cook and builder preflight.</summary>
-    PlatformBuildRequest Request(PlatformCookWorkItem[] items, PlatformBuildArtifact[] artifacts) {
+    PlatformBuildRequest Request(PlatformCookWorkItem[] items, PlatformBuildArtifact[] artifacts, string workingRoot = null) {
         var manifest = new PlatformBuildManifest(3, "project", "1.0.0", "1.0.0", "ps2", "1.0.0", "",
             [], [], artifacts ?? [], [], [], new PlatformContainerWritePlan("ps2-disc-layout", []), items, PlatformBuildRuntimeFeatureManifest.Empty);
         return new PlatformBuildRequest(manifest,
             [new PlatformBuildTargetVariant("ps2-default", "ps2", "ps2", "ps2-default")],
             [new PlatformCookProfile("ps2-default", "PS2", new PlatformCookProfileCapabilities("ps2", "raw", "pcm", "ps2-scene-v1", PlatformSerializationEndianness.LittleEndian))],
-            Path.Combine(Root, "output"), Path.Combine(Root, "working"), "ps2-default", "ps2-standard-forward", "default", null, null, null, Path.Combine(Root, "generated-core"));
+            Path.Combine(Root, "output"), workingRoot ?? Path.Combine(Root, "working"), "ps2-default", "ps2-standard-forward", "default", null, null, null, Path.Combine(Root, "generated-core"));
     }
 
     /// <summary>Removes only this class's contained fixed fixture directory after the test completes.</summary>
@@ -165,5 +189,13 @@ public sealed class Ps2NativeTextureWorkItemTests : IDisposable {
         string expected = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "ps2-texture-work-items"));
         if (!Path.GetFullPath(Root).Equals(expected, StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Fixture cleanup escaped the test artifacts root.");
         if (Directory.Exists(Root)) Directory.Delete(Root, true);
+    }
+}
+
+/// <summary>Runs filesystem-link coverage on POSIX hosts without requiring Windows symlink privileges.</summary>
+sealed class PosixFactAttribute : FactAttribute {
+    /// <summary>Declares explicitly when the platform-specific filesystem test is unavailable.</summary>
+    public PosixFactAttribute() {
+        if (OperatingSystem.IsWindows()) Skip = "POSIX staging-root aliases are covered on macOS/Linux; Windows symlink creation requires extra privileges.";
     }
 }
