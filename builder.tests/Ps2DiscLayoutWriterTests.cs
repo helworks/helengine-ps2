@@ -8,6 +8,32 @@ namespace helengine.ps2.builder.tests;
 /// Verifies staged PS2 disc layout generation.
 /// </summary>
 public sealed class Ps2DiscLayoutWriterTests {
+    /// <summary>Writes nested host directories while retaining the PS2 runtime separator and root boot record.</summary>
+    [Fact]
+    public void WriteLayout_SeparatesHostFilesystemPathsFromPs2RuntimePaths() {
+        string root = Path.Combine(AppContext.BaseDirectory, "disc-layout-portable");
+        string staging = Path.Combine(root, "staging");
+        string elf = Path.Combine(root, "native", "helengine_ps2.elf");
+        PlatformVideoMode mode = Ps2VideoModes.CreateCapability().Resolve("ntsc-640x448i", "ps2");
+        byte[] videoRecord = Ps2VideoModeBootRecord.Encode(mode);
+        try {
+            Directory.CreateDirectory(Path.Combine(staging, "cooked", "scenes"));
+            Directory.CreateDirectory(Path.GetDirectoryName(elf)!);
+            File.WriteAllText(Path.Combine(staging, "cooked", "scenes", "main.hasset"), "scene");
+            File.WriteAllBytes(Path.Combine(staging, Ps2VideoModeBootRecord.LogicalPath), videoRecord);
+            File.WriteAllText(elf, "elf");
+            Ps2BuildWorkspace workspace = new(root, staging, Path.Combine(root, "generated"), Path.Combine(root, "out"), Path.Combine(root, "artifacts"), elf);
+
+            IReadOnlyDictionary<string, string> mapping = new Ps2DiscLayoutWriter().Write(workspace, mode);
+
+            Assert.Equal("scene", File.ReadAllText(Path.Combine(workspace.DiscRootPath, "COOKED", "SCENES", "MAIN.HAS")));
+            Assert.Equal("\\COOKED\\SCENES\\MAIN.HAS;1", mapping["cooked/scenes/main.hasset"]);
+            Assert.Equal(videoRecord, File.ReadAllBytes(Path.Combine(workspace.DiscRootPath, "VIDMODE.BIN")));
+        } finally {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     /// <summary>
     /// Ensures the staged disc layout contains the boot config, boot ELF, and copied cooked content.
     /// </summary>
